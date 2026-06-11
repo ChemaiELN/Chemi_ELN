@@ -48,21 +48,13 @@ async def upload_excel_template(
     subdir = upload_dir() / "excel_templates" / module.lower()
     file_path, file_size = await save_upload(file, subdir)
 
-    # Human-readable size string (e.g. "48 B", "12 KB")
-    if file_size < 1024:
-        size_str = f"{file_size} B"
-    elif file_size < 1024 * 1024:
-        size_str = f"{file_size // 1024} KB"
-    else:
-        size_str = f"{file_size // (1024 * 1024)} MB"
-
     t = ExcelTemplate(
         id=new_uuid(),
         name=name,
         module=module,
         version=version,
         file_path=file_path,
-        file_size=size_str,
+        file_size=file_size,
         uploaded_by=current_user.id,
         is_active=True,
     )
@@ -73,7 +65,7 @@ async def upload_excel_template(
         user_id=current_user.id, username=current_user.username,
         module="ExcelTemplates", action="UPLOADED",
         target_type="excel_template", target_id=t.id, target_label=name,
-        detail=f"Uploaded template '{name}' for module {module} ({size_str})",
+        detail=f"Uploaded template '{name}' for module {module} ({file_size} bytes)",
         ip_address=get_ip(request),
     )
     db.commit()

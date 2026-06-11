@@ -46,6 +46,7 @@ class Experiment(Base):
     target_product:     Mapped[Optional[str]] = mapped_column(String(255))
     reaction_type:      Mapped[Optional[str]] = mapped_column(String(100))
     scheme_image_path:  Mapped[Optional[str]] = mapped_column(String(500))
+    scheme_mol:         Mapped[Optional[str]] = mapped_column(Text)
 
     # Yield (Inputs tab)
     theoretical_yield: Mapped[Optional[Decimal]] = mapped_column(Numeric(10, 4))

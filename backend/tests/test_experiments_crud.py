@@ -778,3 +778,44 @@ def test_experiment_code_increments_sequentially(
     code_b = results[1].get("code") or results[1].get("full_code", "")
     # At minimum they must differ
     assert code_a != code_b
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# scheme_mol
+# ─────────────────────────────────────────────────────────────────────────────
+
+def test_scheme_mol_save_and_load(client, experiment, chemist, _perm, crd):
+    """scheme_mol is saved on PATCH and returned in GET."""
+    headers = _login(client, "exp_chemist")
+    mol = "\n  Ketcher  6112614112D\n\n  2  1  0  0  0  0            999 V2000\n"
+
+    patch = client.patch(
+        f"/api/experiments/{experiment.id}",
+        json={"scheme_mol": mol},
+        headers=headers,
+    )
+    assert patch.status_code == 200
+    assert patch.json()["scheme_mol"] == mol
+
+    get = client.get(f"/api/experiments/{experiment.id}", headers=headers)
+    assert get.status_code == 200
+    assert get.json()["scheme_mol"] == mol
+
+
+def test_scheme_mol_cleared_with_null(client, experiment, chemist, _perm, crd):
+    """Sending scheme_mol=null clears the stored value."""
+    headers = _login(client, "exp_chemist")
+    mol = "\n  Ketcher  6112614112D\n"
+
+    client.patch(
+        f"/api/experiments/{experiment.id}",
+        json={"scheme_mol": mol},
+        headers=headers,
+    )
+    patch = client.patch(
+        f"/api/experiments/{experiment.id}",
+        json={"scheme_mol": None},
+        headers=headers,
+    )
+    assert patch.status_code == 200
+    assert patch.json()["scheme_mol"] is None

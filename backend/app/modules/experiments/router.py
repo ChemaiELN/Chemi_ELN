@@ -615,6 +615,7 @@ def new_version(
         starting_material=parent.starting_material,
         target_product=parent.target_product,
         reaction_type=parent.reaction_type,
+        scheme_mol=parent.scheme_mol,
         theoretical_yield=parent.theoretical_yield,
         actual_yield=parent.actual_yield,
         yield_pct=parent.yield_pct,

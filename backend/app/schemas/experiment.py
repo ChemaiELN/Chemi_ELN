@@ -379,6 +379,7 @@ class ExperimentCreate(BaseModel):
     starting_material:  Optional[str] = None
     target_product:     Optional[str] = None
     reaction_type:      Optional[str] = None
+    scheme_mol:         Optional[str] = None
     theoretical_yield:  Optional[Decimal] = None
     actual_yield:       Optional[Decimal] = None
     yield_pct:          Optional[Decimal] = None
@@ -398,6 +399,7 @@ class ExperimentUpdate(BaseModel):
     starting_material:         Optional[str]     = None
     target_product:            Optional[str]     = None
     reaction_type:             Optional[str]     = None
+    scheme_mol:                Optional[str]     = None
     theoretical_yield:         Optional[Decimal] = None
     actual_yield:              Optional[Decimal] = None
     yield_pct:                 Optional[Decimal] = None
@@ -433,6 +435,7 @@ class ExperimentResponse(BaseModel):
     starting_material: Optional[str] = None
     target_product:    Optional[str] = None
     reaction_type:     Optional[str] = None
+    scheme_mol:        Optional[str] = None
 
     # Yield
     theoretical_yield: Optional[Decimal] = None

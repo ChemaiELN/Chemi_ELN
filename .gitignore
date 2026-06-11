@@ -58,9 +58,15 @@ Thumbs.db
 *.log
 logs/
 
+# Claude Code
+.claude/
+
 # OS
 .DS_Store
 desktop.ini
 
 # Test artifacts
 test_*.html
+
+# Uploaded files (user-generated content)
+backend/uploads/

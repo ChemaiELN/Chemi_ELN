@@ -1,0 +1,166 @@
+// Shares the same visual language as the login page
+@import (reference) '../../../styles/variables.less';
+
+.root {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+}
+
+.imagePanel {
+  position: relative;
+  flex: 0 0 50%;
+  overflow: hidden;
+  @media (max-width: 639px) {
+    position: absolute;
+    inset: 0;
+    flex: none;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.imagePanelImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.imageOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(15,118,110,0.55) 0%, rgba(17,94,89,0.35) 60%, rgba(0,0,0,0.15) 100%);
+}
+
+.imageBadge {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.imageBadgeDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: @white;
+  opacity: 0.9;
+}
+
+.imageBadgeText {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255,255,255,0.9);
+}
+
+.formPanel {
+  flex: 0 0 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: @white;
+  padding: 2.5rem 2rem;
+  overflow-y: auto;
+  @media (max-width: 639px) {
+    position: relative;
+    z-index: 10;
+    flex: none;
+    width: 100%;
+    height: 100%;
+    background: rgba(255,255,255,0.88);
+    backdrop-filter: blur(14px);
+  }
+}
+
+.formCard {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+}
+
+.brandBlock { margin-bottom: 1.5rem; }
+
+.brandTitle {
+  font-size: 1.5rem;
+  font-weight: 700;
+  color: @stone-900;
+  letter-spacing: -0.02em;
+  margin-bottom: 0.5rem;
+}
+
+.brandSub {
+  font-size: 0.875rem;
+  color: @stone-500;
+  line-height: 1.5;
+  margin: 0;
+}
+
+.form {
+  :global {
+    .ant-form-item-label > label {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: @stone-700;
+    }
+    .ant-input,
+    .ant-input-affix-wrapper {
+      height: 40px;
+      border-radius: 6px;
+      border-color: @stone-200;
+      font-size: 0.875rem;
+      color: @stone-900;
+      background: @stone-50;
+      &:hover { border-color: @teal-600; }
+      &:focus, &.ant-input-affix-wrapper-focused {
+        border-color: @teal-700;
+        box-shadow: 0 0 0 3px rgba(15,118,110,0.12);
+        background: @white;
+      }
+    }
+    .ant-form-item-explain-error {
+      font-size: 0.75rem;
+      color: #e11d48;
+      margin-top: 0.25rem;
+    }
+  }
+}
+
+.submitItem { margin-top: 0.5rem; }
+
+.submitBtn {
+  width: 100%;
+  height: 42px !important;
+  border-radius: 6px !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  color: @white !important;
+  box-shadow: 0 2px 8px rgba(15,118,110,0.25) !important;
+  &:hover {
+    background: @teal-600 !important;
+    border-color: @teal-600 !important;
+  }
+}
+
+.footerNote {
+  margin-top: 1.25rem;
+  text-align: center;
+  font-size: 0.8125rem;
+  color: @stone-500;
+}
+
+.backLink {
+  cursor: pointer;
+  color: @teal-700;
+  font-weight: 500;
+  &:hover { text-decoration: underline; }
+}

@@ -1,0 +1,235 @@
+@import (reference) '../../../styles/variables.less';
+
+// ─── Page shell ───────────────────────────────────────────────────────────────
+
+.page {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+  background: @stone-100;
+}
+
+// ─── Main area ────────────────────────────────────────────────────────────────
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 2rem 2rem 2.5rem;
+  width: 100%;
+
+  @media (max-width: 767px) {
+    padding: 1rem;
+  }
+}
+
+// ─── Module cards section ─────────────────────────────────────────────────────
+
+.moduleSection {
+  margin-bottom: 2rem;
+}
+
+.moduleGrid {
+  display: grid;
+  grid-template-columns: repeat(3, 220px);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 1.5rem;
+  justify-content: center;
+}
+
+.moduleCard {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 220px;
+  height: 180px;
+  padding: 2rem 1.25rem 1.75rem;
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 14px;
+  cursor: pointer;
+  position: relative;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.15s, border-color 0.15s, transform 0.15s;
+  text-align: center;
+
+  &:hover {
+    border-color: #99e8e2;
+    box-shadow: 0 6px 20px rgba(15, 118, 110, 0.12);
+    transform: translateY(-3px);
+  }
+
+  &:focus-visible {
+    outline: 2px solid #0c5a54;
+    outline-offset: 2px;
+  }
+}
+
+.moduleCardDisabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+
+  &:hover {
+    border-color: @stone-200 !important;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05) !important;
+    transform: none !important;
+  }
+}
+
+.moduleIcon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  border-radius: 14px;
+  font-size: 1.625rem;
+  margin-bottom: 0.875rem;
+  line-height: 1;
+}
+
+.moduleTitle {
+  font-size: 0.9375rem;
+  font-weight: 700;
+  color: @stone-800;
+  margin-bottom: 0.25rem;
+  line-height: 1.2;
+}
+
+.moduleSubtitle {
+  font-size: 0.6875rem;
+  color: @stone-500;
+  line-height: 1.4;
+}
+
+.comingSoon {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  font-size: 0.55rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: @stone-400;
+  background: @stone-200;
+  border-radius: 10px;
+  padding: 1px 5px;
+}
+
+// ─── Stat cards ───────────────────────────────────────────────────────────────
+
+.statsRow {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 0.875rem;
+  margin-bottom: 1.25rem;
+
+  @media (max-width: 1199px) {
+    grid-template-columns: repeat(3, 1fr);
+  }
+
+  @media (max-width: 639px) {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+
+.statCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 10px;
+  padding: 1rem 1.125rem;
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  transition: box-shadow 0.15s;
+
+  &:hover {
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
+  }
+}
+
+.statIcon {
+  font-size: 1.25rem;
+  margin-top: 2px;
+  opacity: 0.9;
+}
+
+.statBody {
+  flex: 1;
+  min-width: 0;
+}
+
+.statValue {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: @stone-900;
+  line-height: 1.15;
+}
+
+.statLabel {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  color: @stone-500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-top: 2px;
+  line-height: 1.3;
+}
+
+// ─── SLA alerts banner ────────────────────────────────────────────────────────
+
+.slaBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: @amber-50;
+  border: 1px solid @amber-200;
+  border-radius: 8px;
+  padding: 0.625rem 1rem;
+  margin-bottom: 1.25rem;
+  font-size: 0.8125rem;
+}
+
+.slaIcon {
+  color: @amber-700;
+  font-size: 1rem;
+  flex-shrink: 0;
+}
+
+.slaText {
+  color: @stone-800;
+  flex: 1;
+}
+
+// ─── Queue tabs card ──────────────────────────────────────────────────────────
+
+.tabsCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+
+  :global(.ant-tabs-content-holder) {
+    padding: 0 1rem 1rem;
+  }
+
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+    background: @stone-50;
+    border-bottom: 1px solid @stone-200;
+  }
+
+  :global(.ant-tabs-tab) {
+    padding: 0.625rem 1rem;
+    font-size: 0.8125rem;
+  }
+
+  :global(.ant-table-row:hover > td) {
+    background: #f0fdfa !important;
+  }
+}

@@ -14,6 +14,10 @@ __pycache__/
 backend/.venv/
 backend/venv/
 *.egg-info/
+generate_inventory_schema.py
+
+# Data files
+*.xlsx
 
 # Environment files
 .env
@@ -39,3 +43,6 @@ backend/alembic/__pycache__/
 # Compiled archives
 *.rar
 *.zip
+
+# Docs
+TESTING.md

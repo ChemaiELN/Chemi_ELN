@@ -12,6 +12,7 @@ from app.schemas.common import MessageResponse, PaginatedResponse, paginate
 from app.schemas.user import DepartmentShort, UserCreate, UserResponse, UserSummary, UserUpdate
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, USERS_MANAGE
 
 router = APIRouter()
 
@@ -74,7 +75,7 @@ def create_user(
     body:    UserCreate,
     request: Request,
     db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_roles("QA")),
+    actor:   User    = Depends(require_privilege(USERS_MANAGE)),
 ):
     conflict = db.query(User).filter(
         or_(
@@ -225,7 +226,7 @@ def activate_user(
     user_id: str,
     request: Request,
     db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_roles("QA")),
+    actor:   User    = Depends(require_privilege(USERS_MANAGE)),
 ):
     user = _load_user(db, user_id)
     if user.is_active:
@@ -244,7 +245,7 @@ def deactivate_user(
     user_id: str,
     request: Request,
     db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_roles("QA")),
+    actor:   User    = Depends(require_privilege(USERS_MANAGE)),
 ):
     user = _load_user(db, user_id)
     if not user.is_active:

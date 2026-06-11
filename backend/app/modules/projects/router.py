@@ -34,10 +34,11 @@ from app.schemas.project import (
 )
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, PROJECTS_MANAGE
 
 router = APIRouter()
 
-_QA_HOD = require_roles("QA", "TL")
+_QA_HOD = require_privilege(PROJECTS_MANAGE)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 

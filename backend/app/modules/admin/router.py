@@ -19,6 +19,7 @@ from app.schemas.admin import (
 )
 from app.schemas.common import PaginatedResponse, paginate
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, ADMIN_SETTINGS
 
 router = APIRouter()
 
@@ -48,7 +49,7 @@ def _get_or_create_crd(db: Session) -> CRDSettings:
 @router.get("/settings/company", response_model=CompanySettingsResponse)
 def get_company_settings(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("QA")),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
 ):
     return _get_or_create_company(db)
 
@@ -57,7 +58,7 @@ def get_company_settings(
 def update_company_settings(
     body: CompanySettingsUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("QA")),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
 ):
     row = _get_or_create_company(db)
     for field, val in body.model_dump(exclude_unset=True).items():
@@ -72,7 +73,7 @@ def update_company_settings(
 @router.get("/settings/crd", response_model=CRDSettingsResponse)
 def get_crd_settings(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("QA")),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
 ):
     return _get_or_create_crd(db)
 
@@ -81,7 +82,7 @@ def get_crd_settings(
 def update_crd_settings(
     body: CRDSettingsUpdate,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("QA")),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
 ):
     row = _get_or_create_crd(db)
     for field, val in body.model_dump(exclude_unset=True).items():
@@ -96,7 +97,7 @@ def update_crd_settings(
 @router.get("/sequences", response_model=List[SequenceCounterResponse])
 def list_sequences(
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("QA")),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
 ):
     return db.query(SequenceCounter).order_by(SequenceCounter.scope_key).all()
 
@@ -105,13 +106,24 @@ def list_sequences(
 def get_sequence(
     scope_key: str,
     db: Session = Depends(get_db),
-    _: User = Depends(require_roles("QA")),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
 ):
     from fastapi import HTTPException
     row = db.query(SequenceCounter).filter(SequenceCounter.scope_key == scope_key).first()
     if not row:
         raise HTTPException(404, f"Sequence '{scope_key}' not found")
     return row
+
+
+# ── Privilege Keys catalogue ─────────────────────────────────────────────────
+
+@router.get("/privilege-keys", response_model=list[str])
+def list_privilege_keys(
+    _: User = Depends(get_current_user),
+):
+    """Return all valid privilege_key strings so the admin UI can populate dropdowns."""
+    from app.utils.privileges import ALL_PRIVILEGE_KEYS
+    return sorted(ALL_PRIVILEGE_KEYS)
 
 
 # ── Audit Log ─────────────────────────────────────────────────────────────────

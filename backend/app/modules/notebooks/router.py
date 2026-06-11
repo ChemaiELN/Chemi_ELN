@@ -30,11 +30,12 @@ from app.schemas.notebook import (
 )
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, NOTEBOOKS_MANAGE
 from app.utils.sequences import next_notebook_code
 
 router = APIRouter()
 
-_HOD_TL = require_roles("HOD", "TL", "QA")
+_HOD_TL = require_privilege(NOTEBOOKS_MANAGE)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────

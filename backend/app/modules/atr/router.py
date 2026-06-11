@@ -27,6 +27,7 @@ from app.schemas.atr import (
 from app.schemas.common import MessageResponse, PaginatedResponse, paginate
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, ATR_ASSIGN, ATR_UNLOCK
 from app.utils.files import delete_file, save_upload, upload_dir, validate_upload
 from app.utils.sequences import next_value
 
@@ -211,7 +212,7 @@ def assign_atr(
     body: ATRAssignRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA", "TL", "TL")),
+    current_user: User = Depends(require_privilege(ATR_ASSIGN)),
 ):
     """Accept the ATR and assign to an analyst (SUBMITTED → VERIFIED)."""
     atr = _get_atr(db, atr_id)
@@ -577,7 +578,7 @@ def approve_unlock_request(
     body: UnlockReviewRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ATR_UNLOCK)),
 ):
     """QA approves the request — also transitions the experiment to UNLOCKED."""
     req = db.get(UnlockRequest, req_id)
@@ -618,7 +619,7 @@ def reject_unlock_request(
     body: UnlockReviewRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ATR_UNLOCK)),
 ):
     req = db.get(UnlockRequest, req_id)
     if not req:

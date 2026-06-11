@@ -19,10 +19,11 @@ from app.models.master_data import LookupChemical, LookupInstrument, Site
 from app.models.user import User
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, MASTER_DATA_MANAGE
 
 router = APIRouter()
 
-_ADMIN = require_roles("QA", "HOD")
+_ADMIN = require_privilege(MASTER_DATA_MANAGE)
 
 
 # ── Schemas ───────────────────────────────────────────────────────────────────

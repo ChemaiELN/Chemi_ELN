@@ -67,6 +67,7 @@ from app.services.esignature import get_crd_settings, verify_esignature
 from app.services.formula_engine import recalculate_experiment_parameters
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, EXPERIMENTS_VOID, EXPERIMENTS_UNLOCK
 from app.utils.files import delete_file, save_upload, upload_dir, validate_upload
 from app.utils.richtext import fields_changed, RICH_TEXT_FIELDS, diff_html_unified
 from app.utils.sequences import next_value
@@ -523,7 +524,7 @@ def void_experiment(
     body: VoidRequest,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(EXPERIMENTS_VOID)),
 ):
     exp = _get_exp_or_404(db, exp_id)
     if exp.status == "VOID":
@@ -552,7 +553,7 @@ def unlock_experiment(
     exp_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(EXPERIMENTS_UNLOCK)),
 ):
     """QA unlocks an APPROVED experiment so a new version can be created."""
     exp = _get_exp_or_404(db, exp_id)

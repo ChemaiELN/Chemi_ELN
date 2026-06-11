@@ -27,10 +27,11 @@ from app.schemas.route import (
 )
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, PROJECTS_ROUTES
 
 router = APIRouter()
 
-_QA_HOD_TL = require_roles("QA", "HOD", "TL")
+_QA_HOD_TL = require_privilege(PROJECTS_ROUTES)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -257,7 +258,7 @@ def delete_stage(
     route_id:   str,
     stage_id:   str,
     db:         Session = Depends(get_db),
-    actor:      User    = Depends(require_roles("QA")),
+    actor:      User    = Depends(require_privilege(PROJECTS_ROUTES)),
 ):
     stage = db.query(Stage).filter(
         Stage.id         == stage_id,

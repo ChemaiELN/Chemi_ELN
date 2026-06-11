@@ -12,6 +12,7 @@ from app.schemas.notification_setting import (
     NotificationSettingUpdate,
 )
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, ADMIN_NOTIFICATIONS
 
 router = APIRouter()
 
@@ -27,7 +28,7 @@ def _get_or_404(db: Session, setting_id: str) -> NotificationSetting:
 def create_notification_setting(
     body: NotificationSettingCreate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_NOTIFICATIONS)),
 ):
     existing = db.query(NotificationSetting).filter(NotificationSetting.key == body.key).first()
     if existing:
@@ -73,7 +74,7 @@ def update_notification_setting(
     setting_id: str,
     body: NotificationSettingUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_NOTIFICATIONS)),
 ):
     s = _get_or_404(db, setting_id)
     for field, val in body.model_dump(exclude_unset=True).items():
@@ -87,7 +88,7 @@ def update_notification_setting(
 def toggle_notification_setting(
     setting_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_NOTIFICATIONS)),
 ):
     """Flip is_enabled."""
     s = _get_or_404(db, setting_id)
@@ -101,7 +102,7 @@ def toggle_notification_setting(
 def delete_notification_setting(
     setting_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_NOTIFICATIONS)),
 ):
     s = _get_or_404(db, setting_id)
     db.delete(s)

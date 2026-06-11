@@ -12,6 +12,7 @@ from app.models.user import User
 from app.schemas.excel_template import ExcelTemplateResponse, ExcelTemplateUpdate
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, ADMIN_TEMPLATES
 from app.utils.files import delete_file, save_upload, upload_dir, validate_upload
 
 _ALLOWED_MODULES = {"Experiments", "ATR", "Projects"}
@@ -35,7 +36,7 @@ async def upload_excel_template(
     version: Optional[str] = Query("v1"),
     file: UploadFile = File(...),
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_TEMPLATES)),
 ):
     if module not in _ALLOWED_MODULES:
         raise HTTPException(400, f"module must be one of {sorted(_ALLOWED_MODULES)}")
@@ -125,7 +126,7 @@ def update_excel_template(
     template_id: str,
     body: ExcelTemplateUpdate,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_TEMPLATES)),
 ):
     t = _get_or_404(db, template_id)
     if body.module and body.module not in _ALLOWED_MODULES:
@@ -141,7 +142,7 @@ def update_excel_template(
 def activate_excel_template(
     template_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_TEMPLATES)),
 ):
     t = _get_or_404(db, template_id)
     t.is_active = True
@@ -154,7 +155,7 @@ def activate_excel_template(
 def deactivate_excel_template(
     template_id: str,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_TEMPLATES)),
 ):
     t = _get_or_404(db, template_id)
     t.is_active = False
@@ -168,7 +169,7 @@ def delete_excel_template(
     template_id: str,
     request: Request,
     db: Session = Depends(get_db),
-    current_user: User = Depends(require_roles("QA")),
+    current_user: User = Depends(require_privilege(ADMIN_TEMPLATES)),
 ):
     t = _get_or_404(db, template_id)
     file_path = t.file_path

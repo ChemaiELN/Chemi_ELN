@@ -12,10 +12,11 @@ from app.schemas.role_privilege import (
 )
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, ADMIN_ROLE_PRIVS
 
 router = APIRouter()
 
-_QA = require_roles("QA")
+_QA = require_privilege(ADMIN_ROLE_PRIVS)
 
 
 # ── GET /roles/ — list all roles (utility for dropdowns) ─────────────────────

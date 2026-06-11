@@ -22,6 +22,7 @@ from app.schemas.department import (
 )
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
+from app.utils.privileges import require_privilege, DEPARTMENTS_MANAGE
 
 router = APIRouter()
 
@@ -38,7 +39,7 @@ def create_department(
     body:    DepartmentCreate,
     request: Request,
     db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_roles("QA")),
+    actor:   User    = Depends(require_privilege(DEPARTMENTS_MANAGE)),
 ):
     if db.query(Department).filter(Department.code == body.code.upper()).first():
         raise HTTPException(400, f"Department code '{body.code}' already exists")
@@ -138,7 +139,7 @@ def update_department(
     body:    DepartmentUpdate,
     request: Request,
     db:      Session = Depends(get_db),
-    actor:   User    = Depends(require_roles("QA")),
+    actor:   User    = Depends(require_privilege(DEPARTMENTS_MANAGE)),
 ):
     dept = db.get(Department, dept_id)
     if not dept:

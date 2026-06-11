@@ -1,0 +1,377 @@
+@import (reference) '../../../../styles/variables.less';
+
+// ─── Page shell ───────────────────────────────────────────────────────────────
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: @page-bg;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+// ─── Top row ──────────────────────────────────────────────────────────────────
+
+.breadcrumbRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.breadcrumbHome {
+  cursor: pointer;
+  color: @stone-500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  &:hover { color: @teal-700; }
+}
+
+.newBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 28px !important;
+  padding: 0 0.75rem !important;
+  background: @stone-900 !important;
+  border-color: @stone-900 !important;
+  color: #ffffff !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @stone-700 !important;
+    border-color: @stone-700 !important;
+    color: #ffffff !important;
+  }
+}
+
+// ─── Table header inline filters ─────────────────────────────────────────────
+
+.tableCardFilters {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+  margin-right: 0.5rem;
+}
+
+.filterLabel {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: @stone-600;
+  white-space: nowrap;
+}
+
+.filterInput {
+  width: 180px !important;
+
+  :global {
+    .ant-input {
+      font-size: 0.75rem !important;
+    }
+  }
+}
+
+.filterSelect {
+  width: 130px !important;
+
+  :global {
+    .ant-select-selector {
+      font-size: 0.75rem !important;
+    }
+  }
+}
+
+.searchBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.75rem !important;
+  background: @stone-900 !important;
+  border-color: @stone-900 !important;
+  color: @white !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @stone-700 !important;
+    border-color: @stone-700 !important;
+  }
+}
+
+.clearBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.75rem !important;
+  border-color: @stone-300 !important;
+  color: @stone-600 !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    border-color: @stone-400 !important;
+    color: @stone-700 !important;
+    background: @stone-50 !important;
+  }
+}
+
+// ─── Table card (plain div — matches experiments pattern) ─────────────────────
+
+.tableCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.tableCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid @stone-200;
+}
+
+.tableCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+.exportBtn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.625rem !important;
+  border: 1px solid @stone-200 !important;
+  background: @white !important;
+  color: @stone-600 !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    border-color: @stone-400 !important;
+    color: @stone-900 !important;
+    background: @stone-50 !important;
+  }
+}
+
+// ─── Table overrides ──────────────────────────────────────────────────────────
+
+.table {
+  :global {
+    .ant-table-thead > tr > th {
+      background: @stone-50 !important;
+      font-size: 10px !important;
+      font-weight: 600 !important;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: @stone-500 !important;
+      padding: 0.4375rem 0.75rem !important;
+      border-bottom: 1px solid @stone-200 !important;
+      &::before { display: none !important; }
+    }
+
+    .ant-table-tbody > tr > td {
+      font-size: 0.8125rem !important;
+      color: @stone-700 !important;
+      padding: 0.5rem 0.75rem !important;
+      border-bottom: 1px solid @stone-100 !important;
+    }
+
+    .ant-table-tbody > tr:hover > td {
+      background: @stone-50 !important;
+    }
+
+    .ant-pagination {
+      padding: 0.5rem 0.875rem !important;
+      margin: 0 !important;
+      border-top: 1px solid @stone-200;
+      display: flex;
+      align-items: center;
+      font-size: 0.75rem;
+    }
+
+    .ant-pagination-item-active {
+      border-color: @stone-900 !important;
+      a { color: @stone-900 !important; }
+    }
+  }
+}
+
+// ─── Cell styles ──────────────────────────────────────────────────────────────
+
+.nameLink {
+  color: @teal-700;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  &:hover { text-decoration: underline; }
+}
+
+.monoText {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 0.75rem;
+  color: @stone-600;
+}
+
+.statusTag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 4px;
+  padding: 1px 8px;
+  border: none;
+}
+
+.statusActive {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.statusArchived {
+  background: @stone-100;
+  color: @stone-600;
+}
+
+.statusLocked {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.statusClosed {
+  background: @stone-100;
+  color: @stone-600;
+}
+
+.viewBtn {
+  font-size: 0.75rem !important;
+  height: 24px !important;
+  width: 24px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: @stone-500 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    color: @teal-700 !important;
+    background: @teal-50 !important;
+  }
+}
+
+// ─── New Notebook Modal ───────────────────────────────────────────────────────
+
+.notebookModal {
+  width: 95vw !important;
+
+  @media (min-width: 576px) {
+    width: 88vw !important;
+    max-width: 520px !important;
+  }
+
+  @media (min-width: 768px) {
+    width: 520px !important;
+    max-width: 520px !important;
+  }
+
+  @media (min-width: 1200px) {
+    width: 540px !important;
+    max-width: 540px !important;
+  }
+
+  :global {
+    .ant-modal-title {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+    }
+
+    .ant-modal-body {
+      padding: 10px 16px 4px !important;
+      max-height: 75vh;
+      overflow-y: auto;
+    }
+
+    .ant-modal-footer {
+      padding: 8px 16px !important;
+
+      .ant-btn {
+        height: 31px !important;
+        font-size: 12px !important;
+      }
+
+      .ant-btn-primary {
+        background: @stone-900 !important;
+        border-color: @stone-900 !important;
+        color: #ffffff !important;
+
+        &:hover {
+          background: @stone-700 !important;
+          border-color: @stone-700 !important;
+        }
+      }
+    }
+
+    .ant-form-item-label > label {
+      font-size: 11px !important;
+      color: @stone-600;
+    }
+
+    .ant-form-item {
+      margin-bottom: 10px !important;
+    }
+
+    .ant-input,
+    .ant-input-affix-wrapper {
+      font-size: 12px !important;
+    }
+
+    .ant-select-selector {
+      font-size: 12px !important;
+    }
+
+    .ant-select-selection-placeholder,
+    .ant-select-selection-item {
+      font-size: 12px !important;
+    }
+
+    .ant-picker {
+      font-size: 12px !important;
+    }
+
+    .ant-picker-input > input {
+      font-size: 12px !important;
+    }
+
+    .ant-btn {
+      font-size: 12px !important;
+    }
+  }
+}

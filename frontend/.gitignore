@@ -1,0 +1,41 @@
+# Backend
+backend/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+backend/.venv/
+backend/venv/
+*.egg-info/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+backend/.env
+
+# Logs
+*.log
+npm-debug.log*
+
+# Editor
+.vscode/
+*.swp
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Alembic (keep versions, ignore cache)
+backend/alembic/__pycache__/
+
+# Compiled archives
+*.rar
+*.zip

@@ -1,0 +1,126 @@
+@import (reference) '../../styles/variables.less';
+
+// ─── Wrapper ──────────────────────────────────────────────────────────────────
+
+.wrapper {
+  border: 1px solid @stone-200;
+  border-radius: 6px;
+  background: @white;
+  overflow: hidden;
+  transition: border-color 0.15s;
+
+  &:focus-within {
+    border-color: @teal-700;
+    box-shadow: 0 0 0 2px fade(@teal-700, 10%);
+  }
+}
+
+// ─── Toolbar ──────────────────────────────────────────────────────────────────
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+  padding: 0.3125rem 0.5rem;
+  border-bottom: 1px solid @stone-100;
+  background: @stone-50;
+  flex-wrap: wrap;
+}
+
+.toolbarGroup {
+  display: flex;
+  align-items: center;
+  gap: 0.125rem;
+}
+
+.toolbarDivider {
+  width: 1px;
+  height: 14px;
+  background: @stone-300;
+  margin: 0 0.25rem;
+  flex-shrink: 0;
+}
+
+.toolbarBtn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  cursor: pointer;
+  font-size: 0.75rem;
+  color: @stone-500;
+  transition: background 0.1s, color 0.1s;
+  padding: 0;
+  line-height: 1;
+
+  &:hover {
+    background: @stone-200;
+    color: @stone-900;
+  }
+}
+
+.toolbarBtnActive {
+  background: @teal-50;
+  color: @teal-700;
+
+  &:hover {
+    background: fade(@teal-700, 15%);
+    color: @teal-700;
+  }
+}
+
+.toolbarBtnDisabled {
+  opacity: 0.35;
+  cursor: not-allowed;
+  pointer-events: none;
+}
+
+// ─── Editor content area ──────────────────────────────────────────────────────
+
+.editorContent {
+  padding: 0.625rem 0.75rem;
+  cursor: text;
+
+  :global {
+    .tiptap {
+      outline: none;
+      font-size: 0.8125rem;
+      line-height: 1.65;
+      color: @stone-800;
+      min-height: inherit;
+
+      p {
+        margin: 0 0 0.5em;
+        &:last-child { margin-bottom: 0; }
+      }
+
+      ul, ol {
+        padding-left: 1.375rem;
+        margin: 0.25em 0 0.5em;
+      }
+
+      li {
+        margin-bottom: 0.2em;
+        line-height: 1.55;
+      }
+
+      strong { font-weight: 600; }
+      em     { font-style: italic; }
+      u      { text-decoration: underline; }
+
+      // Placeholder
+      p.is-editor-empty:first-child::before {
+        content: attr(data-placeholder);
+        color: @stone-400;
+        pointer-events: none;
+        float: left;
+        height: 0;
+        font-style: normal;
+      }
+    }
+  }
+}

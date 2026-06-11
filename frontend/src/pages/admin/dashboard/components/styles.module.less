@@ -1,0 +1,176 @@
+@import (reference) '../../../../styles/variables.less';
+
+.page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: @page-bg; }
+.body { display: flex; flex: 1; overflow: hidden; }
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem 2rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+// ─── Breadcrumb ───────────────────────────────────────────────────────────────
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: @stone-500;
+}
+.breadcrumbHome {
+  cursor: pointer;
+  color: @stone-500;
+  &:hover { color: @teal-700; }
+}
+.breadcrumbSep { color: @stone-400; }
+.breadcrumbCurrent { color: @stone-700; font-weight: 500; }
+
+// ─── Page title ───────────────────────────────────────────────────────────────
+.pageTitle {
+  font-size: 1.125rem;
+  font-weight: 700;
+  color: @stone-900;
+  margin: 0;
+}
+
+// ─── Stat cards ───────────────────────────────────────────────────────────────
+.statRow {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.875rem;
+}
+.statCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.25rem;
+}
+.statIcon {
+  font-size: 1.25rem;
+  color: @teal-700;
+  margin-bottom: 0.25rem;
+}
+.statValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  color: @stone-900;
+  line-height: 1.1;
+}
+.statLabel {
+  font-size: 0.75rem;
+  color: @stone-500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+// ─── Section title ────────────────────────────────────────────────────────────
+.sectionTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: @stone-700;
+  margin-top: 0.25rem;
+}
+
+// ─── Quick access grid ────────────────────────────────────────────────────────
+.quickGrid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.75rem;
+}
+.quickCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  transition: box-shadow 0.18s, border-color 0.18s, transform 0.15s;
+
+  &:hover {
+    border-color: #99d6d0;
+    box-shadow: 0 4px 16px rgba(15,118,110,0.12);
+    transform: translateY(-1px);
+  }
+}
+.quickIcon {
+  font-size: 1.75rem;
+  color: @teal-700;
+  margin-bottom: 0.375rem;
+}
+.quickTitle {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+.quickDesc {
+  font-size: 0.75rem;
+  color: @stone-500;
+  line-height: 1.4;
+}
+
+// ─── Activity table card ──────────────────────────────────────────────────────
+.tableCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.tableCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid @stone-200;
+}
+.tableCardTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+.userCell {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.8125rem;
+  color: @stone-700;
+}
+.userIcon {
+  color: @stone-400;
+  font-size: 0.75rem;
+}
+.dateCol {
+  color: @stone-500;
+  font-size: 0.8125rem;
+}
+
+// ─── Table header style ───────────────────────────────────────────────────────
+.table {
+  :global {
+    .ant-table-thead > tr > th {
+      background: @stone-50 !important;
+      font-size: 10px !important;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: @stone-500 !important;
+      font-weight: 600;
+    }
+    .ant-table-tbody > tr:hover > td {
+      background: @stone-100 !important;
+    }
+  }
+}

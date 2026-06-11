@@ -1,0 +1,28 @@
+@import (reference) '../../styles/variables.less';
+
+.shell {
+  display: flex;
+  flex-direction: column;
+  min-height: 100vh;
+}
+
+.page {
+  display: flex;
+  flex-direction: row;
+  flex: 1;
+  min-height: 0;
+  background: @stone-50;
+  overflow: hidden;
+}
+
+.content {
+  flex: 1;
+  overflow: auto;
+  background: @stone-50;
+  min-width: 0;
+}
+
+.viewWrapper {
+  padding: 24px;
+  min-height: 100%;
+}

@@ -1,0 +1,497 @@
+@import (reference) '../../../../styles/variables.less';
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: @page-bg;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+.breadcrumbRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.breadcrumbActions {
+  display: flex;
+  gap: 8px;
+}
+
+.actionBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 28px !important;
+  padding: 0 0.75rem !important;
+  background: @stone-900 !important;
+  border-color: @stone-900 !important;
+  color: #ffffff !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @stone-700 !important;
+    border-color: @stone-700 !important;
+    color: #ffffff !important;
+  }
+}
+
+.breadcrumbHome {
+  cursor: pointer;
+  color: @stone-600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  &:hover {
+    color: @teal-700;
+  }
+}
+
+.breadcrumbLink {
+  cursor: pointer;
+  color: @stone-600;
+
+  &:hover {
+    color: @teal-700;
+  }
+}
+
+// ── Tab nav ───────────────────────────────────────────────────────────────────
+.tabNav {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid @stone-200;
+}
+.tabBtn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  padding: 0.5rem 1.125rem;
+  font-size: 13px;
+  font-weight: 500;
+  color: @stone-500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  &:hover { color: @teal-700; }
+}
+.tabBtnActive {
+  color: @teal-700;
+  border-bottom-color: @teal-700;
+  font-weight: 600;
+}
+
+// Stat Cards
+.statCards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 0.875rem;
+}
+
+.statCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  padding: 1rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 4px;
+    border-radius: 8px 0 0 8px;
+  }
+}
+
+.statCardTotal::before    { background: @teal-700; }
+.statCardApproved::before { background: @emerald-700; }
+.statCardSubmitted::before { background: @sky-700; }
+.statCardDraft::before    { background: @stone-400; }
+
+.statLabel {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: @stone-500;
+  padding-left: 0.5rem;
+}
+
+.statValue {
+  font-size: 28px;
+  font-weight: 700;
+  color: @stone-900;
+  line-height: 1.1;
+  padding-left: 0.5rem;
+}
+
+.statApproved  { color: @emerald-700; }
+.statSubmitted { color: @sky-700; }
+.statDraft     { color: @stone-600; }
+
+// Two-column layout
+.twoCol {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem;
+}
+
+.card {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+
+  :global(.ant-card-head) {
+    border-bottom: 1px solid @stone-200;
+    padding: 0 1rem;
+    min-height: 44px;
+  }
+
+  :global(.ant-card-body) {
+    padding: 1rem;
+  }
+
+  :global(.ant-table-thead > tr > th) {
+    background: @stone-50;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: @stone-500;
+  }
+}
+
+.cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+// Breakdown bars
+.breakdownList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.breakdownRow {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.breakdownMeta {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.breakdownLabel {
+  font-size: 12px;
+  color: @stone-700;
+  font-weight: 500;
+}
+
+.breakdownCount {
+  font-size: 12px;
+  font-weight: 700;
+  color: @stone-900;
+}
+
+.barTrack {
+  height: 6px;
+  background: @stone-100;
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.barFill {
+  height: 100%;
+  border-radius: 4px;
+  transition: width 0.4s ease;
+}
+
+.barEmerald {
+  background: @emerald-700;
+}
+
+.barTeal {
+  background: @teal-700;
+}
+
+.barSky {
+  background: @sky-700;
+}
+
+.barStone {
+  background: @stone-400;
+}
+
+.barRose {
+  background: @rose-700;
+}
+
+// Info grid
+.infoGrid {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.infoRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid @stone-100;
+
+  &:last-child {
+    border-bottom: none;
+    padding-bottom: 0;
+  }
+}
+
+.infoLabel {
+  font-size: 12px;
+  color: @stone-500;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.infoValue {
+  font-size: 13px;
+  color: @stone-900;
+  font-weight: 500;
+}
+
+// ─── Compact table card (matches experiments/notebooks list pattern) ──────────
+
+.tableCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.tableCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid @stone-200;
+}
+
+.tableCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+.tableCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 0.375rem;
+  background: @stone-100;
+  color: @stone-600;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+.exportBtn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 28px !important;
+  padding: 0 0.625rem !important;
+  border: 1px solid @stone-200 !important;
+  background: @white !important;
+  color: @stone-600 !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    border-color: @stone-400 !important;
+    color: @stone-900 !important;
+    background: @stone-50 !important;
+  }
+}
+
+.compactTable {
+  :global {
+    .ant-table-thead > tr > th {
+      background: @stone-50 !important;
+      font-size: 10px !important;
+      font-weight: 600 !important;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: @stone-500 !important;
+      padding: 0.4375rem 0.75rem !important;
+      border-bottom: 1px solid @stone-200 !important;
+      &::before { display: none !important; }
+    }
+
+    .ant-table-tbody > tr > td {
+      font-size: 0.8125rem !important;
+      color: @stone-700 !important;
+      padding: 0.5rem 0.75rem !important;
+      border-bottom: 1px solid @stone-100 !important;
+    }
+
+    .ant-table-tbody > tr:hover > td {
+      background: @stone-50 !important;
+    }
+
+    .ant-table-tbody > tr:last-child > td {
+      border-bottom: none !important;
+    }
+  }
+}
+
+// Table (legacy — keep for Card-based tables above)
+.tableRow {
+  &:hover td {
+    background: @stone-100 !important;
+  }
+}
+
+.monoText {
+  font-family: 'Courier New', Courier, monospace;
+  font-size: 12px;
+  color: @stone-600;
+}
+
+// Status Tags
+.statusTag {
+  font-size: 11px;
+  font-weight: 600;
+  border-radius: 10px;
+  padding: 1px 8px;
+  border: none;
+}
+
+.tagApproved {
+  background: @emerald-50;
+  color: @emerald-700;
+}
+
+.tagSubmitted {
+  background: @sky-50;
+  color: @sky-700;
+}
+
+.tagVerified {
+  background: @teal-50;
+  color: @teal-700;
+}
+
+.tagDraft {
+  background: @stone-100;
+  color: @stone-600;
+}
+
+.tagRejected {
+  background: @rose-50;
+  color: @rose-700;
+}
+
+// ─── Edit Notebook Modal ───────────────────────────────────────────────────────
+.editModal {
+  :global {
+    .ant-modal-title {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+    }
+
+    .ant-modal-body {
+      padding: 10px 16px 4px !important;
+      max-height: 75vh;
+      overflow-y: auto;
+    }
+
+    .ant-modal-footer {
+      padding: 8px 16px !important;
+
+      .ant-btn {
+        height: 31px !important;
+        font-size: 12px !important;
+      }
+
+      .ant-btn-primary {
+        background: @stone-900 !important;
+        border-color: @stone-900 !important;
+        color: #ffffff !important;
+
+        &:hover {
+          background: @stone-700 !important;
+          border-color: @stone-700 !important;
+        }
+      }
+    }
+
+    .ant-form-item-label > label {
+      font-size: 11px !important;
+      color: @stone-600;
+    }
+
+    .ant-form-item {
+      margin-bottom: 10px !important;
+    }
+
+    .ant-input,
+    .ant-input-affix-wrapper {
+      font-size: 12px !important;
+    }
+
+    .ant-select-selector {
+      font-size: 12px !important;
+    }
+
+    .ant-select-selection-placeholder,
+    .ant-select-selection-item {
+      font-size: 12px !important;
+    }
+
+    .ant-input-textarea textarea {
+      font-size: 12px !important;
+    }
+  }
+}

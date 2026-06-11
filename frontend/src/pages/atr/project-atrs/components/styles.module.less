@@ -1,0 +1,144 @@
+@import (reference) '../../../../styles/variables.less';
+
+.page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: @page-bg; }
+.body { display: flex; flex: 1; overflow: hidden; }
+.main {
+  flex: 1; display: flex; flex-direction: column; gap: 0.875rem;
+  padding: 1rem 1.25rem; overflow-y: auto; background: @page-bg; min-width: 0;
+}
+
+// ─── Breadcrumb ───────────────────────────────────────────────────────────────
+.breadcrumb { font-size: 0.75rem; color: @stone-500; display: flex; align-items: center; gap: 0.375rem; }
+.breadcrumbLink {
+  cursor: pointer; color: @stone-500; display: inline-flex; align-items: center; gap: 4px;
+  &:hover { color: @teal-700; }
+}
+
+// ─── Filter card ─────────────────────────────────────────────────────────────
+.filterCard {
+  background: @white; border: 1px solid @stone-200; border-radius: 8px;
+  padding: 0.75rem 0.875rem; box-shadow: 0 1px 4px rgba(0,0,0,.06);
+  display: flex; flex-direction: column; gap: 0.625rem;
+}
+.filterRow { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.625rem 0.875rem; align-items: end; }
+.filterRow2 { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.625rem 0.875rem; align-items: end; }
+.filterLabel { font-size: 0.6875rem; font-weight: 600; text-transform: uppercase; letter-spacing: .04em; color: @stone-500; margin-bottom: 0.2rem; }
+.checkboxWrap { display: flex; align-items: center; gap: 0.375rem; padding-top: 1.4rem;
+  label { font-size: 0.75rem; color: @stone-600; } }
+.searchBtn {
+  font-size: 0.75rem !important; font-weight: 500 !important; height: 31px !important;
+  padding: 0 0.75rem !important; background: @stone-900 !important; border-color: @stone-900 !important;
+  color: @white !important; border-radius: 5px !important; box-shadow: none !important;
+  &:hover { background: @stone-700 !important; border-color: @stone-700 !important; }
+}
+
+.clearBtn {
+  font-size: 0.75rem !important; font-weight: 500 !important; height: 31px !important;
+  padding: 0 0.75rem !important; border-color: @stone-300 !important; color: @stone-600 !important;
+  border-radius: 5px !important; box-shadow: none !important;
+  &:hover { border-color: @stone-400 !important; color: @stone-700 !important; background: @stone-50 !important; }
+}
+
+.headerSelect {
+  width: 140px !important;
+  height: 31px !important;
+  :global {
+    .ant-select-selector {
+      font-size: 0.75rem !important;
+      height: 31px !important;
+      border-color: @stone-200 !important;
+      display: flex !important;
+      align-items: center !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+    }
+    .ant-select-selection-placeholder,
+    .ant-select-selection-item {
+      font-size: 0.75rem !important;
+      line-height: 31px !important;
+    }
+    .ant-select-selection-search {
+      display: flex !important;
+      align-items: center !important;
+    }
+    .ant-select-selection-search-input {
+      height: 29px !important;
+    }
+    .ant-select-arrow {
+      display: flex !important;
+      align-items: center !important;
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      margin-top: 0 !important;
+    }
+  }
+}
+
+// ─── Table card ──────────────────────────────────────────────────────────────
+.tableCard {
+  background: @white; border: 1px solid @stone-200; border-radius: 8px;
+  overflow: hidden; box-shadow: 0 1px 4px rgba(0,0,0,.06);
+}
+.tableCardHeader {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 0.5rem 0.875rem; border-bottom: 1px solid @stone-200;
+}
+.tableCardTitle {
+  display: flex; align-items: center; gap: 0.4rem;
+  font-size: 0.8125rem; font-weight: 600; color: @stone-900;
+}
+.tableCardActions { display: flex; align-items: center; gap: 0.5rem; }
+
+.exportBtn {
+  display: inline-flex !important; align-items: center !important; gap: .25rem !important;
+  font-size: 0.75rem !important; font-weight: 500 !important; height: 31px !important;
+  padding: 0 0.625rem !important; border: 1px solid @stone-200 !important;
+  background: @white !important; color: @stone-600 !important; border-radius: 5px !important; box-shadow: none !important;
+  &:hover { border-color: @stone-400 !important; color: @stone-900 !important; background: @stone-50 !important; }
+}
+
+// ─── Table overrides ─────────────────────────────────────────────────────────
+.table {
+  :global {
+    .ant-table-thead > tr > th {
+      background: @stone-50 !important; font-size: 10px !important; font-weight: 600 !important;
+      text-transform: uppercase; letter-spacing: .05em; color: @stone-500 !important;
+      padding: 0.4375rem 0.75rem !important; border-bottom: 1px solid @stone-200 !important;
+      &::before { display: none !important; }
+    }
+    .ant-table-tbody > tr > td {
+      font-size: 0.8125rem !important; color: @stone-700 !important;
+      padding: 0.5rem 0.75rem !important; border-bottom: 1px solid @stone-100 !important;
+    }
+    .ant-table-tbody > tr:hover > td { background: @stone-50 !important; }
+    .ant-pagination { padding: 0.5rem 0.875rem !important; margin: 0 !important; border-top: 1px solid @stone-200; font-size: 0.75rem; }
+    .ant-pagination-item-active { border-color: @stone-900 !important; a { color: @stone-900 !important; } }
+  }
+}
+
+// ─── Cell styles ─────────────────────────────────────────────────────────────
+.statusTag { font-size: 0.6875rem; font-weight: 500; border-radius: 4px; padding: 1px 8px; border: none; }
+.tagNew       { background: @stone-100; color: @stone-600; }
+.tagSubmitted { background: @sky-50;    color: @sky-700; }
+.tagVerified  { background: @teal-50;   color: @teal-700; }
+.tagCompleted { background: @emerald-50; color: @emerald-700; }
+
+.monoText { font-family: 'Courier New', monospace; font-size: 0.8rem; font-weight: 500; color: @stone-800; }
+
+// ─── Footer actions ───────────────────────────────────────────────────────────
+.footerActions { padding: 0.75rem 0.875rem; border-top: 1px solid @stone-100; display: flex; gap: 0.5rem; }
+.changeOwnerBtn {
+  font-size: 0.75rem !important; height: 28px !important; padding: 0 0.875rem !important;
+  border-color: @stone-300 !important; color: @stone-600 !important; border-radius: 5px !important; box-shadow: none !important;
+  &:hover { border-color: @teal-700 !important; color: @teal-700 !important; }
+}
+
+// ─── Top-right project select ─────────────────────────────────────────────────
+.topBar { display: flex; align-items: center; justify-content: flex-end; gap: 0.5rem; }
+.projectSelect { width: 200px !important; }
+.goBtn {
+  font-size: 0.75rem !important; height: 28px !important; padding: 0 1rem !important;
+  background: @teal-700 !important; border-color: @teal-700 !important; color: @white !important;
+  border-radius: 5px !important; box-shadow: none !important;
+  &:hover { background: @teal-600 !important; border-color: @teal-600 !important; }
+}

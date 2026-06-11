@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Integer, Numeric, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, PUUID, new_uuid, now_utc
@@ -11,7 +11,6 @@ from app.models.base import Base, PUUID, new_uuid, now_utc
 class CompanySettings(Base):
     """Single-row table — always id = 1."""
     __tablename__ = "company_settings"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_company_settings_singleton"),)
 
     id:           Mapped[int]  = mapped_column(SmallInteger, primary_key=True, default=1)
     name:         Mapped[Optional[str]] = mapped_column(String(255))
@@ -37,7 +36,6 @@ class GlobalSettings(Base):
     FIX-26/54: Centralises feature flags, file size limits, SMTP, and search limits.
     """
     __tablename__ = "global_settings"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_global_settings_singleton"),)
 
     id:                           Mapped[int]  = mapped_column(SmallInteger, primary_key=True, default=1)
 
@@ -88,7 +86,6 @@ class CRDSettings(Base):
     FIX-56: Input default values section.
     """
     __tablename__ = "crd_settings"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_crd_settings_singleton"),)
 
     id:               Mapped[int]  = mapped_column(SmallInteger, primary_key=True, default=1)
 
@@ -156,7 +153,6 @@ class CRDSettings(Base):
 class SMTPConfig(Base):
     """Email server configuration — single-row table."""
     __tablename__ = "smtp_config"
-    __table_args__ = (CheckConstraint("id = 1", name="ck_smtp_config_singleton"),)
 
     id:                Mapped[int]  = mapped_column(SmallInteger, primary_key=True, default=1)
     host:              Mapped[Optional[str]] = mapped_column(String(255))

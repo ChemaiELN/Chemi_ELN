@@ -1,0 +1,284 @@
+@import (reference) '../../../../styles/variables.less';
+
+// ─── Page shell ───────────────────────────────────────────────────────────────
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: @page-bg;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+// ─── Top row ──────────────────────────────────────────────────────────────────
+
+.breadcrumbRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.breadcrumbHome {
+  cursor: pointer;
+  color: @stone-500;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 0.75rem;
+  &:hover { color: @teal-700; }
+}
+
+.newBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 28px !important;
+  padding: 0 0.75rem !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: @white !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @teal-800 !important;
+    border-color: @teal-800 !important;
+  }
+}
+
+// ─── Filter card ──────────────────────────────────────────────────────────────
+
+.filterCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  padding: 0.625rem 0.875rem;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.filterLabel {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: @stone-600;
+  white-space: nowrap;
+}
+
+.filterSelect {
+  width: 150px !important;
+
+  :global {
+    .ant-select-selector {
+      font-size: 0.75rem !important;
+    }
+  }
+}
+
+.filterInput {
+  width: 140px !important;
+
+  :global {
+    .ant-input {
+      font-size: 0.75rem !important;
+    }
+  }
+}
+
+.searchBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 24px !important;
+  padding: 0 0.75rem !important;
+  background: @stone-900 !important;
+  border-color: @stone-900 !important;
+  color: @white !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @stone-700 !important;
+    border-color: @stone-700 !important;
+  }
+}
+
+.clearBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 24px !important;
+  padding: 0 0.75rem !important;
+  border-color: @stone-300 !important;
+  color: @stone-600 !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    border-color: @stone-400 !important;
+    color: @stone-700 !important;
+    background: @stone-50 !important;
+  }
+}
+
+// ─── Table card ───────────────────────────────────────────────────────────────
+
+.tableCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+
+  :global {
+    .ant-card-body {
+      padding: 0 !important;
+    }
+  }
+}
+
+.tableHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid @stone-200;
+}
+
+.tableTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tableTitleText {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+.tableCount {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 0.375rem;
+  background: @stone-100;
+  color: @stone-600;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  border-radius: 4px;
+}
+
+.exportBtn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 0.25rem !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 28px !important;
+  padding: 0 0.625rem !important;
+  border: 1px solid @stone-200 !important;
+  background: @white !important;
+  color: @stone-600 !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    border-color: @stone-400 !important;
+    color: @stone-900 !important;
+    background: @stone-50 !important;
+  }
+}
+
+// ─── Table overrides ──────────────────────────────────────────────────────────
+
+.table {
+  :global {
+    .ant-table-thead > tr > th {
+      background: @stone-50 !important;
+      font-size: 10px !important;
+      font-weight: 600 !important;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: @stone-500 !important;
+      padding: 0.4375rem 0.75rem !important;
+      border-bottom: 1px solid @stone-200 !important;
+      &::before { display: none !important; }
+    }
+
+    .ant-table-tbody > tr > td {
+      font-size: 0.8125rem !important;
+      color: @stone-700 !important;
+      padding: 0.5rem 0.75rem !important;
+      border-bottom: 1px solid @stone-100 !important;
+    }
+
+    .ant-table-tbody > tr:hover > td {
+      background: @stone-50 !important;
+    }
+
+    .ant-pagination {
+      padding: 0.5rem 0.875rem !important;
+      margin: 0 !important;
+      border-top: 1px solid @stone-200;
+      display: flex;
+      align-items: center;
+      font-size: 0.75rem;
+    }
+
+    .ant-pagination-item-active {
+      border-color: @stone-900 !important;
+      a { color: @stone-900 !important; }
+    }
+  }
+}
+
+// ─── Cell styles ──────────────────────────────────────────────────────────────
+
+.atrNo {
+  font-weight: 700;
+  font-size: 0.75rem;
+  font-family: 'Courier New', Courier, monospace;
+  color: @stone-900;
+  letter-spacing: 0.02em;
+}
+
+.statusTag {
+  font-size: 0.6875rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  padding: 1px 6px;
+  border: none;
+}
+
+.tagStone   { background: @stone-100  !important; color: @stone-600  !important; }
+.tagSky     { background: @sky-50     !important; color: @sky-700    !important; }
+.tagTeal    { background: @teal-50    !important; color: @teal-700   !important; }
+.tagEmerald { background: @emerald-50 !important; color: @emerald-700 !important; }
+
+.viewBtn {
+  font-size: 0.75rem !important;
+  color: @teal-700 !important;
+  padding: 0 !important;
+  height: auto !important;
+  &:hover { color: @teal-800 !important; }
+}

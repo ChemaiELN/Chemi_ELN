@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from sqlalchemy import Boolean, CheckConstraint, DateTime, ForeignKey, BigInteger, Index, Integer, JSON, Numeric, SmallInteger, String, Text
+from sqlalchemy import Boolean, DateTime, ForeignKey, BigInteger, Integer, JSON, Numeric, SmallInteger, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, PUUID, new_uuid, now_utc
@@ -10,18 +10,6 @@ from app.models.base import Base, PUUID, new_uuid, now_utc
 
 class Experiment(Base):
     __tablename__ = "experiments"
-    __table_args__ = (
-        Index("ix_exp_notebook_status",  "notebook_id", "status"),
-        Index("ix_exp_project_status",   "project_id",  "status"),
-        Index("ix_exp_latest_version",   "is_latest_version"),
-        Index("ix_exp_code",             "code"),
-        Index("ix_exp_created_at",       "created_at"),
-        Index("ix_exp_root",             "root_experiment_id"),
-        CheckConstraint(
-            "status IN ('DRAFT','SUBMITTED','VERIFIED','APPROVED','REJECTED','UNLOCKED','VOID')",
-            name="ck_exp_status",
-        ),
-    )
 
     id:            Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     code:          Mapped[str] = mapped_column(String(50), nullable=False)        # OQ/R1/S1/E03166
@@ -45,6 +33,7 @@ class Experiment(Base):
     starting_material:  Mapped[Optional[str]] = mapped_column(String(255))
     target_product:     Mapped[Optional[str]] = mapped_column(String(255))
     reaction_type:      Mapped[Optional[str]] = mapped_column(String(100))
+    scheme_mol:         Mapped[Optional[str]] = mapped_column(Text)
     scheme_image_path:  Mapped[Optional[str]] = mapped_column(String(500))
 
     # Yield (Inputs tab)
@@ -119,7 +108,6 @@ class Experiment(Base):
 class ExperimentStep(Base):
     """Step-by-step procedure rows for an experiment (FIX-01)."""
     __tablename__ = "experiment_steps"
-    __table_args__ = (Index("ix_exp_steps_exp_id", "experiment_id"),)
 
     id:               Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     experiment_id:    Mapped[str] = mapped_column(PUUID, ForeignKey("experiments.id"), nullable=False)
@@ -139,7 +127,6 @@ class ExperimentStep(Base):
 class ExperimentEquipment(Base):
     """Instruments / equipment used in an experiment (FIX-20)."""
     __tablename__ = "experiment_equipment"
-    __table_args__ = (Index("ix_exp_equip_exp_id", "experiment_id"),)
 
     id:                 Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     experiment_id:      Mapped[str] = mapped_column(PUUID, ForeignKey("experiments.id"), nullable=False)
@@ -161,7 +148,6 @@ class ExperimentEquipment(Base):
 class ExperimentInput(Base):
     """One row in the Inputs (Reactants & Reagents) tab."""
     __tablename__ = "experiment_inputs"
-    __table_args__ = (Index("ix_exp_inputs_exp_id", "experiment_id"),)
 
     id:            Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     experiment_id: Mapped[str] = mapped_column(PUUID, ForeignKey("experiments.id"), nullable=False)
@@ -194,7 +180,6 @@ class ExperimentInput(Base):
 class ExperimentParameter(Base):
     """One row in the Parameters tab (Temperature, Pressure, etc.)."""
     __tablename__ = "experiment_parameters"
-    __table_args__ = (Index("ix_exp_params_exp_id", "experiment_id"),)
 
     id:            Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     experiment_id: Mapped[str] = mapped_column(PUUID, ForeignKey("experiments.id"), nullable=False)
@@ -219,7 +204,6 @@ class ExperimentParameter(Base):
 class ExperimentTLC(Base):
     """TLC (Thin Layer Chromatography) observations."""
     __tablename__ = "experiment_tlc"
-    __table_args__ = (Index("ix_exp_tlc_exp_id", "experiment_id"),)
 
     id:                    Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     experiment_id:         Mapped[str] = mapped_column(PUUID, ForeignKey("experiments.id"), nullable=False)
@@ -237,7 +221,6 @@ class ExperimentTLC(Base):
 
 class ExperimentAttachment(Base):
     __tablename__ = "experiment_attachments"
-    __table_args__ = (Index("ix_exp_attach_exp_id", "experiment_id"),)
 
     id:            Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     experiment_id: Mapped[str] = mapped_column(PUUID, ForeignKey("experiments.id"), nullable=False)
@@ -255,7 +238,6 @@ class ExperimentHistory(Base):
     """
     Full audit trail for experiment versioning.
 
-
     A row is written every time the experiment status changes or a new
     version is created:
         - Chemist saves / submits   → action = SUBMITTED
@@ -270,10 +252,6 @@ class ExperimentHistory(Base):
     so any version can be fully reconstructed for regulatory review.
     """
     __tablename__ = "experiment_history"
-    __table_args__ = (
-        Index("ix_exp_hist_exp_id",     "experiment_id"),
-        Index("ix_exp_hist_action_at",  "action", "action_at"),
-    )
 
     id:                 Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
 
@@ -314,7 +292,6 @@ class ExperimentComment(Base):
     Used for reviewer feedback, clarifications, or general discussion.
     """
     __tablename__ = "experiment_comments"
-    __table_args__ = (Index("ix_exp_comments_exp_id", "experiment_id"),)
 
     id:            Mapped[str] = mapped_column(PUUID, primary_key=True, default=new_uuid)
     experiment_id: Mapped[str] = mapped_column(PUUID, ForeignKey("experiments.id"), nullable=False)

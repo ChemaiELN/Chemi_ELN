@@ -1,72 +1,41 @@
+# Backend
+backend/
+
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
 # Python
 __pycache__/
-*.py[cod]
+*.pyc
 *.pyo
-*.pyd
-*.so
-*.egg
+backend/.venv/
+backend/venv/
 *.egg-info/
-dist/
-build/
-.eggs/
-.Python
-pip-wheel-metadata/
 
-# Virtual environments
-.venv/
-venv/
-env/
-ENV/
-
-# Environment & secrets
+# Environment files
 .env
-.env.*
-!.env.example
-*.pem
-*.key
-
-# pytest / coverage
-.pytest_cache/
-.coverage
-htmlcov/
-*.cover
-
-# Alembic
-# (keep versions/ but not local drift files)
-
-# Node / frontend
-node_modules/
-.npm/
-.pnp/
-.pnp.js
-frontend/dist/
-frontend/build/
-frontend/.env
-frontend/.env.*
-!frontend/.env.example
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-.DS_Store
-Thumbs.db
+.env.local
+.env.*.local
+backend/.env
 
 # Logs
 *.log
-logs/
+npm-debug.log*
 
-# Claude Code
-.claude/
+# Editor
+.vscode/
+*.swp
 
 # OS
 .DS_Store
-desktop.ini
+Thumbs.db
 
-# Test artifacts
-test_*.html
+# Alembic (keep versions, ignore cache)
+backend/alembic/__pycache__/
 
-# Uploaded files (user-generated content)
-backend/uploads/
+# Compiled archives
+*.rar
+*.zip

@@ -2,20 +2,22 @@ import secrets
 from datetime import datetime, timedelta, timezone
 from typing import Optional
 
-import bcrypt
 from jose import JWTError, jwt
+from passlib.context import CryptContext
 
 from app.core.config import settings
+
+pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 
 # ── Passwords ─────────────────────────────────────────────────────────────────
 
 def hash_password(plain: str) -> str:
-    return bcrypt.hashpw(plain.encode(), bcrypt.gensalt()).decode()
+    return pwd_context.hash(plain)
 
 
 def verify_password(plain: str, hashed: str) -> bool:
-    return bcrypt.checkpw(plain.encode(), hashed.encode())
+    return pwd_context.verify(plain, hashed)
 
 
 # ── JWT ───────────────────────────────────────────────────────────────────────

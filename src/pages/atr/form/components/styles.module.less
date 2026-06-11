@@ -1,0 +1,435 @@
+@import (reference) '../../../../styles/variables.less';
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: @page-bg;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+.breadcrumbRow {
+  display: flex;
+  align-items: center;
+}
+
+.breadcrumbHome {
+  cursor: pointer;
+  color: @stone-600;
+  &:hover {
+    color: @teal-700;
+  }
+}
+
+.breadcrumbLink {
+  cursor: pointer;
+  color: @stone-600;
+  &:hover {
+    color: @teal-700;
+  }
+}
+
+.pageHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.pageHeaderLeft {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.pageHeaderRight {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.pageTitle {
+  margin: 0 !important;
+  font-size: 1.125rem !important;
+  color: @stone-900 !important;
+}
+
+.atrNoText {
+  font-size: 0.75rem;
+  font-weight: 700;
+  font-family: 'Courier New', Courier, monospace;
+  color: @stone-600;
+  letter-spacing: 0.02em;
+}
+
+.verifiedBy {
+  font-size: 0.8125rem;
+  color: @stone-500;
+}
+
+.saveBtn {
+  border-color: @stone-300;
+  color: @stone-700;
+  font-size: 0.8125rem;
+  &:hover {
+    border-color: @teal-700 !important;
+    color: @teal-700 !important;
+  }
+}
+
+.submitBtn {
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: @white !important;
+  font-size: 0.8125rem;
+  &:hover {
+    background: #0d6460 !important;
+    border-color: #0d6460 !important;
+  }
+}
+
+.statusTag {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  border-radius: 4px;
+  padding: 1px 6px;
+  border: none;
+}
+
+.tagStone   { background: @stone-100  !important; color: @stone-600  !important; }
+.tagSky     { background: @sky-50    !important; color: @sky-700    !important; }
+.tagTeal    { background: @teal-50   !important; color: @teal-700   !important; }
+.tagEmerald { background: @emerald-50 !important; color: @emerald-700 !important; }
+
+.experimentBar {
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  background: @white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+
+  :global(.ant-card-body) {
+    padding: 0.625rem 1rem;
+  }
+}
+
+.expItem {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.expLabel {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: @stone-400;
+}
+
+.expValue {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+.expDivider {
+  width: 1px;
+  height: 2rem;
+  background: @stone-200;
+}
+
+.sectionCard {
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  background: @white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+
+  :global(.ant-card-head) {
+    padding: 0 1rem;
+    min-height: 2.5rem;
+    border-bottom: 1px solid @stone-200;
+  }
+
+  :global(.ant-card-head-title) {
+    padding: 0.625rem 0;
+  }
+
+  :global(.ant-card-body) {
+    padding: 1rem;
+  }
+}
+
+.cardTitle {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+.sampleCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  width: 100%;
+}
+
+.addSampleBtn {
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: @white !important;
+  font-size: 0.75rem;
+  &:hover {
+    background: #0d6460 !important;
+    border-color: #0d6460 !important;
+  }
+}
+
+.formLabel {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: @stone-700;
+}
+
+.textarea {
+  font-size: 0.8125rem;
+  color: @stone-700;
+  border-color: @stone-300;
+  border-radius: 6px;
+  resize: vertical;
+
+  &:focus,
+  &:hover {
+    border-color: @teal-700 !important;
+    box-shadow: 0 0 0 2px rgba(15, 118, 110, 0.08) !important;
+  }
+}
+
+.attrTable {
+  :global(.ant-table-thead > tr > th) {
+    background: @stone-50 !important;
+    font-size: 10px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: @stone-500;
+    font-weight: 600;
+    border-bottom: 1px solid @stone-200;
+    padding: 6px 8px !important;
+  }
+
+  :global(.ant-table-tbody > tr > td) {
+    font-size: 0.8125rem;
+    color: @stone-700;
+    border-bottom: 1px solid @stone-200;
+    padding: 6px 8px !important;
+  }
+
+  :global(.ant-table-tbody > tr:hover > td) {
+    background: @stone-100 !important;
+  }
+}
+
+.addAttributeRow {
+  margin-top: 0.625rem;
+  display: flex;
+  justify-content: flex-start;
+}
+
+.addBtn {
+  font-size: 0.75rem;
+  color: @teal-700;
+  border-color: @teal-700;
+  &:hover {
+    background: @teal-50 !important;
+  }
+}
+
+.sampleTable {
+  :global(.ant-table-thead > tr > th) {
+    background: @stone-50 !important;
+    font-size: 10px !important;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: @stone-500;
+    font-weight: 600;
+    border-bottom: 1px solid @stone-200;
+    padding: 6px 8px !important;
+    white-space: nowrap;
+  }
+
+  :global(.ant-table-tbody > tr > td) {
+    font-size: 0.8125rem;
+    color: @stone-700;
+    border-bottom: 1px solid @stone-200;
+    padding: 6px 8px !important;
+  }
+
+  :global(.ant-table-tbody > tr:hover > td) {
+    background: @stone-100 !important;
+  }
+}
+
+.deleteBtn {
+  color: @rose-700 !important;
+  padding: 0 !important;
+  &:hover {
+    color: #9b1239 !important;
+  }
+}
+
+// ─── Version badge ────────────────────────────────────────────────────────────
+
+.versionBadge {
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Courier New', Courier, monospace;
+  background: @teal-50;
+  color: @teal-700;
+  border: 1px solid @teal-200;
+  border-radius: 4px;
+  padding: 1px 7px;
+  letter-spacing: 0.02em;
+}
+
+.latestBadge {
+  font-size: 10px;
+  font-weight: 700;
+  background: @emerald-50;
+  color: @emerald-700;
+  border-radius: 4px;
+  padding: 1px 7px;
+  border: none;
+}
+
+// ─── Older-version banner ─────────────────────────────────────────────────────
+
+.olderVersionBanner {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  background: @amber-50;
+  border: 1px solid @amber-200;
+  border-radius: 8px;
+  padding: 0.5rem 0.875rem;
+  font-size: 13px;
+  color: @stone-800;
+
+  .olderVersionLink {
+    color: @teal-700;
+    font-weight: 600;
+    cursor: pointer;
+    text-decoration: underline;
+    margin-left: 4px;
+
+    &:hover {
+      color: @teal-900;
+    }
+  }
+}
+
+// ─── Tabs card ────────────────────────────────────────────────────────────────
+
+.tabsCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  overflow: hidden;
+
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+    background: @stone-50;
+    border-bottom: 1px solid @stone-200;
+    padding: 0 1rem;
+  }
+
+  :global(.ant-tabs-tab) {
+    font-size: 13px;
+    color: @stone-500;
+    padding: 10px 4px;
+  }
+
+  :global(.ant-tabs-tab-active .ant-tabs-tab-btn) {
+    color: @teal-700 !important;
+    font-weight: 500;
+  }
+
+  :global(.ant-tabs-ink-bar) {
+    background: @teal-700;
+  }
+
+  :global(.ant-tabs-content-holder) {
+    padding: 1rem;
+  }
+}
+
+// ─── Final Reports ─────────────────────────────────────────────────────────────
+
+.finalReportUploadBox {
+  border: 2px dashed @stone-300;
+  border-radius: 8px;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: @stone-400;
+  font-size: 13px;
+  background: @stone-50;
+  cursor: pointer;
+  margin-bottom: 0.875rem;
+  transition: border-color 0.15s, color 0.15s;
+
+  &:hover {
+    border-color: @teal-700;
+    color: @teal-700;
+    background: @teal-50;
+  }
+}
+
+.finalReportEmpty {
+  text-align: center;
+  color: @stone-400;
+  font-size: 13px;
+  padding: 1.5rem 0;
+}
+
+// ─── Submitted-to info row ────────────────────────────────────────────────────
+
+.submittedToRow {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  border-bottom: 1px solid @stone-200;
+  padding-bottom: 8px;
+}
+
+.infoKey {
+  font-size: 12px;
+  color: @stone-400;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.infoVal {
+  font-size: 13px;
+  color: @stone-800;
+  font-weight: 500;
+}

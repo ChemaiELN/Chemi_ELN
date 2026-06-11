@@ -188,8 +188,11 @@
       "mcp__Claude_in_Chrome__browser_batch",
       "mcp__Claude_in_Chrome__tabs_create_mcp",
       "Bash(git checkout *)",
+      "Bash(git branch *)",
+      "Bash(Get-ChildItem -Force)",
       "Bash(git add *)",
-      "Bash(git rebase *)"
+      "Bash(git commit *)",
+      "Bash(git push *)"
     ]
   }
 }

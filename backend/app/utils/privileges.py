@@ -140,6 +140,29 @@ DEFAULT_GRANTS: dict[str, frozenset[str]] = {
 }
 
 
+def user_has_privilege(user: User, db: Session, privilege_key: str) -> bool:
+    """Return True if the user holds privilege_key (mirrors require_privilege logic)."""
+    if user.role.code == "QA":
+        return True
+
+    priv = db.query(RolePrivilege).filter(
+        RolePrivilege.role_id       == user.role_id,
+        RolePrivilege.privilege_key == privilege_key,
+    ).first()
+
+    if priv is not None:
+        return bool(priv.is_granted)
+
+    return user.role.code in DEFAULT_GRANTS.get(privilege_key, frozenset())
+
+
+def resolve_user_privileges(user: User, db: Session) -> list[str]:
+    """Return sorted list of privilege keys the user currently holds."""
+    if user.role.code == "QA":
+        return sorted(ALL_PRIVILEGE_KEYS)
+    return sorted(k for k in ALL_PRIVILEGE_KEYS if user_has_privilege(user, db, k))
+
+
 def require_privilege(privilege_key: str):
     """
     FastAPI dependency factory.

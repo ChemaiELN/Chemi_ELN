@@ -11,7 +11,7 @@ from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models.atr import ATR
@@ -19,6 +19,7 @@ from app.models.experiment import Experiment
 from app.models.notebook import Notebook, NotebookPermission
 from app.models.project import Project
 from app.models.user import User
+from app.schemas.experiment import experiment_summary_from_orm
 from app.utils.deps import get_current_user
 from app.utils.global_settings import experiment_search_limit
 
@@ -57,7 +58,7 @@ def search_experiments(
 ):
     nb_ids = _visible_nb_ids(db, actor)
 
-    query = db.query(Experiment)
+    query = db.query(Experiment).options(selectinload(Experiment.creator))
     if nb_ids is not None:
         query = query.filter(Experiment.notebook_id.in_(nb_ids))
 
@@ -94,7 +95,8 @@ def search_experiments(
         .limit(limit)
         .all()
     )
-    return {"total": total, "page": page, "page_size": limit, "items": items}
+    summaries = [experiment_summary_from_orm(e) for e in items]
+    return {"total": total, "page": page, "page_size": limit, "items": summaries}
 
 
 @router.get("/atrs")

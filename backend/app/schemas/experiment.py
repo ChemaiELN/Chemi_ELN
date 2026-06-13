@@ -164,7 +164,7 @@ class ExperimentResponse(BaseModel):
 
 
 class ExperimentSummary(BaseModel):
-    """Lightweight — for notebook experiment list."""
+    """Lightweight — for notebook experiment list and search."""
     id:                str
     full_code:         str
     base_code:         str
@@ -174,6 +174,32 @@ class ExperimentSummary(BaseModel):
     section_key:       Optional[str]
     status:            str
     is_latest_version: bool
+    notebook_id:       Optional[str] = None
+    project_id:        Optional[str] = None
+    created_by:        Optional[str] = None
+    creator_name:      Optional[str] = None
     created_at:        datetime
     updated_at:        datetime
     model_config = ConfigDict(from_attributes=True)
+
+
+def experiment_summary_from_orm(exp) -> ExperimentSummary:
+    """Build summary with resolved creator display name."""
+    creator = getattr(exp, "creator", None)
+    return ExperimentSummary(
+        id=exp.id,
+        full_code=exp.full_code,
+        base_code=exp.base_code,
+        version=exp.version,
+        title=exp.title,
+        screen_key=exp.screen_key,
+        section_key=exp.section_key,
+        status=exp.status,
+        is_latest_version=exp.is_latest_version,
+        notebook_id=exp.notebook_id,
+        project_id=exp.project_id,
+        created_by=exp.created_by,
+        creator_name=creator.display_name if creator else None,
+        created_at=exp.created_at,
+        updated_at=exp.updated_at,
+    )

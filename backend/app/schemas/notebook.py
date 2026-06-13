@@ -2,7 +2,7 @@
 Notebook schemas.
 """
 from datetime import datetime
-from typing import Optional
+from typing import Any, Dict, Optional
 
 from pydantic import BaseModel, ConfigDict
 
@@ -41,6 +41,7 @@ class NotebookCreate(BaseModel):
     route_id:      Optional[str] = None
     stage_id:      Optional[str] = None
     notebook_type: Optional[str] = None   # e.g. "preliminary", "formal", "synthesis"
+    template_id:   Optional[str] = None   # workflow template for experiments in this notebook
 
 
 class NotebookUpdate(BaseModel):
@@ -59,7 +60,11 @@ class NotebookResponse(BaseModel):
     project_id:    str
     route_id:      Optional[str]
     stage_id:      Optional[str]
-    notebook_type: Optional[str]
+    notebook_type:     Optional[str]
+    template_id:       Optional[str]
+    template_name:     Optional[str] = None
+    template_slug:     Optional[str] = None
+    template_snapshot: Optional[Dict[str, Any]] = None
     created_by:    str
     creator:       Optional[UserShort]
     status:        str

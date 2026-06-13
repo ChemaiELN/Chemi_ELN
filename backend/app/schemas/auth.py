@@ -1,4 +1,4 @@
-from typing import Optional
+from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 
@@ -39,6 +39,7 @@ class MeResponse(BaseModel):
     dashboard_reference:   Optional[str] = None
     allow_settings_update: bool = False
     must_reset_password:   bool = False
+    privileges:            List[str] = []
 
     model_config = ConfigDict(from_attributes=True)
 

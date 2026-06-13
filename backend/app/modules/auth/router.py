@@ -29,6 +29,7 @@ from app.schemas.auth import (
     TokenResponse,
 )
 from app.utils.deps import get_current_user
+from app.utils.privileges import resolve_user_privileges
 
 # Import the shared limiter configured in main.py
 limiter = Limiter(key_func=get_remote_address)
@@ -134,7 +135,10 @@ def logout(body: RefreshRequest, db: Session = Depends(get_db)):
 
 # ── GET /me ───────────────────────────────────────────────────────────────────
 @router.get("/me", response_model=MeResponse)
-def me(current_user: User = Depends(get_current_user)):
+def me(
+    current_user: User    = Depends(get_current_user),
+    db:           Session = Depends(get_db),
+):
     return MeResponse(
         id              = current_user.id,
         emp_no          = current_user.emp_no,
@@ -156,6 +160,7 @@ def me(current_user: User = Depends(get_current_user)):
         dashboard_reference   = current_user.dashboard_reference,
         allow_settings_update = current_user.allow_settings_update,
         must_reset_password   = current_user.must_reset_password,
+        privileges            = resolve_user_privileges(current_user, db),
     )
 
 

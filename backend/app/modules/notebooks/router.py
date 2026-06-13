@@ -23,6 +23,7 @@ from app.models.notebook import Notebook, NotebookPermission
 from app.models.project import Project
 from app.models.route import Route, Stage
 from app.models.user import User
+from app.models.workflow_template import WorkflowTemplate
 from app.schemas.common import MessageResponse, PaginatedResponse, paginate
 from app.schemas.notebook import (
     NotebookCreate, NotebookResponse, NotebookUpdate,
@@ -48,7 +49,10 @@ _nb_perms  = require_privilege(NOTEBOOKS_PERMISSIONS)
 def _load_notebook(db: Session, notebook_id: str) -> Notebook:
     nb = (
         db.query(Notebook)
-        .options(selectinload(Notebook.creator))
+        .options(
+            selectinload(Notebook.creator),
+            selectinload(Notebook.template),
+        )
         .filter(Notebook.id == notebook_id)
         .first()
     )
@@ -71,6 +75,10 @@ def _build_response(nb: Notebook) -> NotebookResponse:
         description=nb.description,
         project_id=nb.project_id, route_id=nb.route_id, stage_id=nb.stage_id,
         notebook_type=nb.type,
+        template_id=nb.template_id,
+        template_name=nb.template.name if nb.template else None,
+        template_slug=nb.template.slug if nb.template else None,
+        template_snapshot=nb.template_snapshot,
         created_by=nb.created_by, creator=creator,
         status=nb.status, created_at=nb.created_at, updated_at=nb.updated_at,
     )
@@ -127,19 +135,31 @@ def create_notebook(
             raise HTTPException(404, "Stage not found")
         stage_code = stage.code
 
+    # Validate workflow template if provided
+    template_snapshot = None
+    if body.template_id:
+        tmpl = db.get(WorkflowTemplate, body.template_id)
+        if not tmpl:
+            raise HTTPException(404, "Workflow template not found")
+        if not tmpl.is_active:
+            raise HTTPException(400, "Workflow template is inactive")
+        template_snapshot = tmpl.definition
+
     # Generate unique notebook code e.g. OQ-R1-S1-NB001
     code = next_notebook_code(db, project.code, route_code, stage_code)
 
     nb = Notebook(
-        code        = code,
-        title       = body.title,
-        description = body.description,
-        project_id  = body.project_id,
-        route_id    = body.route_id,
-        stage_id    = body.stage_id,
-        type        = body.notebook_type,
-        created_by  = actor.id,
-        status      = "ACTIVE",
+        code              = code,
+        title             = body.title,
+        description       = body.description,
+        project_id        = body.project_id,
+        route_id          = body.route_id,
+        stage_id          = body.stage_id,
+        type              = body.notebook_type,
+        template_id       = body.template_id,
+        template_snapshot = template_snapshot,
+        created_by        = actor.id,
+        status            = "ACTIVE",
     )
     db.add(nb)
     db.flush()

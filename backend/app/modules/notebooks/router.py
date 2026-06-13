@@ -30,12 +30,17 @@ from app.schemas.notebook import (
 )
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
-from app.utils.privileges import require_privilege, NOTEBOOKS_MANAGE
+from app.utils.privileges import (
+    require_privilege,
+    NOTEBOOKS_CREATE, NOTEBOOKS_EDIT, NOTEBOOKS_PERMISSIONS,
+)
 from app.utils.sequences import next_notebook_code
 
 router = APIRouter()
 
-_HOD_TL = require_privilege(NOTEBOOKS_MANAGE)
+_nb_create = require_privilege(NOTEBOOKS_CREATE)
+_nb_edit   = require_privilege(NOTEBOOKS_EDIT)
+_nb_perms  = require_privilege(NOTEBOOKS_PERMISSIONS)
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -65,6 +70,7 @@ def _build_response(nb: Notebook) -> NotebookResponse:
         id=nb.id, code=nb.code, title=nb.title,
         description=nb.description,
         project_id=nb.project_id, route_id=nb.route_id, stage_id=nb.stage_id,
+        notebook_type=nb.type,
         created_by=nb.created_by, creator=creator,
         status=nb.status, created_at=nb.created_at, updated_at=nb.updated_at,
     )
@@ -101,7 +107,7 @@ def create_notebook(
     body:    NotebookCreate,
     request: Request,
     db:      Session = Depends(get_db),
-    actor:   User    = Depends(_HOD_TL),
+    actor:   User    = Depends(_nb_create),
 ):
     # Validate project exists
     project = db.get(Project, body.project_id)
@@ -131,6 +137,7 @@ def create_notebook(
         project_id  = body.project_id,
         route_id    = body.route_id,
         stage_id    = body.stage_id,
+        type        = body.notebook_type,
         created_by  = actor.id,
         status      = "ACTIVE",
     )
@@ -250,7 +257,7 @@ def update_notebook(
     body:        NotebookUpdate,
     request:     Request,
     db:          Session = Depends(get_db),
-    actor:       User    = Depends(_HOD_TL),
+    actor:       User    = Depends(_nb_edit),
 ):
     nb = _load_notebook(db, notebook_id)
 
@@ -259,7 +266,7 @@ def update_notebook(
         raise HTTPException(400, f"Invalid status. Use: {valid_statuses}")
 
     changed = []
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         if field == "status":
             value = value.upper()
         if getattr(nb, field) != value:
@@ -310,7 +317,7 @@ def grant_permission(
     body:        PermissionGrant,
     request:     Request,
     db:          Session = Depends(get_db),
-    actor:       User    = Depends(_HOD_TL),
+    actor:       User    = Depends(_nb_perms),
 ):
     if not _load_notebook(db, notebook_id):
         raise HTTPException(404, "Notebook not found")
@@ -378,7 +385,7 @@ def grant_permission(
 def list_permissions(
     notebook_id: str,
     db:    Session = Depends(get_db),
-    actor: User    = Depends(_HOD_TL),
+    actor: User    = Depends(_nb_perms),
 ):
     _load_notebook(db, notebook_id)
     perms = (
@@ -400,7 +407,7 @@ def update_permission(
     user_id:     str,
     body:        PermissionUpdate,
     db:          Session = Depends(get_db),
-    actor:       User    = Depends(_HOD_TL),
+    actor:       User    = Depends(_nb_perms),
 ):
     perm = db.query(NotebookPermission).filter(
         NotebookPermission.notebook_id == notebook_id,
@@ -409,7 +416,7 @@ def update_permission(
     if not perm:
         raise HTTPException(404, "Permission record not found for this user")
 
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         setattr(perm, field, value)
 
     db.commit()
@@ -434,7 +441,7 @@ def revoke_permission(
     notebook_id: str,
     user_id:     str,
     db:          Session = Depends(get_db),
-    actor:       User    = Depends(_HOD_TL),
+    actor:       User    = Depends(_nb_perms),
 ):
     perm = db.query(NotebookPermission).filter(
         NotebookPermission.notebook_id == notebook_id,

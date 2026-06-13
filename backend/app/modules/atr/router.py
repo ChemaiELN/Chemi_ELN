@@ -450,8 +450,8 @@ def create_unlock_request(
     exp = db.get(Experiment, body.experiment_id)
     if not exp:
         raise HTTPException(404, "Experiment not found")
-    if exp.status != "APPROVED":
-        raise HTTPException(400, f"Unlock requests can only be raised for APPROVED experiments (current: {exp.status})")
+    if exp.status != "LOCKED":
+        raise HTTPException(400, f"Unlock requests can only be raised for LOCKED experiments (current: {exp.status})")
 
     existing = (
         db.query(UnlockRequest)
@@ -593,7 +593,7 @@ def approve_unlock_request(
     req.review_note = body.review_note
 
     exp = db.get(Experiment, req.experiment_id)
-    if exp and exp.status == "APPROVED":
+    if exp and exp.status == "LOCKED":
         exp.status = "UNLOCKED"
         exp.unlocked_by = current_user.id
         exp.unlocked_at = _now()
@@ -645,4 +645,4 @@ def reject_unlock_request(
     )
     db.commit()
     db.refresh(req)
-    return req
+    return _enrich_unlock(db, req)

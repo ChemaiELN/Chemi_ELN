@@ -34,11 +34,12 @@ from app.schemas.project import (
 )
 from app.utils.audit import get_ip, log_action
 from app.utils.deps import get_current_user, require_roles
-from app.utils.privileges import require_privilege, PROJECTS_MANAGE
+from app.utils.privileges import require_privilege, PROJECTS_CREATE, PROJECTS_EDIT
 
 router = APIRouter()
 
-_QA_HOD = require_privilege(PROJECTS_MANAGE)
+_create = require_privilege(PROJECTS_CREATE)
+_edit   = require_privilege(PROJECTS_EDIT)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -89,7 +90,7 @@ def create_project(
     body:    ProjectCreate,
     request: Request,
     db:      Session = Depends(get_db),
-    actor:   User    = Depends(_QA_HOD),
+    actor:   User    = Depends(_create),
 ):
     if db.query(Project).filter(Project.code == body.code.upper()).first():
         raise HTTPException(400, f"Project code '{body.code}' already exists")
@@ -184,7 +185,7 @@ def update_project(
     body:       ProjectUpdate,
     request:    Request,
     db:         Session = Depends(get_db),
-    actor:      User    = Depends(_QA_HOD),
+    actor:      User    = Depends(_edit),
 ):
     proj = _load_project(db, project_id)
 
@@ -193,7 +194,7 @@ def update_project(
         raise HTTPException(400, f"Invalid status. Choose from: {valid_statuses}")
 
     changed = []
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         if field == "status" and value:
             value = value.upper()
         if getattr(proj, field) != value:
@@ -217,6 +218,38 @@ def update_project(
     return _project_response(_load_project(db, project_id))
 
 
+# ── Close project (HOD / QA) ─────────────────────────────────────────────────
+
+@router.post("/{project_id}/close", response_model=ProjectResponse, summary="Close a project (HOD / QA)")
+def close_project(
+    project_id: str,
+    request:    Request,
+    db:         Session = Depends(get_db),
+    actor:      User    = Depends(_edit),
+):
+    proj = _load_project(db, project_id)
+    if proj.status == "CLOSED":
+        raise HTTPException(400, "Project is already CLOSED")
+    if proj.status == "CANCELLED":
+        raise HTTPException(400, "Cancelled projects cannot be closed — they are already inactive")
+
+    proj.status = "CLOSED"
+    log_action(
+        db,
+        user_id      = actor.id,
+        username     = actor.username,
+        module       = "Projects",
+        action       = "CLOSED",
+        target_type  = "project",
+        target_id    = project_id,
+        target_label = proj.code,
+        detail       = f"Project '{proj.name}' closed",
+        ip_address   = get_ip(request),
+    )
+    db.commit()
+    return _project_response(_load_project(db, project_id))
+
+
 # ── Team Members ──────────────────────────────────────────────────────────────
 
 @router.post(
@@ -228,7 +261,7 @@ def add_members(
     project_id: str,
     body:       ProjectUserAdd,
     db:         Session = Depends(get_db),
-    actor:      User    = Depends(_QA_HOD),
+    actor:      User    = Depends(_edit),
 ):
     proj = db.get(Project, project_id)
     if not proj:
@@ -253,7 +286,7 @@ def remove_member(
     project_id: str,
     user_id:    str,
     db:         Session = Depends(get_db),
-    actor:      User    = Depends(_QA_HOD),
+    actor:      User    = Depends(_edit),
 ):
     pu = db.query(ProjectUser).filter(
         ProjectUser.project_id == project_id,
@@ -290,7 +323,7 @@ def list_members(
             emp_no=pu.user.emp_no,
             display_name=pu.user.display_name,
         ) if pu.user else None
-        result.append(ProjectUserResponse(user_id=pu.user_id, user=u, added_at=pu.added_at))
+        result.append(ProjectUserResponse(user_id=pu.user_id, user=u, added_by=pu.added_by, added_at=pu.added_at))
     return result
 
 
@@ -306,7 +339,7 @@ def create_milestone(
     project_id: str,
     body:       MilestoneCreate,
     db:         Session = Depends(get_db),
-    actor:      User    = Depends(_QA_HOD),
+    actor:      User    = Depends(_edit),
 ):
     if not db.get(Project, project_id):
         raise HTTPException(404, "Project not found")
@@ -354,7 +387,7 @@ def update_milestone(
     ms_id:      str,
     body:       MilestoneUpdate,
     db:         Session = Depends(get_db),
-    actor:      User    = Depends(_QA_HOD),
+    actor:      User    = Depends(_edit),
 ):
     ms = db.query(Milestone).filter(
         Milestone.id == ms_id, Milestone.project_id == project_id
@@ -362,7 +395,7 @@ def update_milestone(
     if not ms:
         raise HTTPException(404, "Milestone not found")
 
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         setattr(ms, field, value)
 
     db.commit()
@@ -379,7 +412,7 @@ def delete_milestone(
     project_id: str,
     ms_id:      str,
     db:         Session = Depends(get_db),
-    actor:      User    = Depends(_QA_HOD),
+    actor:      User    = Depends(_edit),
 ):
     ms = db.query(Milestone).filter(
         Milestone.id == ms_id, Milestone.project_id == project_id

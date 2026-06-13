@@ -7,7 +7,6 @@ Global experiment search with:
   - ATR search
   - Notebook and project search
 """
-from decimal import Decimal
 from typing import Optional
 
 from fastapi import APIRouter, Depends, Query
@@ -16,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.atr import ATR
-from app.models.experiment import Experiment, ExperimentParameter
+from app.models.experiment import Experiment
 from app.models.notebook import Notebook, NotebookPermission
 from app.models.project import Project
 from app.models.user import User
@@ -43,23 +42,19 @@ def _visible_nb_ids(db: Session, actor: User) -> Optional[list]:
 
 @router.get("/experiments")
 def search_experiments(
-    q:                  Optional[str]   = Query(None, description="Full-text across code, title, aim, conclusion"),
-    status:             Optional[str]   = Query(None),
-    notebook_id:        Optional[str]   = Query(None),
-    project_id:         Optional[str]   = Query(None),
-    created_by:         Optional[str]   = Query(None),
-    starting_material:  Optional[str]   = Query(None),
-    target_product:     Optional[str]   = Query(None),
-    reaction_type:      Optional[str]   = Query(None),
-    yield_min:          Optional[float] = Query(None),
-    yield_max:          Optional[float] = Query(None),
-    latest_only:        bool            = Query(True),
-    page:               int             = Query(1, ge=1),
-    page_size:          int             = Query(20, ge=1, le=100),
-    db:                 Session         = Depends(get_db),
-    actor:              User            = Depends(get_current_user),
+    q:           Optional[str]  = Query(None, description="Full-text across full_code, title, observations, conclusion"),
+    status:      Optional[str]  = Query(None),
+    notebook_id: Optional[str]  = Query(None),
+    project_id:  Optional[str]  = Query(None),
+    created_by:  Optional[str]  = Query(None),
+    screen_key:  Optional[str]  = Query(None),
+    section_key: Optional[str]  = Query(None),
+    latest_only: bool           = Query(True),
+    page:        int            = Query(1, ge=1),
+    page_size:   int            = Query(20, ge=1, le=100),
+    db:          Session        = Depends(get_db),
+    actor:       User           = Depends(get_current_user),
 ):
-    """FIX-35: Comprehensive experiment search."""
     nb_ids = _visible_nb_ids(db, actor)
 
     query = db.query(Experiment)
@@ -70,12 +65,10 @@ def search_experiments(
         like = f"%{q}%"
         query = query.filter(or_(
             Experiment.title.ilike(like),
-            Experiment.code.ilike(like),
             Experiment.full_code.ilike(like),
-            Experiment.aim.ilike(like),
+            Experiment.base_code.ilike(like),
+            Experiment.observations.ilike(like),
             Experiment.conclusion.ilike(like),
-            Experiment.starting_material.ilike(like),
-            Experiment.target_product.ilike(like),
         ))
 
     if status:
@@ -86,16 +79,10 @@ def search_experiments(
         query = query.filter(Experiment.project_id == project_id)
     if created_by:
         query = query.filter(Experiment.created_by == created_by)
-    if starting_material:
-        query = query.filter(Experiment.starting_material.ilike(f"%{starting_material}%"))
-    if target_product:
-        query = query.filter(Experiment.target_product.ilike(f"%{target_product}%"))
-    if reaction_type:
-        query = query.filter(Experiment.reaction_type.ilike(f"%{reaction_type}%"))
-    if yield_min is not None:
-        query = query.filter(Experiment.yield_pct >= yield_min)
-    if yield_max is not None:
-        query = query.filter(Experiment.yield_pct <= yield_max)
+    if screen_key:
+        query = query.filter(Experiment.screen_key == screen_key)
+    if section_key:
+        query = query.filter(Experiment.section_key == section_key)
     if latest_only:
         query = query.filter(Experiment.is_latest_version.is_(True))
 
@@ -108,49 +95,6 @@ def search_experiments(
         .all()
     )
     return {"total": total, "page": page, "page_size": limit, "items": items}
-
-
-@router.get("/experiments/by-parameters")
-def search_by_parameters(
-    param_code: str             = Query(..., description="Parameter code to filter on, e.g. P1"),
-    value_min:  Optional[Decimal] = Query(None),
-    value_max:  Optional[Decimal] = Query(None),
-    uom:        Optional[str]   = Query(None),
-    page:       int             = Query(1, ge=1),
-    page_size:  int             = Query(20, ge=1, le=100),
-    db:         Session         = Depends(get_db),
-    actor:      User            = Depends(get_current_user),
-):
-    """FIX-35: Search experiments by parameter code and value range."""
-    nb_ids = _visible_nb_ids(db, actor)
-
-    param_q = db.query(ExperimentParameter.experiment_id).filter(
-        ExperimentParameter.code == param_code
-    )
-    if value_min is not None:
-        param_q = param_q.filter(ExperimentParameter.parameter_value >= value_min)
-    if value_max is not None:
-        param_q = param_q.filter(ExperimentParameter.parameter_value <= value_max)
-    if uom:
-        param_q = param_q.filter(ExperimentParameter.uom == uom)
-
-    matching_exp_ids = [row[0] for row in param_q.all()]
-
-    query = db.query(Experiment).filter(
-        Experiment.id.in_(matching_exp_ids),
-        Experiment.is_latest_version.is_(True),
-    )
-    if nb_ids is not None:
-        query = query.filter(Experiment.notebook_id.in_(nb_ids))
-
-    total = query.count()
-    items = (
-        query.order_by(Experiment.created_at.desc())
-        .offset((page - 1) * page_size)
-        .limit(page_size)
-        .all()
-    )
-    return {"total": total, "page": page, "items": items}
 
 
 @router.get("/atrs")

@@ -35,11 +35,12 @@ class PermissionFlags(BaseModel):
 # ── Notebook ──────────────────────────────────────────────────────────────────
 
 class NotebookCreate(BaseModel):
-    title:       str
-    description: Optional[str] = None
-    project_id:  str
-    route_id:    Optional[str] = None
-    stage_id:    Optional[str] = None
+    title:         str
+    description:   Optional[str] = None
+    project_id:    str
+    route_id:      Optional[str] = None
+    stage_id:      Optional[str] = None
+    notebook_type: Optional[str] = None   # e.g. "preliminary", "formal", "synthesis"
 
 
 class NotebookUpdate(BaseModel):
@@ -51,18 +52,19 @@ class NotebookUpdate(BaseModel):
 
 
 class NotebookResponse(BaseModel):
-    id:          str
-    code:        str
-    title:       str
-    description: Optional[str]
-    project_id:  str
-    route_id:    Optional[str]
-    stage_id:    Optional[str]
-    created_by:  str
-    creator:     Optional[UserShort]
-    status:      str
-    created_at:  datetime
-    updated_at:  datetime
+    id:            str
+    code:          str
+    title:         str
+    description:   Optional[str]
+    project_id:    str
+    route_id:      Optional[str]
+    stage_id:      Optional[str]
+    notebook_type: Optional[str]
+    created_by:    str
+    creator:       Optional[UserShort]
+    status:        str
+    created_at:    datetime
+    updated_at:    datetime
 
     model_config = ConfigDict(from_attributes=True)
 

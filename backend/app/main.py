@@ -56,7 +56,8 @@ from app.modules.departments import router as _dept_mod          # noqa: E402
 from app.modules.projects    import router as _proj_mod          # noqa: E402
 from app.modules.projects    import routes as _proj_routes_mod   # noqa: E402
 from app.modules.notebooks   import router as _nb_mod            # noqa: E402
-from app.modules.experiments import router as _exp_mod           # noqa: E402
+from app.modules.experiments.router import nb_router as _exp_nb_router, router as _exp_router  # noqa: E402
+from app.modules.workflow_templates import router as _wft_router_mod  # noqa: E402
 from app.modules.atr         import router as _atr_mod           # noqa: E402
 from app.modules.admin       import router as _admin_mod         # noqa: E402
 from app.modules.admin       import notifications as _ns_mod     # noqa: E402
@@ -85,7 +86,9 @@ app.include_router(_dept_mod.router,               prefix="/api/departments",   
 app.include_router(_proj_mod.router,               prefix="/api/projects",               tags=["Projects"])
 app.include_router(_proj_routes_mod.router,        prefix="/api/routes",                 tags=["Routes"])
 app.include_router(_nb_mod.router,                 prefix="/api/notebooks",              tags=["Notebooks"])
-app.include_router(_exp_mod.router,                prefix="/api/experiments",            tags=["Experiments"])
+app.include_router(_exp_nb_router,                 prefix="/api/notebooks",              tags=["Experiments"])
+app.include_router(_exp_router,                    prefix="/api/experiments",            tags=["Experiments"])
+app.include_router(_wft_router_mod.router,         prefix="/api/workflow-templates",     tags=["Workflow Templates"])
 app.include_router(_atr_mod.router,                prefix="/api/atr",                    tags=["ATR"])
 app.include_router(_atr_mod.unlock_router,         prefix="/api/unlock-requests",        tags=["Unlock Requests"])
 app.include_router(_admin_mod.router,              prefix="/api/admin",                  tags=["Admin"])

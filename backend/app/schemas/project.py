@@ -94,6 +94,7 @@ class ProjectUserAdd(BaseModel):
 class ProjectUserResponse(BaseModel):
     user_id:     str
     user:        Optional[UserShort]
+    added_by:    Optional[str] = None
     added_at:    datetime
 
     model_config = ConfigDict(from_attributes=True)

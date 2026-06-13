@@ -2,12 +2,13 @@ from datetime import datetime, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.audit import AuditLog
 from app.models.sequence import SequenceCounter
-from app.models.settings import CompanySettings, CRDSettings
+from app.models.settings import CompanySettings, CRDSettings, GlobalSettings, SMTPConfig
 from app.models.user import User
 from app.schemas.admin import (
     AuditLogResponse,
@@ -15,6 +16,10 @@ from app.schemas.admin import (
     CRDSettingsUpdate,
     CompanySettingsResponse,
     CompanySettingsUpdate,
+    GlobalSettingsResponse,
+    GlobalSettingsUpdate,
+    SMTPConfigResponse,
+    SMTPConfigUpdate,
     SequenceCounterResponse,
 )
 from app.schemas.common import PaginatedResponse, paginate
@@ -38,6 +43,26 @@ def _get_or_create_crd(db: Session) -> CRDSettings:
     row = db.get(CRDSettings, 1)
     if not row:
         row = CRDSettings(id=1)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return row
+
+
+def _get_or_create_global(db: Session) -> GlobalSettings:
+    row = db.get(GlobalSettings, 1)
+    if not row:
+        row = GlobalSettings(id=1)
+        db.add(row)
+        db.commit()
+        db.refresh(row)
+    return row
+
+
+def _get_or_create_smtp(db: Session) -> SMTPConfig:
+    row = db.get(SMTPConfig, 1)
+    if not row:
+        row = SMTPConfig(id=1)
         db.add(row)
         db.commit()
         db.refresh(row)
@@ -92,6 +117,57 @@ def update_crd_settings(
     return row
 
 
+# ── Global Settings ───────────────────────────────────────────────────────────
+
+@router.get("/settings/global", response_model=GlobalSettingsResponse)
+def get_global_settings(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
+):
+    return _get_or_create_global(db)
+
+
+@router.patch("/settings/global", response_model=GlobalSettingsResponse)
+def update_global_settings(
+    body: GlobalSettingsUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
+):
+    row = _get_or_create_global(db)
+    for field, val in body.model_dump(exclude_unset=True).items():
+        setattr(row, field, val)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+# ── SMTP Config ───────────────────────────────────────────────────────────────
+
+@router.get("/settings/smtp", response_model=SMTPConfigResponse)
+def get_smtp_settings(
+    db: Session = Depends(get_db),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
+):
+    return _get_or_create_smtp(db)
+
+
+@router.patch("/settings/smtp", response_model=SMTPConfigResponse)
+def update_smtp_settings(
+    body: SMTPConfigUpdate,
+    db: Session = Depends(get_db),
+    _: User = Depends(require_privilege(ADMIN_SETTINGS)),
+):
+    row = _get_or_create_smtp(db)
+    data = body.model_dump(exclude_unset=True)
+    if "password" in data:
+        row.password_encrypted = data.pop("password")
+    for field, val in data.items():
+        setattr(row, field, val)
+    db.commit()
+    db.refresh(row)
+    return row
+
+
 # ── Sequence Counters ─────────────────────────────────────────────────────────
 
 @router.get("/sequences", response_model=List[SequenceCounterResponse])
@@ -117,13 +193,38 @@ def get_sequence(
 
 # ── Privilege Keys catalogue ─────────────────────────────────────────────────
 
-@router.get("/privilege-keys", response_model=list[str])
+class _PrivilegeInfo(BaseModel):
+    key:           str
+    label:         str
+    description:   str
+    default_roles: List[str]
+
+class _PrivilegeGroup(BaseModel):
+    module:     str
+    privileges: List[_PrivilegeInfo]
+
+
+@router.get("/privilege-keys", response_model=List[_PrivilegeGroup])
 def list_privilege_keys(
     _: User = Depends(get_current_user),
 ):
-    """Return all valid privilege_key strings so the admin UI can populate dropdowns."""
-    from app.utils.privileges import ALL_PRIVILEGE_KEYS
-    return sorted(ALL_PRIVILEGE_KEYS)
+    """Return all privileges grouped by module with labels, descriptions, and default roles.
+    Use this to know what each key does before assigning it to a role.
+    """
+    from app.utils.privileges import PRIVILEGE_CATALOG, DEFAULT_GRANTS
+    groups = []
+    for group in PRIVILEGE_CATALOG:
+        privs = []
+        for p in group["privileges"]:
+            defaults = sorted(DEFAULT_GRANTS.get(p["key"], set()))
+            privs.append(_PrivilegeInfo(
+                key=p["key"],
+                label=p["label"],
+                description=p["description"],
+                default_roles=defaults,
+            ))
+        groups.append(_PrivilegeGroup(module=group["module"], privileges=privs))
+    return groups
 
 
 # ── Audit Log ─────────────────────────────────────────────────────────────────

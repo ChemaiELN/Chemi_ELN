@@ -70,6 +70,14 @@ def _build_response(user: User) -> UserResponse:
     )
 
 
+@router.get("/me", response_model=UserResponse, summary="Current authenticated user")
+def get_me(
+    db:    Session = Depends(get_db),
+    actor: User    = Depends(get_current_user),
+):
+    return _build_response(_load_user(db, actor.id))
+
+
 @router.post("/", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 def create_user(
     body:    UserCreate,
@@ -93,19 +101,23 @@ def create_user(
 
     parts = [p for p in [body.title, body.first_name, body.last_name] if p]
     user = User(
-        id            = new_uuid(),
-        username      = body.username,
-        emp_no        = body.emp_no,
-        title         = body.title,
-        first_name    = body.first_name,
-        last_name     = body.last_name,
-        display_name  = " ".join(parts),
-        email         = body.email,
-        password_hash = hash_password(body.password),
-        role_id       = _resolve_role(db, body.role).id,
-        designation   = body.designation,
-        department_id = body.department_id,
-        is_active     = True,
+        id                 = new_uuid(),
+        username           = body.username,
+        emp_no             = body.emp_no,
+        title              = body.title,
+        first_name         = body.first_name,
+        middle_initials    = body.middle_initials,
+        last_name          = body.last_name,
+        display_name       = " ".join(parts),
+        email              = body.email,
+        password_hash      = hash_password(body.password),
+        role_id            = _resolve_role(db, body.role).id,
+        designation        = body.designation,
+        contact_no         = body.contact_no,
+        department_id      = body.department_id,
+        site               = body.site,
+        dashboard_reference= body.dashboard_reference,
+        is_active          = True,
     )
     db.add(user)
     db.flush()
@@ -193,8 +205,10 @@ def update_user(
             raise HTTPException(400, "Email already registered to another user")
 
     changed: dict = {}
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         if field == "role":
+            if value is None:
+                continue
             new_role = _resolve_role(db, value)
             if user.role_id != new_role.id:
                 changed["role"] = {"from": user.role.code, "to": value}

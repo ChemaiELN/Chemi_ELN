@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.atr import ATR
-from app.models.experiment import Experiment
+from app.models.experiment import Experiment, ExperimentReview
 from app.models.notebook import NotebookPermission
 from app.models.user import User
 from app.services.esignature import get_crd_settings
@@ -99,20 +99,33 @@ def verification_queue(
     db:        Session = Depends(get_db),
     actor:     User    = Depends(get_current_user),
 ):
-    """FIX-12: Experiments submitted to current user for verification."""
+    """SUBMITTED experiments where actor is an assigned reviewer who hasn't signed yet."""
+    # Experiments where actor has an unsigned review assignment
+    pending_review_exp_ids = (
+        db.query(ExperimentReview.experiment_id)
+        .filter(
+            ExperimentReview.reviewer_id == actor.id,
+            ExperimentReview.signed_at.is_(None),
+        )
+        .subquery()
+    )
     q = db.query(Experiment).filter(
-        Experiment.submitted_to == actor.id,
-        Experiment.status == "VERIFICATION REQUESTED",
+        Experiment.id.in_(pending_review_exp_ids),
+        Experiment.status == "SUBMITTED",
         Experiment.is_latest_version.is_(True),
     )
     total = q.count()
     items = (
-        q.order_by(Experiment.submitted_to_at.asc())
+        q.order_by(Experiment.submitted_at.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
-    return {"total": total, "page": page, "items": items}
+    return {"total": total, "page": page, "items": [
+        {"id": e.id, "full_code": e.full_code, "title": e.title,
+         "status": e.status, "submitted_at": e.submitted_at}
+        for e in items
+    ]}
 
 
 @router.get("/approval-queue")
@@ -122,38 +135,53 @@ def approval_queue(
     db:        Session = Depends(get_db),
     actor:     User    = Depends(get_current_user),
 ):
-    """FIX-12: Verified experiments where current user has can_approve permission."""
+    """SUBMITTED experiments where all reviewers have signed APPROVED — ready for HOD/QA to approve."""
+    from sqlalchemy import exists, and_, not_
+    from app.models.experiment import ExperimentReview
+
     roles = {actor.role.code}
 
-    if "QA" in roles or "HOD" in roles:
-        q = db.query(Experiment).filter(
-            Experiment.status == "VERIFIED",
-            Experiment.is_latest_version.is_(True),
-        )
-    else:
-        can_approve_nb_ids = [
-            p.notebook_id
-            for p in db.query(NotebookPermission)
-            .filter(
-                NotebookPermission.user_id == actor.id,
-                NotebookPermission.can_approve.is_(True),
-            )
-            .all()
-        ]
-        q = db.query(Experiment).filter(
-            Experiment.notebook_id.in_(can_approve_nb_ids),
-            Experiment.status == "VERIFIED",
-            Experiment.is_latest_version.is_(True),
-        )
+    # Only HOD/QA can approve (matches EXPERIMENTS_APPROVE default privilege)
+    if "QA" not in roles and "HOD" not in roles:
+        return {"total": 0, "page": page, "items": []}
+
+    # Experiments that have at least one reviewer AND all reviewers have signed APPROVED
+    has_pending = (
+        db.query(ExperimentReview.experiment_id)
+        .filter(ExperimentReview.signed_at.is_(None))
+        .subquery()
+    )
+    has_rejected = (
+        db.query(ExperimentReview.experiment_id)
+        .filter(ExperimentReview.decision == "REJECTED")
+        .subquery()
+    )
+    has_any_reviewer = (
+        db.query(ExperimentReview.experiment_id)
+        .subquery()
+    )
+
+    q = db.query(Experiment).filter(
+        Experiment.status == "SUBMITTED",
+        Experiment.is_latest_version.is_(True),
+        Experiment.id.in_(has_any_reviewer),
+        Experiment.id.notin_(has_pending),
+        Experiment.id.notin_(has_rejected),
+    )
 
     total = q.count()
     items = (
-        q.order_by(Experiment.verified_at.asc())
+        q.order_by(Experiment.submitted_at.asc())
         .offset((page - 1) * page_size)
         .limit(page_size)
         .all()
     )
-    return {"total": total, "page": page, "items": items}
+    return {"total": total, "page": page, "items": [
+        {"id": e.id, "full_code": e.full_code, "title": e.title,
+         "status": e.status, "submitted_at": e.submitted_at,
+         "submitted_by": e.submitted_by}
+        for e in items
+    ]}
 
 
 @router.get("/rework-inbox")
@@ -206,29 +234,32 @@ def sla_alerts(
             Experiment.is_latest_version.is_(True),
         )
 
+    # Experiments sitting in DRAFT too long (not yet submitted)
     sla_days = crd.sla_experiments_days or 30
-    overdue_in_progress = base_q.filter(
-        Experiment.status == "INPROGRESS",
+    overdue_draft = base_q.filter(
+        Experiment.status == "DRAFT",
         Experiment.created_at < now - timedelta(days=sla_days),
     ).count()
 
+    # Experiments submitted but not yet approved (sitting in review too long)
     delay_sub_days = crd.sla_delayed_submission_days or 7
-    delayed_verification = base_q.filter(
-        Experiment.status == "VERIFICATION REQUESTED",
-        Experiment.submitted_to_at < now - timedelta(days=delay_sub_days),
+    delayed_review = base_q.filter(
+        Experiment.status == "SUBMITTED",
+        Experiment.submitted_at < now - timedelta(days=delay_sub_days),
     ).count()
 
+    # Experiments approved but project still open (optional informational metric)
     delay_app_days = crd.sla_delayed_approval_days or 14
-    delayed_approval = base_q.filter(
-        Experiment.status == "VERIFIED",
-        Experiment.verified_at < now - timedelta(days=delay_app_days),
+    long_locked = base_q.filter(
+        Experiment.status == "LOCKED",
+        Experiment.approved_at < now - timedelta(days=delay_app_days),
     ).count()
 
     return {
         "sla_days_for_submission": sla_days,
-        "overdue_in_progress": overdue_in_progress,
-        "delayed_verification_requests": delayed_verification,
-        "delayed_approvals": delayed_approval,
+        "overdue_draft_experiments": overdue_draft,
+        "delayed_review_requests": delayed_review,
+        "long_running_locked": long_locked,
     }
 
 
@@ -238,13 +269,22 @@ def my_activity(
     db:    Session = Depends(get_db),
     actor: User    = Depends(get_current_user),
 ):
-    """Recent ExperimentHistory actions by the current user."""
-    from app.models.experiment import ExperimentHistory
+    """Recent experiments created or submitted by the current user."""
+    from app.models.experiment import Experiment
     recent = (
-        db.query(ExperimentHistory)
-        .filter(ExperimentHistory.action_by == actor.id)
-        .order_by(ExperimentHistory.action_at.desc())
+        db.query(Experiment)
+        .filter(Experiment.created_by == actor.id)
+        .order_by(Experiment.updated_at.desc())
         .limit(limit)
         .all()
     )
-    return {"items": recent}
+    return {"items": [
+        {
+            "id":        e.id,
+            "full_code": e.full_code,
+            "title":     e.title,
+            "status":    e.status,
+            "updated_at": e.updated_at,
+        }
+        for e in recent
+    ]}

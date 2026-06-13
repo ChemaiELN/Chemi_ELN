@@ -17,6 +17,17 @@ class ATRAttachmentResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ATRFinalReportResponse(BaseModel):
+    id: str
+    atr_id: str
+    filename: str
+    file_path: str
+    file_size: Optional[int] = None
+    uploaded_by: str
+    uploaded_at: datetime
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ── ATR ──────────────────────────────────────────────────────────────────────
 
 class ATRCreate(BaseModel):
@@ -49,11 +60,14 @@ class ATRSummary(BaseModel):
     atr_no: str
     test_type: str
     status: str
+    version: int
+    is_latest_version: bool
     experiment_id: Optional[str] = None
     notebook_id: Optional[str] = None
     project_id: Optional[str] = None
     raised_by: str
     raised_at: datetime
+    submitted_to: Optional[str] = None
     assigned_to: Optional[str] = None
     due_date: Optional[date] = None
     created_at: datetime
@@ -69,9 +83,14 @@ class ATRResponse(BaseModel):
     test_type: str
     objectives: str
     status: str
+    version: int
+    is_latest_version: bool
     raised_by: str
     raised_at: datetime
+    submitted_to: Optional[str] = None
+    submitted_at: Optional[datetime] = None
     assigned_to: Optional[str] = None
+    assigned_at: Optional[datetime] = None
     due_date: Optional[date] = None
     result: Optional[str] = None
     result_observations: Optional[str] = None
@@ -82,6 +101,7 @@ class ATRResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
     attachments: List[ATRAttachmentResponse] = []
+    final_reports: List[ATRFinalReportResponse] = []
     model_config = ConfigDict(from_attributes=True)
 
 

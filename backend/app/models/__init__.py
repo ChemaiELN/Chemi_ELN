@@ -8,18 +8,9 @@ from app.models.project import (  # noqa: F401
     Project, ProjectUser, Milestone, ProjectAttachment, MilestoneAttachment,
 )
 from app.models.route import Route, Stage  # noqa: F401
+from app.models.workflow_template import WorkflowTemplate  # noqa: F401
 from app.models.notebook import Notebook, NotebookPermission  # noqa: F401
-from app.models.experiment import (  # noqa: F401
-    Experiment,
-    ExperimentStep,
-    ExperimentEquipment,
-    ExperimentInput,
-    ExperimentParameter,
-    ExperimentTLC,
-    ExperimentAttachment,
-    ExperimentHistory,
-    ExperimentComment,
-)
+from app.models.experiment import Experiment, ExperimentFile, ExperimentReview, ExperimentHistory  # noqa: F401
 from app.models.unlock_request import UnlockRequest  # noqa: F401
 from app.models.atr import ATR, ATRAttachment, ATRFinalReport  # noqa: F401
 from app.models.audit import AuditLog  # noqa: F401

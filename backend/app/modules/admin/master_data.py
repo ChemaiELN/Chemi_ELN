@@ -183,7 +183,7 @@ def update_chemical(
     chem = db.get(LookupChemical, chem_id)
     if not chem:
         raise HTTPException(404, "Chemical not found")
-    for field, val in body.model_dump(exclude_none=True).items():
+    for field, val in body.model_dump(exclude_unset=True).items():
         setattr(chem, field, val)
     db.commit()
     db.refresh(chem)
@@ -282,7 +282,7 @@ def update_instrument(
     inst = db.get(LookupInstrument, inst_id)
     if not inst:
         raise HTTPException(404, "Instrument not found")
-    for field, val in body.model_dump(exclude_none=True).items():
+    for field, val in body.model_dump(exclude_unset=True).items():
         setattr(inst, field, val)
     db.commit()
     db.refresh(inst)
@@ -350,7 +350,7 @@ def update_site(
     site = db.get(Site, site_id)
     if not site:
         raise HTTPException(404, "Site not found")
-    for field, val in body.model_dump(exclude_none=True).items():
+    for field, val in body.model_dump(exclude_unset=True).items():
         setattr(site, field, val)
     db.commit()
     db.refresh(site)

@@ -8,6 +8,7 @@ from app.database import get_db
 from app.models.department import Department
 from app.models.user import Role, RolePrivilege, User
 from app.schemas.role_privilege import (
+    BulkPrivilegeCreate, BulkPrivilegeItem,
     RolePrivilegeCreate, RolePrivilegeResponse, RolePrivilegeUpdate, RoleShort,
 )
 from app.utils.audit import get_ip, log_action
@@ -101,6 +102,80 @@ def create_privilege(
         RolePrivilege.id == rp.id
     ).first()
     return _build(db, rp)
+
+
+# ── POST /bulk — upsert many privileges at once ───────────────────────────────
+
+@router.post("/bulk", response_model=List[RolePrivilegeResponse], status_code=201)
+def bulk_upsert_privileges(
+    body:    BulkPrivilegeCreate,
+    request: Request,
+    db:      Session = Depends(get_db),
+    actor:   User    = Depends(_QA),
+):
+    """Set multiple privileges for a role in one request.
+    Each entry is created if it doesn't exist yet, or updated if it does.
+    """
+    role = db.get(Role, body.role_id)
+    if not role:
+        raise HTTPException(404, "Role not found")
+    if body.department_id and not db.get(Department, body.department_id):
+        raise HTTPException(404, "Department not found")
+
+    from app.utils.privileges import ALL_PRIVILEGE_KEYS
+    invalid = [p.privilege_key for p in body.privileges if p.privilege_key not in ALL_PRIVILEGE_KEYS]
+    if invalid:
+        raise HTTPException(400, f"Unknown privilege key(s): {invalid}")
+
+    results = []
+    for item in body.privileges:
+        existing = db.query(RolePrivilege).filter(
+            RolePrivilege.role_id       == body.role_id,
+            RolePrivilege.department_id == body.department_id,
+            RolePrivilege.privilege_key == item.privilege_key,
+        ).first()
+
+        if existing:
+            existing.is_granted = item.is_granted
+            existing.updated_by = actor.id
+            existing.updated_at = datetime.now(timezone.utc)
+            rp = existing
+        else:
+            rp = RolePrivilege(
+                role_id       = body.role_id,
+                department_id = body.department_id,
+                privilege_key = item.privilege_key,
+                is_granted    = item.is_granted,
+                updated_by    = actor.id,
+                updated_at    = datetime.now(timezone.utc),
+            )
+            db.add(rp)
+
+        results.append(rp)
+
+    dept_label = f" (dept: {body.department_id})" if body.department_id else " (global)"
+    keys_summary = ", ".join(p.privilege_key for p in body.privileges)
+    log_action(
+        db,
+        user_id      = actor.id,
+        username     = actor.username,
+        module       = "RolePrivileges",
+        action       = "BULK_UPSERT",
+        target_type  = "role_privilege",
+        target_id    = body.role_id,
+        target_label = f"{role.code}{dept_label}",
+        detail       = f"Bulk upsert {len(body.privileges)} privilege(s): {keys_summary}",
+        ip_address   = get_ip(request),
+    )
+    db.commit()
+
+    # Re-fetch with role relationship loaded
+    refreshed = db.query(RolePrivilege).options(selectinload(RolePrivilege.role)).filter(
+        RolePrivilege.role_id       == body.role_id,
+        RolePrivilege.department_id == body.department_id,
+        RolePrivilege.privilege_key.in_([p.privilege_key for p in body.privileges]),
+    ).all()
+    return [_build(db, rp) for rp in refreshed]
 
 
 # ── GET / — list ──────────────────────────────────────────────────────────────

@@ -146,7 +146,7 @@ def update_department(
         raise HTTPException(404, "Department not found")
 
     changed = []
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         if getattr(dept, field) != value:
             changed.append(field)
         setattr(dept, field, value)

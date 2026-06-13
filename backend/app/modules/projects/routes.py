@@ -157,7 +157,7 @@ def update_route(
         raise HTTPException(400, f"Invalid status. Use: {valid_statuses}")
 
     changed = []
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         if field == "status":
             value = value.upper()
         if getattr(route, field) != value:
@@ -238,7 +238,7 @@ def update_stage(
     if body.status and body.status.upper() not in valid_statuses:
         raise HTTPException(400, f"Invalid status. Use: {valid_statuses}")
 
-    for field, value in body.model_dump(exclude_none=True).items():
+    for field, value in body.model_dump(exclude_unset=True).items():
         if field == "status":
             value = value.upper()
         setattr(stage, field, value)

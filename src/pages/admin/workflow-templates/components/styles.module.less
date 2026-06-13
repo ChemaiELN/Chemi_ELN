@@ -1,0 +1,256 @@
+@import (reference) '../../../../styles/variables.less';
+
+.page { display: flex; flex-direction: column; height: 100vh; overflow: hidden; background: @page-bg; }
+.body { display: flex; flex: 1; overflow: hidden; }
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+// ─── Top bar ──────────────────────────────────────────────────
+.topBar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+}
+
+.breadcrumb {
+  display: flex; align-items: center; gap: 0.375rem;
+  font-size: 0.8125rem; color: @stone-500;
+}
+.breadHome {
+  display: flex; align-items: center; gap: 0.25rem;
+  cursor: pointer; color: @stone-500;
+  &:hover { color: @teal-700; }
+}
+.breadSep     { color: @stone-400; }
+.breadCurrent { font-weight: 500; color: @stone-700; }
+
+.addBtn {
+  font-size: 0.75rem !important; font-weight: 500 !important;
+  height: 31px !important; padding: 0 0.75rem !important;
+  background: @teal-700 !important; border-color: @teal-700 !important;
+  color: #fff !important; border-radius: 5px !important; box-shadow: none !important;
+  &:hover { background: @teal-600 !important; border-color: @teal-600 !important; }
+}
+
+// ─── Info note ────────────────────────────────────────────────
+.infoNote {
+  font-size: 12px;
+  color: @stone-600;
+  background: @stone-50;
+  border: 1px solid @stone-200;
+  border-radius: 6px;
+  padding: 8px 12px;
+  line-height: 1.6;
+
+  strong { color: @stone-800; }
+  code {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11px;
+    background: @stone-200;
+    padding: 1px 4px;
+    border-radius: 3px;
+    color: @teal-700;
+  }
+}
+
+// ─── Table card ───────────────────────────────────────────────
+.card {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+.table {
+  :global {
+    .ant-table-thead > tr > th {
+      background: @stone-50 !important; font-size: 10px !important;
+      text-transform: uppercase; letter-spacing: 0.05em;
+      color: @stone-500 !important; font-weight: 600;
+      padding: 0.4375rem 0.75rem !important;
+      border-bottom: 1px solid @stone-200 !important;
+      &::before { display: none !important; }
+    }
+    .ant-table-tbody > tr > td {
+      font-size: 0.8125rem !important; color: @stone-700 !important;
+      padding: 0.5rem 0.75rem !important;
+      border-bottom: 1px solid @stone-100 !important;
+    }
+    .ant-table-tbody > tr:hover > td { background: @stone-50 !important; }
+    .ant-pagination {
+      padding: 0.5rem 0.875rem !important; margin: 0 !important;
+      border-top: 1px solid @stone-200;
+      display: flex; align-items: center; font-size: 0.75rem;
+    }
+    .ant-pagination-item-active {
+      border-color: @teal-700 !important;
+      a { color: @teal-700 !important; }
+    }
+  }
+}
+
+// ─── Drawer ───────────────────────────────────────────────────
+.configDrawer {
+  :global {
+    .ant-drawer-header { padding: 12px 16px !important; border-bottom: 1px solid @stone-200; }
+    .ant-drawer-title  { font-size: 14px !important; font-weight: 600 !important; }
+    .ant-drawer-body   { padding: 16px !important; overflow-y: auto; }
+  }
+}
+
+.saveBtn {
+  background: @teal-700 !important; border-color: @teal-700 !important;
+  &:hover { background: @teal-600 !important; border-color: @teal-600 !important; }
+}
+
+.drawerSection { margin-bottom: 4px; }
+
+.drawerSectionHeader {
+  display: flex; align-items: center; justify-content: space-between; margin-bottom: 10px;
+}
+
+.drawerSectionTitle {
+  font-size: 13px; font-weight: 600; color: @stone-800; margin-bottom: 10px;
+}
+
+// ─── Template metadata form ───────────────────────────────────
+.metaForm {
+  :global {
+    .ant-form-item-label > label { font-size: 11px !important; color: @stone-600; height: auto !important; }
+    .ant-form-item-label         { padding-bottom: 2px !important; }
+    .ant-input, .ant-input-affix-wrapper { font-size: 12px !important; }
+    .ant-input-textarea > .ant-input { font-size: 12px !important; }
+  }
+}
+
+.metaRow {
+  display: flex; gap: 12px; align-items: flex-start;
+}
+
+// ─── Sections collapse ────────────────────────────────────────
+.sectionsCollapse {
+  border: 1px solid @stone-200 !important;
+  border-radius: 6px !important;
+  background: transparent !important;
+  margin-bottom: 10px;
+
+  :global {
+    .ant-collapse-item {
+      border-bottom: 1px solid @stone-200 !important;
+      &:last-child { border-bottom: none !important; }
+    }
+    .ant-collapse-header {
+      padding: 8px 12px !important;
+      background: @stone-50 !important;
+      align-items: center !important;
+    }
+    .ant-collapse-content-box { padding: 12px !important; }
+  }
+}
+
+.sectionLabel {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+}
+
+.sectionMeta {
+  display: flex; gap: 8px; align-items: center; margin-bottom: 10px;
+}
+
+.sectionContent { display: flex; flex-direction: column; gap: 10px; }
+
+.emptyScreens {
+  font-size: 12px; color: @stone-400; font-style: italic;
+  padding: 8px 0;
+}
+
+.addScreenBtn {
+  width: 100%; font-size: 12px !important; height: 31px !important;
+  border-color: @stone-300 !important; color: @stone-600 !important;
+  &:hover { border-color: @teal-600 !important; color: @teal-600 !important; }
+}
+
+.addSectionBtn {
+  width: 100%; font-size: 12px !important; height: 30px !important;
+  border-color: @stone-300 !important; color: @stone-600 !important;
+  &:hover { border-color: @teal-600 !important; color: @teal-600 !important; }
+}
+
+// ─── Screen panel ─────────────────────────────────────────────
+.screenWrap {
+  border: 1px solid @stone-200;
+  border-radius: 6px;
+  background: @white;
+  overflow: hidden;
+}
+
+.screenHeader {
+  display: flex; align-items: center; gap: 4px;
+  background: @stone-100; padding: 6px 10px;
+  border-bottom: 1px solid @stone-200;
+}
+
+.screenPanel { padding: 10px; }
+
+.screenMeta {
+  display: flex; gap: 8px; align-items: center; flex-wrap: wrap;
+  margin-bottom: 10px; padding-bottom: 10px;
+  border-bottom: 1px solid @stone-100;
+}
+
+// ─── Fields area ──────────────────────────────────────────────
+.fieldsArea {
+  display: flex; flex-direction: column; gap: 6px;
+}
+
+.emptyFields {
+  font-size: 11px; color: @stone-400; font-style: italic; padding: 4px 0;
+}
+
+.addFieldBtn {
+  align-self: flex-start;
+  font-size: 11px !important; height: 26px !important;
+  border-color: @stone-300 !important; color: @stone-500 !important;
+  &:hover { border-color: @teal-600 !important; color: @teal-600 !important; }
+}
+
+// ─── Field row ────────────────────────────────────────────────
+.fieldRow {
+  display: flex; align-items: flex-start; gap: 8px;
+  padding: 6px 8px; border: 1px solid @stone-100; border-radius: 4px;
+  background: @stone-50;
+
+  &:hover { border-color: @stone-300; background: @white; }
+}
+
+.fieldIdx {
+  font-size: 10px; color: @stone-400; font-weight: 600;
+  min-width: 16px; padding-top: 4px;
+}
+
+.fieldInputs {
+  display: flex; align-items: center; gap: 6px; flex: 1; flex-wrap: wrap;
+}
+
+.optionsWrap {
+  display: flex; align-items: center; flex-wrap: wrap; gap: 4px;
+  margin-top: 2px; width: 100%;
+  padding: 4px 6px; background: @stone-100; border-radius: 4px;
+}
+
+// ─── Empty state ──────────────────────────────────────────────
+.emptyDef {
+  display: flex; flex-direction: column; align-items: center;
+  padding: 40px 0;
+}

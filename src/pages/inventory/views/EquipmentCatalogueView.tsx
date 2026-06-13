@@ -1,0 +1,295 @@
+import React, { useState, useEffect, useCallback } from 'react'
+import {
+  Table, Button, Input, Switch, Modal, Form, DatePicker, Badge,
+  Popconfirm, message, Select, Space, Tooltip, Drawer,
+} from 'antd'
+import type { ColumnsType } from 'antd/es/table'
+import {
+  PlusOutlined, EditOutlined, SearchOutlined, InfoCircleOutlined,
+} from '@ant-design/icons'
+import dayjs from 'dayjs'
+import type { EquipmentCatalogue, EquipmentType } from '../types'
+import {
+  getEquipmentCatalogue, createEquipment, updateEquipment, toggleEquipment,
+  getEquipmentTypes,
+} from '@/api/inventoryApi'
+import EllipsisCell from '../components/shared/EllipsisCell'
+import StatusTag from '../components/shared/StatusTag'
+import styles from './styles.module.less'
+
+const ASSET_STATUSES = ['ACTIVE', 'INACTIVE', 'UNDER_MAINTENANCE', 'UNDER_CALIBRATION', 'DECOMMISSIONED']
+const SERVICE_STATUSES = ['OK', 'DUE', 'OVERDUE', 'EXPIRED']
+
+export default function EquipmentCatalogueView() {
+  const [rows,           setRows]           = useState<EquipmentCatalogue[]>([])
+  const [loading,        setLoading]        = useState(false)
+  const [search,         setSearch]         = useState('')
+  const [statusFilter,   setStatusFilter]   = useState<string | undefined>()
+  const [maintFilter,    setMaintFilter]    = useState<string | undefined>()
+  const [typeFilter,     setTypeFilter]     = useState<number | undefined>()
+  const [activeFilter,   setActiveFilter]   = useState<boolean | undefined>()
+
+  const [types, setTypes] = useState<EquipmentType[]>([])
+
+  const [modalOpen,  setModalOpen]  = useState(false)
+  const [editTarget, setEditTarget] = useState<EquipmentCatalogue | null>(null)
+  const [saving,     setSaving]     = useState(false)
+  const [form]                      = Form.useForm()
+
+  const [detailOpen, setDetailOpen] = useState(false)
+  const [detailRow,  setDetailRow]  = useState<EquipmentCatalogue | null>(null)
+
+  useEffect(() => {
+    getEquipmentTypes({ is_active: true }).then(setTypes).catch(() => {})
+  }, [])
+
+  const load = useCallback(() => {
+    setLoading(true)
+    getEquipmentCatalogue({
+      search: search || undefined,
+      status: statusFilter,
+      maintenance_status: maintFilter,
+      equipment_type_id: typeFilter,
+      is_active: activeFilter,
+    })
+      .then(setRows)
+      .catch(() => message.error('Failed to load equipment catalogue'))
+      .finally(() => setLoading(false))
+  }, [search, statusFilter, maintFilter, typeFilter, activeFilter])
+
+  useEffect(() => { load() }, [load])
+
+  const openAdd = () => {
+    setEditTarget(null)
+    form.resetFields()
+    form.setFieldsValue({ status: 'ACTIVE', maintenance_status: 'OK', is_active: true })
+    setModalOpen(true)
+  }
+
+  const openEdit = (row: EquipmentCatalogue) => {
+    setEditTarget(row)
+    form.setFieldsValue({
+      ...row,
+      purchase_date:        row.purchase_date        ? dayjs(row.purchase_date)        : undefined,
+      last_maintenance_date: row.last_maintenance_date ? dayjs(row.last_maintenance_date) : undefined,
+      maintenance_due_date:  row.maintenance_due_date  ? dayjs(row.maintenance_due_date)  : undefined,
+    } as Record<string, unknown>)
+    setModalOpen(true)
+  }
+
+  const handleSave = async () => {
+    let v: Record<string, unknown>
+    try { v = await form.validateFields() } catch { return }
+    const dateFmt = (k: string) => { if (v[k]) v[k] = (v[k] as ReturnType<typeof dayjs>).format('YYYY-MM-DD') }
+    dateFmt('purchase_date'); dateFmt('last_maintenance_date'); dateFmt('maintenance_due_date')
+    setSaving(true)
+    try {
+      if (editTarget) {
+        const updated = await updateEquipment(editTarget.id, v)
+        setRows(prev => prev.map(r => r.id === updated.id ? updated : r))
+        message.success('Equipment updated')
+      } else {
+        await createEquipment(v); message.success('Equipment added'); load()
+      }
+      setModalOpen(false)
+    } catch (err) { message.error(err instanceof Error ? err.message : 'Save failed') }
+    finally { setSaving(false) }
+  }
+
+  const handleClear = () => {
+    setSearch('')
+    setTypeFilter(undefined)
+    setMaintFilter(undefined)
+    setStatusFilter(undefined)
+    setActiveFilter(undefined)
+  }
+
+  const handleToggle = async (row: EquipmentCatalogue) => {
+    try {
+      const updated = await toggleEquipment(row.id)
+      setRows(prev => prev.map(r => r.id === updated.id ? updated : r))
+      message.success(updated.is_active ? 'Activated' : 'Deactivated')
+    } catch { message.error('Toggle failed') }
+  }
+
+  const openDetail = (row: EquipmentCatalogue) => { setDetailRow(row); setDetailOpen(true) }
+
+  const columns: ColumnsType<EquipmentCatalogue> = [
+    {
+      title: 'Asset ID', dataIndex: 'asset_id', key: 'asset_id', width: 120, ellipsis: true,
+      render: (v, row) => (
+        <button type="button" className={styles.ellipsisLink} onClick={() => openDetail(row)}>
+          <EllipsisCell text={v} className={styles.codeCell} />
+        </button>
+      ),
+    },
+    {
+      title: 'Name', dataIndex: 'name', key: 'name', width: 160, ellipsis: true,
+      render: v => <EllipsisCell text={v} className={styles.batchSmName} />,
+    },
+    {
+      title: 'Type', dataIndex: 'equipment_type_name', key: 'equipment_type_name', width: 130, ellipsis: true,
+      render: v => <EllipsisCell text={v} className={styles.batchSmCell} />,
+    },
+    {
+      title: 'Manufacturer', dataIndex: 'manufacturer', key: 'manufacturer', width: 130, ellipsis: true,
+      render: v => <EllipsisCell text={v} className={styles.batchSmCell} />,
+    },
+    {
+      title: 'Model', dataIndex: 'model', key: 'model', width: 110, ellipsis: true,
+      render: v => <EllipsisCell text={v} className={styles.batchSmCell} />,
+    },
+    {
+      title: 'Location', dataIndex: 'location', key: 'location', width: 100, ellipsis: true,
+      render: v => <EllipsisCell text={v} className={styles.batchSmCell} />,
+    },
+    {
+      title: 'Maint. Status', dataIndex: 'maintenance_status', key: 'maintenance_status', width: 120,
+      render: v => <StatusTag status={v} />,
+    },
+    {
+      title: 'Status', dataIndex: 'status', key: 'status', width: 130,
+      render: v => <StatusTag status={v} />,
+    },
+    {
+      title: 'Active', dataIndex: 'is_active', key: 'is_active', width: 68, align: 'center',
+      render: (v, row) => (
+        <Popconfirm title={`${v ? 'Deactivate' : 'Activate'}?`} onConfirm={() => handleToggle(row)} okText="Yes">
+          <Switch size="small" checked={v} />
+        </Popconfirm>
+      ),
+    },
+    {
+      title: 'Actions', key: 'actions', width: 100, align: 'right',
+      render: (_, row) => (
+        <Space size={3}>
+          <Tooltip title="Details">
+            <Button size="small" icon={<InfoCircleOutlined />} className={styles.viewBtn} onClick={() => openDetail(row)} />
+          </Tooltip>
+          <Tooltip title="Edit">
+            <Button size="small" icon={<EditOutlined />} className={styles.viewBtn} onClick={() => openEdit(row)} />
+          </Tooltip>
+        </Space>
+      ),
+    },
+  ]
+
+  return (
+    <div>
+      <div className={styles.masterPageTitle}>
+        <h2 className={styles.sectionTitle}>Equipment Catalogue</h2>
+        <Badge count={rows.length} style={{ backgroundColor: '#f5f5f4', color: '#57534e', boxShadow: 'none', fontWeight: 600, fontSize: 11 }} />
+        <Button icon={<PlusOutlined />} size="small" className={`${styles.newBtn} ${styles.masterPageTitleAction}`} onClick={openAdd}>
+          Add Equipment
+        </Button>
+      </div>
+
+      <div className={styles.masterCard}>
+        <div className={styles.masterCardHeader}>
+          <div className={styles.masterCardFilters}>
+            <Input className={styles.filterInput} size="small" placeholder="Search asset ID or name…"
+              prefix={<SearchOutlined />} value={search} allowClear onChange={e => setSearch(e.target.value)} />
+            <Select className={styles.filterSelect} size="small" placeholder="Type" allowClear style={{ width: 160 }}
+              value={typeFilter} onChange={setTypeFilter}
+              options={types.map(t => ({ value: t.id, label: t.name }))} />
+            <Select className={styles.filterSelect} size="small" placeholder="Maint. Status" allowClear style={{ width: 150 }}
+              value={maintFilter} onChange={setMaintFilter}
+              options={SERVICE_STATUSES.map(s => ({ value: s, label: s }))} />
+            <Select className={styles.filterSelect} size="small" placeholder="Asset Status" allowClear style={{ width: 150 }}
+              value={statusFilter} onChange={setStatusFilter}
+              options={ASSET_STATUSES.map(s => ({ value: s, label: s }))} />
+            <Select className={styles.filterSelect} size="small" placeholder="Active" allowClear style={{ width: 110 }}
+              value={activeFilter} onChange={setActiveFilter}
+              options={[{ value: true, label: 'Active' }, { value: false, label: 'Inactive' }]} />
+            <Button size="small" className={styles.searchBtn} icon={<SearchOutlined />} onClick={load}>Search</Button>
+            <Button size="small" className={styles.clearBtn} onClick={handleClear}>Clear</Button>
+          </div>
+        </div>
+        <Table<EquipmentCatalogue> rowKey="id" size="small" loading={loading} dataSource={rows} columns={columns}
+          className={styles.masterTable}
+          pagination={{ pageSize: 15, size: 'small', showSizeChanger: false, showTotal: t => `${t} assets` }}
+          scroll={{ x: 1100 }}
+        />
+      </div>
+
+      <Modal title={editTarget ? `Edit — ${editTarget.asset_id}` : 'Add Equipment'}
+        open={modalOpen} onCancel={() => setModalOpen(false)}
+        onOk={handleSave} okText={editTarget ? 'Update' : 'Add'}
+        confirmLoading={saving} width={600} destroyOnClose
+        className={styles.batchesModal} style={{ top: 20 }}
+      >
+        <Form form={form} layout="vertical" requiredMark={false}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0 12px' }}>
+            <Form.Item name="asset_id" label="Asset ID" rules={[{ required: true }]}>
+              <Input disabled={!!editTarget} placeholder="e.g. EQ-2024-001" />
+            </Form.Item>
+            <Form.Item name="equipment_type_id" label="Equipment Type">
+              <Select allowClear showSearch optionFilterProp="label"
+                options={types.map(t => ({ value: t.id, label: t.name }))} />
+            </Form.Item>
+            <Form.Item name="name" label="Name" rules={[{ required: true }]} style={{ gridColumn: '1 / -1' }}>
+              <Input />
+            </Form.Item>
+            <Form.Item name="serial_no"    label="Serial No.">  <Input /></Form.Item>
+            <Form.Item name="manufacturer" label="Manufacturer"><Input /></Form.Item>
+            <Form.Item name="model"        label="Model">        <Input /></Form.Item>
+            <Form.Item name="location"     label="Location">     <Input /></Form.Item>
+            <Form.Item name="purchase_date"         label="Purchase Date">        <DatePicker format="DD-MMM-YYYY" /></Form.Item>
+            <Form.Item name="last_maintenance_date" label="Last Maintenance Date"> <DatePicker format="DD-MMM-YYYY" /></Form.Item>
+            <Form.Item name="maintenance_due_date"  label="Maintenance Due Date">  <DatePicker format="DD-MMM-YYYY" /></Form.Item>
+            <Form.Item name="maintenance_status" label="Maintenance Status">
+              <Select options={SERVICE_STATUSES.map(s => ({ value: s, label: s }))} />
+            </Form.Item>
+            <Form.Item name="status" label="Asset Status">
+              <Select options={ASSET_STATUSES.map(s => ({ value: s, label: s }))} />
+            </Form.Item>
+            <Form.Item name="is_active" label="Active" valuePropName="checked">
+              <Switch size="small" />
+            </Form.Item>
+          </div>
+        </Form>
+      </Modal>
+
+      {/* Detail Drawer */}
+      <Drawer title={detailRow ? `${detailRow.asset_id} — ${detailRow.name}` : 'Equipment Detail'}
+        open={detailOpen} onClose={() => setDetailOpen(false)} width={440}
+      >
+        {detailRow && (
+          <>
+            <div className={styles.drawerSection}>
+              <h4>Asset Info</h4>
+              <dl className={styles.kv}>
+                <dt>Asset ID</dt>      <dd><span className={styles.codeCell}>{detailRow.asset_id}</span></dd>
+                <dt>Type</dt>          <dd>{detailRow.equipment_type_name ?? '—'}</dd>
+                <dt>Serial No.</dt>    <dd>{detailRow.serial_no ?? '—'}</dd>
+                <dt>Manufacturer</dt>  <dd>{detailRow.manufacturer ?? '—'}</dd>
+                <dt>Model</dt>         <dd>{detailRow.model ?? '—'}</dd>
+                <dt>Location</dt>      <dd>{detailRow.location ?? '—'}</dd>
+                <dt>Purchase Date</dt> <dd>{detailRow.purchase_date ? dayjs(detailRow.purchase_date).format('DD MMM YYYY') : '—'}</dd>
+              </dl>
+            </div>
+            <div className={styles.drawerSection}>
+              <h4>Maintenance</h4>
+              <dl className={styles.kv}>
+                <dt>Status</dt>      <dd><StatusTag status={detailRow.maintenance_status} /></dd>
+                <dt>Last Date</dt>   <dd>{detailRow.last_maintenance_date ? dayjs(detailRow.last_maintenance_date).format('DD MMM YYYY') : '—'}</dd>
+                <dt>Due Date</dt>    <dd>{detailRow.maintenance_due_date  ? dayjs(detailRow.maintenance_due_date).format('DD MMM YYYY')  : '—'}</dd>
+              </dl>
+            </div>
+            <div className={styles.drawerSection}>
+              <h4>Status</h4>
+              <dl className={styles.kv}>
+                <dt>Asset Status</dt> <dd><StatusTag status={detailRow.status} /></dd>
+                <dt>Active</dt>       <dd><StatusTag status={detailRow.is_active ? 'ACTIVE' : 'INACTIVE'} label={detailRow.is_active ? 'Yes' : 'No'} /></dd>
+              </dl>
+            </div>
+            <Button size="small" icon={<EditOutlined />} className={styles.newBtn}
+              onClick={() => { setDetailOpen(false); openEdit(detailRow) }}>
+              Edit
+            </Button>
+          </>
+        )}
+      </Drawer>
+    </div>
+  )
+}

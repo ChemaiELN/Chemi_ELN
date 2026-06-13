@@ -1,0 +1,91 @@
+/* ── Chemia ELN — Ketcher wrapper styles ─────────────────────────────────── */
+
+.chemia-ketcher-wrap {
+  border: 1px solid #e7e5e4;
+  border-radius: 8px;
+  overflow: hidden;
+  background: #fff;
+}
+
+/* Canvas area — fills the remaining viewport height.
+   Breakdown of subtracted offset (~320px):
+     60px  header bar
+     28px  breadcrumb
+    100px  experiment header card (code + meta row)
+     40px  tab strip
+     16px  tab content top padding
+     32px  bottom page padding
+     44px  extra breathing room
+   ------------------------------------------
+   min-height keeps it usable on small screens;
+   max-height stops it from becoming enormous on 4K displays. */
+.chemia-ketcher-canvas {
+  height: calc(100vh - 320px);
+  min-height: 360px;
+  max-height: 680px;
+  position: relative;
+}
+
+.chemia-ketcher-canvas > div,
+.chemia-ketcher-canvas > div > div {
+  height: 100% !important;
+}
+
+/* ── Responsive breakpoints ──────────────────────────────────────────────── */
+
+/* Laptop / smaller desktop  (< 1280px) */
+@media (max-width: 1279px) {
+  .chemia-ketcher-canvas {
+    height: calc(100vh - 300px);
+    max-height: 580px;
+  }
+}
+
+/* Tablet landscape  (< 1024px) */
+@media (max-width: 1023px) {
+  .chemia-ketcher-canvas {
+    height: calc(100vh - 280px);
+    min-height: 320px;
+    max-height: 480px;
+  }
+}
+
+/* Tablet portrait / large phone  (< 768px) */
+@media (max-width: 767px) {
+  .chemia-ketcher-canvas {
+    height: calc(100vh - 260px);
+    min-height: 300px;
+    max-height: 400px;
+  }
+}
+
+/* Read-only banner */
+.chemia-ketcher-ro-banner {
+  background: #fef3c7;
+  border-bottom: 1px solid #fde68a;
+  color: #92400e;
+  font-size: 0.8125rem;
+  padding: 6px 14px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.chemia-ketcher-ro-banner::before {
+  content: '⚠';
+  font-size: 0.875rem;
+}
+
+/* Read-only: dim the toolbar so it's obviously non-interactive */
+.chemia-ketcher-readonly .chemia-ketcher-canvas {
+  pointer-events: none;
+  opacity: 0.85;
+  filter: grayscale(0.15);
+}
+
+/* Override Ketcher primary colour to match Chemia teal */
+/* These target the inner Ketcher app elements */
+.chemia-ketcher-canvas [class*="LeftToolbar"],
+.chemia-ketcher-canvas [class*="ToolbarWrapper"] {
+  background: #f8fafc !important;
+}

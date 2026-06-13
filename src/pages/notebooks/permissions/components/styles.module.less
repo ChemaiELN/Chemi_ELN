@@ -1,0 +1,252 @@
+@import (reference) '../../../../styles/variables.less';
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: @page-bg;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+.breadcrumbRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.breadcrumbHome {
+  cursor: pointer;
+  color: @stone-600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+
+  &:hover {
+    color: @teal-700;
+  }
+}
+
+.breadcrumbLink {
+  cursor: pointer;
+  color: @stone-600;
+
+  &:hover {
+    color: @teal-700;
+  }
+}
+
+.addBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.75rem !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: #ffffff !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @teal-600 !important;
+    border-color: @teal-600 !important;
+    color: #ffffff !important;
+  }
+}
+
+// ── Tab nav ───────────────────────────────────────────────────────────────────
+.tabNav {
+  display: flex;
+  gap: 0;
+  border-bottom: 2px solid @stone-200;
+}
+.tabBtn {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -2px;
+  padding: 0.5rem 1.125rem;
+  font-size: 13px;
+  font-weight: 500;
+  color: @stone-500;
+  cursor: pointer;
+  transition: color 0.15s, border-color 0.15s;
+  &:hover { color: @teal-700; }
+}
+.tabBtnActive {
+  color: @teal-700;
+  border-bottom-color: @teal-700;
+  font-weight: 600;
+}
+
+// Info Banner
+.infoBanner {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.5rem;
+  background: @sky-50;
+  border: 1px solid #bae6fd;
+  border-radius: 6px;
+  padding: 0.75rem 1rem;
+  font-size: 13px;
+  color: @sky-700;
+}
+
+.bannerIcon {
+  color: @sky-700;
+  margin-top: 1px;
+  flex-shrink: 0;
+}
+
+// Table Card
+.tableCard {
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  background: @white;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+
+  :global(.ant-card-head) {
+    border-bottom: 1px solid @stone-200;
+    padding: 0 1rem;
+    min-height: 44px;
+  }
+
+  :global(.ant-card-body) {
+    padding: 0;
+  }
+
+  :global(.ant-table-thead > tr > th) {
+    background: @stone-50;
+    font-size: 10px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: @stone-500;
+  }
+}
+
+.cardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+.permColHeader {
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: @stone-500;
+  text-transform: uppercase;
+}
+
+.tableRow {
+  &:hover td {
+    background: @stone-100 !important;
+  }
+}
+
+.currentUserRow {
+  td {
+    background: @stone-50 !important;
+  }
+}
+
+.monoText {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  color: @stone-600;
+}
+
+.roleTag {
+  font-size: 11px;
+  border-radius: 10px;
+}
+
+.deleteBtn {
+  &:not(:disabled) {
+    color: @rose-700;
+    border-color: @rose-700;
+
+    &:hover {
+      background: @rose-50 !important;
+    }
+  }
+}
+
+// ─── Grant Access Modal ────────────────────────────────────────────────────────
+.grantModal {
+  :global {
+    .ant-modal-title {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+    }
+
+    .ant-modal-body {
+      padding: 10px 16px 4px !important;
+      max-height: 75vh;
+      overflow-y: auto;
+    }
+
+    .ant-modal-footer {
+      padding: 8px 16px !important;
+
+      .ant-btn {
+        height: 31px !important;
+        font-size: 12px !important;
+      }
+
+      .ant-btn-primary {
+        background: @teal-700 !important;
+        border-color: @teal-700 !important;
+        color: #ffffff !important;
+
+        &:hover {
+          background: @teal-600 !important;
+          border-color: @teal-600 !important;
+        }
+      }
+    }
+
+    .ant-form-item-label > label {
+      font-size: 11px !important;
+      color: @stone-600;
+    }
+
+    .ant-form-item {
+      margin-bottom: 10px !important;
+    }
+
+    .ant-select-selector {
+      font-size: 12px !important;
+      height: 31px !important;
+      display: flex !important;
+      align-items: center !important;
+    }
+
+    .ant-select {
+      height: 31px !important;
+    }
+
+    .ant-select-selection-placeholder,
+    .ant-select-selection-item {
+      line-height: 31px !important;
+      font-size: 12px !important;
+    }
+  }
+}

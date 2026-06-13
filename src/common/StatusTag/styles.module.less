@@ -1,0 +1,75 @@
+@import (reference) '../../styles/variables.less';
+
+// Canonical status tag — matches Projects list table design
+.tag {
+  &:global(&.ant-tag) {
+    font-family: 'Inter', system-ui, sans-serif;
+    font-size: 11px;
+    font-weight: 500;
+    border-radius: 4px;
+    padding: 1px 8px;
+    border: 1px solid currentColor;
+    line-height: 1.45;
+    margin: 0;
+  }
+}
+
+.success {
+  background: #dcfce7;
+  color: #15803d;
+}
+
+.warning {
+  background: #fef3c7;
+  color: #b45309;
+}
+
+.info {
+  background: #dbeafe;
+  color: #1d4ed8;
+}
+
+.neutral {
+  background: #f1f5f9;
+  color: #475569;
+}
+
+.approved {
+  background: @emerald-50;
+  color: @emerald-700;
+}
+
+.submitted {
+  background: @sky-50;
+  color: @sky-700;
+}
+
+.verified {
+  background: @teal-50;
+  color: @teal-700;
+}
+
+.draft {
+  background: @stone-100;
+  color: @stone-600;
+}
+
+.rejected {
+  background: @rose-50;
+  color: @rose-700;
+}
+
+.processing {
+  background: @sky-50;
+  color: @sky-700;
+}
+
+.pending {
+  background: @amber-50;
+  color: @amber-700;
+}
+
+.critical {
+  background: @rose-50;
+  color: @rose-700;
+}

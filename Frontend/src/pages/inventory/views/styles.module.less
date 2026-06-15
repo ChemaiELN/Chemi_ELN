@@ -1,0 +1,947 @@
+@import (reference) '../../../styles/variables.less';
+
+// ── Shared view layout ────────────────────────────────────────────────────────
+
+.topBar {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  margin-bottom: 1rem;
+}
+
+.titleRow {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.sectionTitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: @stone-900;
+  line-height: 1.3;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.subtitle {
+  font-size: 12px;
+  color: @stone-500;
+}
+
+.topActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.card {
+  background: #fff;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  padding: 1rem 1.125rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+}
+
+.filterRow {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.75rem;
+}
+
+.searchInput {
+  width: 220px !important;
+}
+
+.statusTag {
+  font-size: 11px !important;
+  padding: 0 6px !important;
+  border: 1px solid currentColor !important;
+}
+
+.codeCell {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 12px;
+  color: @stone-600;
+}
+
+.nameCell {
+  font-weight: 500;
+  color: @stone-900;
+}
+
+.dimCell {
+  color: @stone-500;
+  font-size: 12px;
+}
+
+// Compact data cells — inventory batches tables
+.batchSmCell {
+  font-size: 11px !important;
+  color: @stone-700;
+}
+
+.batchSmName {
+  font-size: 11px !important;
+  font-weight: 500;
+  color: @stone-800;
+}
+
+.ellipsisLink {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 0;
+  text-align: left;
+  max-width: 100%;
+  display: block;
+}
+
+.actionBtn {
+  color: @teal-700 !important;
+  border-color: @teal-700 !important;
+}
+
+// ─── Master data (notebooks-style table + modal) ─────────────────────────────
+
+.masterPageTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  margin-bottom: 0.875rem;
+}
+
+.masterPageTitleAction {
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.newBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.75rem !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: #ffffff !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+  flex-shrink: 0;
+
+  &:hover {
+    background: @teal-600 !important;
+    border-color: @teal-600 !important;
+    color: #ffffff !important;
+  }
+}
+
+.masterCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+}
+
+.masterCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.5rem 0.875rem;
+  border-bottom: 1px solid @stone-200;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.masterCardTitle {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+  white-space: nowrap;
+}
+
+.countBadge {
+  display: inline-flex;
+  align-items: center;
+  padding: 2px 8px;
+  border-radius: 9999px;
+  font-size: 11px;
+  font-weight: 500;
+  background: @stone-100;
+  color: @stone-600;
+  line-height: 1.45;
+}
+
+.rowDeleteBtn {
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.mappingTable {
+  :global {
+    .ant-table-tbody > tr:hover .rowDeleteBtn {
+      opacity: 1;
+    }
+  }
+}
+
+.stickyLeft {
+  position: sticky !important;
+  left: 0;
+  z-index: 2;
+  background: @white !important;
+}
+
+.stickyRightStatus {
+  position: sticky !important;
+  right: 130px;
+  z-index: 2;
+  background: @white !important;
+}
+
+.stickyRightActions {
+  position: sticky !important;
+  right: 0;
+  z-index: 2;
+  background: @white !important;
+}
+
+.batchesStickyTable {
+  :global {
+    .ant-table-thead > tr > th.stickyLeft,
+    .ant-table-thead > tr > th.stickyRightStatus,
+    .ant-table-thead > tr > th.stickyRightActions {
+      background: @stone-50 !important;
+    }
+
+    .ant-table-thead > tr > th.stickyLeft,
+    .ant-table-tbody > tr > td.stickyLeft {
+      box-shadow: 1px 0 0 @stone-200;
+    }
+    .ant-table-thead > tr > th.stickyRightStatus,
+    .ant-table-tbody > tr > td.stickyRightStatus {
+      box-shadow: -1px 0 0 @stone-200;
+    }
+    .ant-table-thead > tr > th.stickyRightActions,
+    .ant-table-tbody > tr > td.stickyRightActions {
+      box-shadow: -1px 0 0 @stone-200;
+    }
+    .ant-table-tbody > tr:hover > td.stickyLeft,
+    .ant-table-tbody > tr:hover > td.stickyRightStatus,
+    .ant-table-tbody > tr:hover > td.stickyRightActions {
+      background: @stone-50 !important;
+    }
+  }
+}
+
+.refreshMeta {
+  font-size: 11px;
+  color: @stone-400;
+  margin-left: 0.5rem;
+}
+
+.masterCardFilters {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  flex-wrap: wrap;
+  margin-left: auto;
+}
+
+.filterLabel {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: @stone-600;
+  white-space: nowrap;
+}
+
+.filterInput {
+  width: 180px !important;
+  height: 31px !important;
+
+  :global {
+    .ant-input {
+      font-size: 0.75rem !important;
+    }
+  }
+}
+
+.filterDateRange {
+  height: 31px !important;
+
+  :global {
+    .ant-picker-input > input {
+      font-size: 0.75rem !important;
+    }
+  }
+}
+
+.filterSelect {
+  height: 31px !important;
+
+  :global {
+    .ant-select-selector {
+      font-size: 0.75rem !important;
+      height: 31px !important;
+      display: flex !important;
+      align-items: center !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+    }
+    .ant-select-selection-item,
+    .ant-select-selection-placeholder {
+      font-size: 0.75rem !important;
+      line-height: 31px !important;
+    }
+    .ant-select-selection-search {
+      display: flex !important;
+      align-items: center !important;
+    }
+    .ant-select-arrow {
+      top: 50% !important;
+      transform: translateY(-50%) !important;
+      margin-top: 0 !important;
+    }
+  }
+}
+
+.searchBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.75rem !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: @white !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @teal-600 !important;
+    border-color: @teal-600 !important;
+    color: @white !important;
+  }
+}
+
+.clearBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.75rem !important;
+  border-color: @stone-300 !important;
+  color: @stone-600 !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    border-color: @stone-400 !important;
+    color: @stone-700 !important;
+    background: @stone-50 !important;
+  }
+}
+
+.masterTable {
+  :global {
+    .ant-table-thead > tr > th {
+      background: @stone-50 !important;
+      font-size: 10px !important;
+      font-weight: 600 !important;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: @stone-500 !important;
+      padding: 0.4375rem 0.75rem !important;
+      border-bottom: 1px solid @stone-200 !important;
+      &::before { display: none !important; }
+    }
+
+    .ant-table-tbody > tr > td {
+      font-size: 0.8125rem !important;
+      color: @stone-700 !important;
+      padding: 0.5rem 0.75rem !important;
+      border-bottom: 1px solid @stone-100 !important;
+      overflow: hidden;
+    }
+
+    .ant-table-tbody > tr:hover > td {
+      background: @stone-50 !important;
+    }
+
+    .ant-pagination {
+      padding: 0.5rem 0.875rem !important;
+      margin: 0 !important;
+      border-top: 1px solid @stone-200;
+      display: flex;
+      align-items: center;
+      font-size: 0.75rem;
+    }
+
+    .ant-pagination-item-active {
+      border-color: @teal-700 !important;
+      a { color: @teal-700 !important; }
+    }
+  }
+}
+
+.nameLink {
+  color: @teal-700;
+  font-weight: 500;
+  cursor: pointer;
+  font-size: 0.8125rem;
+  background: none;
+  border: none;
+  padding: 0;
+  text-align: left;
+
+  &:hover { text-decoration: underline; }
+}
+
+.viewBtn {
+  font-size: 0.75rem !important;
+  height: 31px !important;
+  width: 24px !important;
+  padding: 0 !important;
+  border: none !important;
+  background: transparent !important;
+  color: @stone-500 !important;
+  border-radius: 4px !important;
+  box-shadow: none !important;
+
+  &:hover {
+    color: @teal-700 !important;
+    background: @teal-50 !important;
+  }
+}
+
+.viewBtnSuccess {
+  .viewBtn();
+  color: #059669 !important;
+
+  &:hover {
+    color: #047857 !important;
+    background: #ecfdf5 !important;
+  }
+}
+
+.viewBtnDanger {
+  .viewBtn();
+  color: #e11d48 !important;
+
+  &:hover {
+    color: #be123c !important;
+    background: #fff1f2 !important;
+  }
+}
+
+.viewBtnPurple {
+  .viewBtn();
+  color: #7c3aed !important;
+
+  &:hover {
+    color: #6d28d9 !important;
+    background: #f5f3ff !important;
+  }
+}
+
+.inventoryModal {
+  :global {
+    .ant-modal-title {
+      font-size: 13px !important;
+      font-weight: 600 !important;
+    }
+
+    .ant-modal-body {
+      padding: 10px 16px 4px !important;
+      max-height: 75vh;
+      overflow-y: auto;
+    }
+
+    .ant-modal-footer {
+      padding: 8px 16px !important;
+
+      .ant-btn {
+        height: 31px !important;
+        font-size: 12px !important;
+      }
+
+      .ant-btn-primary {
+        background: @teal-700 !important;
+        border-color: @teal-700 !important;
+        color: #ffffff !important;
+
+        &:hover {
+          background: @teal-600 !important;
+          border-color: @teal-600 !important;
+        }
+      }
+    }
+
+    .ant-form-item-label > label {
+      font-size: 11px !important;
+      color: @stone-600;
+    }
+
+    .ant-form-item {
+      margin-bottom: 10px !important;
+    }
+
+    .ant-input,
+    .ant-input-affix-wrapper {
+      font-size: 12px !important;
+    }
+
+    .ant-input-number {
+      width: 100%;
+      .ant-input-number-input { font-size: 12px !important; }
+    }
+
+    .ant-select-selector {
+      font-size: 12px !important;
+    }
+
+    .ant-select-selection-placeholder,
+    .ant-select-selection-item {
+      font-size: 12px !important;
+    }
+
+    .ant-picker {
+      font-size: 12px !important;
+      width: 100%;
+    }
+
+    .ant-picker-input > input {
+      font-size: 12px !important;
+    }
+  }
+}
+
+.modalInfoBanner {
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  background: #f0fdfa;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.modalInfoBannerNeutral {
+  margin-bottom: 6px;
+  padding: 6px 10px;
+  background: @stone-50;
+  border-radius: 6px;
+  font-size: 12px;
+  border: 1px solid @stone-100;
+}
+
+// Compact modal — Equip Master Data (types)
+.equipMasterModal {
+  :global {
+    .ant-modal-header { padding: 10px 14px !important; margin-bottom: 0 !important; }
+    .ant-modal-title { font-size: 13px !important; font-weight: 600 !important; }
+    .ant-modal-body { padding: 6px 14px 0 !important; max-height: 75vh; overflow-y: auto; }
+    .ant-modal-footer {
+      padding: 6px 14px !important;
+      .ant-btn { height: 31px !important; font-size: 12px !important; }
+      .ant-btn-primary {
+        background: @teal-700 !important;
+        border-color: @teal-700 !important;
+        color: #ffffff !important;
+        &:hover { background: @teal-600 !important; border-color: @teal-600 !important; }
+      }
+    }
+    .ant-form-item-label > label { font-size: 11px !important; color: @stone-600; height: auto !important; }
+    .ant-form-item-label { padding-bottom: 2px !important; }
+    .ant-form-item { margin-bottom: 6px !important; }
+    .ant-form-item:last-child { margin-bottom: 0 !important; }
+    .ant-input,
+    .ant-input-affix-wrapper {
+      font-size: 12px !important;
+      height: 31px !important;
+    }
+    .ant-input-affix-wrapper {
+      display: flex !important;
+      align-items: center !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+      .ant-input { height: auto !important; }
+    }
+    .ant-input-number {
+      height: 31px !important;
+      width: 100%;
+      .ant-input-number-input { height: 29px !important; font-size: 12px !important; }
+    }
+    .ant-select { height: 31px !important; }
+    .ant-select-selector {
+      font-size: 12px !important;
+      height: 31px !important;
+      display: flex !important;
+      align-items: center !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+    }
+    .ant-select-selection-placeholder,
+    .ant-select-selection-item { font-size: 12px !important; line-height: 31px !important; }
+    .ant-select-selection-search { display: flex !important; align-items: center !important; }
+    .ant-select-arrow { top: 50% !important; transform: translateY(-50%) !important; margin-top: 0 !important; }
+    .ant-picker { font-size: 12px !important; width: 100%; height: 31px !important; }
+    .ant-picker-input > input { font-size: 12px !important; }
+  }
+}
+
+// Compact modal — Inventory Batches
+.batchesModal {
+  :global {
+    .ant-modal-header { padding: 10px 14px !important; margin-bottom: 0 !important; }
+    .ant-modal-title { font-size: 13px !important; font-weight: 600 !important; }
+    .ant-modal-body { padding: 6px 14px 0 !important; max-height: 75vh; overflow-y: auto; }
+    .ant-modal-footer {
+      padding: 6px 14px !important;
+      .ant-btn { height: 31px !important; font-size: 12px !important; }
+      .ant-btn-primary {
+        background: @teal-700 !important;
+        border-color: @teal-700 !important;
+        color: #ffffff !important;
+        &:hover { background: @teal-600 !important; border-color: @teal-600 !important; }
+      }
+    }
+    .ant-form-item-label > label { font-size: 11px !important; color: @stone-600; height: auto !important; }
+    .ant-form-item-label { padding-bottom: 2px !important; }
+    .ant-form-item { margin-bottom: 6px !important; }
+    .ant-form-item:last-child { margin-bottom: 0 !important; }
+    .ant-input,
+    .ant-input-affix-wrapper {
+      font-size: 12px !important;
+      height: 31px !important;
+    }
+    .ant-input-affix-wrapper {
+      display: flex !important;
+      align-items: center !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+      .ant-input { height: auto !important; }
+    }
+    .ant-input-number {
+      height: 31px !important;
+      width: 100%;
+      .ant-input-number-input { height: 29px !important; font-size: 12px !important; }
+    }
+    .ant-select { height: 31px !important; }
+    .ant-select-selector {
+      font-size: 12px !important;
+      height: 31px !important;
+      display: flex !important;
+      align-items: center !important;
+      padding-top: 0 !important;
+      padding-bottom: 0 !important;
+    }
+    .ant-select-selection-placeholder,
+    .ant-select-selection-item { font-size: 12px !important; line-height: 31px !important; }
+    .ant-select-selection-search { display: flex !important; align-items: center !important; }
+    .ant-select-arrow { top: 50% !important; transform: translateY(-50%) !important; margin-top: 0 !important; }
+    .ant-picker { font-size: 12px !important; width: 100%; height: 31px !important; }
+    .ant-picker-input > input { font-size: 12px !important; }
+  }
+}
+
+.drawerSection {
+  margin-bottom: 16px;
+
+  h4 {
+    font-size: 12px;
+    font-weight: 600;
+    color: @stone-600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    margin-bottom: 8px;
+    border-bottom: 1px solid @stone-100;
+    padding-bottom: 4px;
+  }
+}
+
+// ── Dashboard ─────────────────────────────────────────────────────────────────
+
+.dashWrap {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+}
+
+.dashHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.dashTitle {
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: @stone-900;
+}
+
+.refreshBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: #ffffff !important;
+  box-shadow: none !important;
+
+  &:hover {
+    background: @teal-600 !important;
+    border-color: @teal-600 !important;
+    color: #ffffff !important;
+  }
+}
+
+// Three-section summary row
+.summaryRow {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.summaryCard {
+  background: #fff;
+  border: 1px solid @stone-200;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.summaryCardTitle {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: @stone-500;
+  padding: 10px 16px 8px;
+  border-bottom: 1px solid @stone-100;
+  background: @stone-50;
+}
+
+.miniStatsGrid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(80px, 1fr));
+  gap: 1px;
+  background: @stone-100;
+  border-top: 1px solid @stone-100;
+}
+
+.miniStat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 16px 10px;
+  background: #fff;
+  gap: 4px;
+  text-align: center;
+}
+
+.miniStatIcon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.miniStatValue {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1.1;
+}
+
+.miniStatLabel {
+  font-size: 10.5px;
+  color: @stone-500;
+  font-weight: 500;
+  line-height: 1.3;
+}
+
+// Table cards (stock overview, expiring, actions)
+.tableCard {
+  background: #fff;
+  border: 1px solid @stone-200;
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  overflow: hidden;
+}
+
+.tableCardHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 16px;
+  border-bottom: 1px solid @stone-100;
+  background: @stone-50;
+}
+
+.tableCardTitle {
+  font-size: 13px;
+  font-weight: 600;
+  color: @stone-800;
+  display: flex;
+  align-items: center;
+}
+
+.tableCardCount {
+  font-size: 12px;
+  color: @stone-400;
+  font-weight: 500;
+}
+
+// Stock overview table — teal headers like screenshot
+.stockTable :global(.ant-table-thead > tr > th) {
+  background: #e6f7f6;
+  color: #5aa3a1;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  border-bottom: 1px solid #99f6e4;
+}
+
+.stockTable :global(.ant-table-tbody > tr > td) {
+  border-bottom: 1px solid #f5f5f4;
+  padding: 7px 16px;
+  font-size: 12px;
+}
+
+.stockTable :global(.ant-table-tbody > tr:hover > td) {
+  background: #f0fdfa !important;
+}
+
+// Generic table card tables
+.tableCard :global(.ant-table-thead > tr > th) {
+  background: @stone-50;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  color: @stone-500;
+  text-transform: uppercase;
+}
+
+.tableCard :global(.ant-table-tbody > tr > td) {
+  font-size: 12px;
+  padding: 6px 16px;
+}
+
+.tableCard :global(.ant-table-tbody > tr:hover > td) {
+  background: #f0fdfa !important;
+}
+
+// Bottom row: actions + expiring side by side — equal height
+.bottomRow {
+  display: flex;
+  gap: 1rem;
+  align-items: stretch;
+
+  > * {
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media (max-width: 900px) {
+    flex-direction: column;
+
+    > * {
+      flex: 1 1 auto !important;
+      width: 100%;
+    }
+  }
+}
+
+.actionList {
+  max-height: 280px;
+  overflow-y: auto;
+  padding: 8px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+
+  &::-webkit-scrollbar { width: 4px; }
+  &::-webkit-scrollbar-thumb { background: @stone-200; border-radius: 2px; }
+}
+
+.actionItem {
+  background: @stone-50;
+  border-radius: 0 6px 6px 0;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.actionTop {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.actionDesc {
+  font-size: 12px;
+  font-weight: 500;
+  color: @stone-800;
+  line-height: 1.4;
+  flex: 1;
+}
+
+.actionPriority {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+
+.actionMeta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.actionRef {
+  font-size: 10.5px;
+  font-family: 'Inter', system-ui, sans-serif;
+  color: @stone-400;
+}
+
+// ── Critical row highlight ─────────────────────────────────────────────────────
+
+// Critical row highlight
+.criticalRow {
+  background: #fff7ed !important;
+
+  td {
+    background: #fff7ed !important;
+  }
+}
+
+.kv {
+  display: grid;
+  grid-template-columns: 120px 1fr;
+  row-gap: 4px;
+  font-size: 13px;
+
+  dt {
+    color: @stone-500;
+  }
+
+  dd {
+    color: @stone-800;
+    margin: 0;
+    font-weight: 500;
+  }
+}

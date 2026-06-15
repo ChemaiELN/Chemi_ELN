@@ -1,0 +1,104 @@
+@import (reference) '../../../../styles/variables.less';
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: @page-bg;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem 0rem;
+  overflow: hidden;
+  background: @page-bg;
+  min-width: 0;
+}
+
+.topRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-shrink: 0;
+}
+
+.meta {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.metaTitle {
+  font-size: 15px;
+  font-weight: 600;
+  color: @stone-900;
+  max-width: 320px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.unsavedHint {
+  font-size: 11px;
+  color: @amber-700;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.saveStatus {
+  font-size: 11px;
+  color: @stone-500;
+  white-space: nowrap;
+}
+
+.savedFlash {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 500;
+  color: @emerald-700;
+  white-space: nowrap;
+  animation: fadeSaved 2s ease forwards;
+}
+
+@keyframes fadeSaved {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+.breadcrumb {
+  font-size: 13px;
+  color: @stone-500;
+
+  .breadcrumbLink {
+    cursor: pointer;
+    color: @stone-500;
+
+    &:hover {
+      color: @teal-700;
+    }
+  }
+}
+
+.contentWrapper {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  overflow: hidden;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  flex: 1;
+  display: flex;
+  min-height: 0;
+}

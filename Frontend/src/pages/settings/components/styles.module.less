@@ -1,0 +1,595 @@
+@import (reference) '../../../styles/variables.less';
+
+// ─── Page shell ───────────────────────────────────────────────────────────────
+
+.page {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+  background: @page-bg;
+}
+
+.body {
+  display: flex;
+  flex: 1;
+  overflow: hidden;
+}
+
+.main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+  padding: 1rem 1.25rem;
+  overflow-y: auto;
+  background: @page-bg;
+  min-width: 0;
+}
+
+// ─── Top bar ──────────────────────────────────────────────────────────────────
+
+.topBar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.375rem;
+  font-size: 0.75rem;
+  color: @stone-500;
+  margin-bottom: 0.25rem;
+}
+
+.breadHome {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  cursor: pointer;
+  color: @stone-500;
+  transition: color 0.12s;
+  &:hover { color: @teal-700; }
+}
+
+.breadSep { color: @stone-400; }
+
+.breadCurrent {
+  font-weight: 500;
+  color: @stone-700;
+}
+
+.pageTitle {
+  margin: 0;
+  font-size: 1.0625rem;
+  font-weight: 600;
+  color: @stone-900;
+  line-height: 1.3;
+}
+
+.pageSubtitle {
+  margin: 0.25rem 0 0;
+  font-size: 0.8125rem;
+  color: @stone-500;
+  line-height: 1.5;
+  max-width: 640px;
+}
+
+.saveBtn {
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.875rem !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: @white !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+  flex-shrink: 0;
+
+  &:hover {
+    background: @teal-800 !important;
+    border-color: @teal-800 !important;
+  }
+}
+
+// ─── 2-column grid ────────────────────────────────────────────────────────────
+
+.grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.875rem;
+  align-items: start;
+  padding-bottom: 2rem;
+
+  @media (max-width: 900px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.col {
+  display: flex;
+  flex-direction: column;
+  gap: 0.875rem;
+}
+
+// ─── Card ─────────────────────────────────────────────────────────────────────
+
+.card {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  padding: 1rem 1.125rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+}
+
+.cardTitle {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+  padding-bottom: 0.625rem;
+  border-bottom: 1px solid @stone-100;
+}
+
+.infoText {
+  margin: -0.25rem 0 0;
+  font-size: 0.75rem;
+  color: @stone-500;
+  line-height: 1.5;
+}
+
+.divider {
+  height: 1px;
+  background: @stone-100;
+  margin: 0;
+}
+
+// ─── 2-col field grid (inside card) ──────────────────────────────────────────
+
+.fieldGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.75rem 1rem;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.fieldLabel {
+  font-size: 0.6875rem;
+  font-weight: 500;
+  color: @stone-500;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.inputNum {
+  width: 100% !important;
+
+  :global {
+    .ant-input-number-input {
+      font-size: 0.8125rem !important;
+      height: 26px !important;
+      padding: 0 0.5rem !important;
+    }
+  }
+}
+
+.sel {
+  width: 100% !important;
+
+  :global {
+    .ant-select-selector {
+      font-size: 0.8125rem !important;
+    }
+  }
+}
+
+// ─── Toggle rows ──────────────────────────────────────────────────────────────
+
+.toggleRow {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.125rem 0;
+}
+
+.toggleLabel {
+  margin: 0;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: @stone-800;
+  line-height: 1.3;
+}
+
+.toggleDesc {
+  margin: 0.125rem 0 0;
+  font-size: 0.6875rem;
+  color: @stone-400;
+  line-height: 1.4;
+}
+
+.switch {
+  flex-shrink: 0;
+}
+
+// ─── Checkbox grid ────────────────────────────────────────────────────────────
+
+.checkboxGrid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0.5rem 1rem;
+}
+
+.checkbox {
+  :global {
+    .ant-checkbox-wrapper {
+      font-size: 0.8125rem;
+      color: @stone-700;
+    }
+
+    .ant-checkbox-checked .ant-checkbox-inner {
+      background: @teal-700 !important;
+      border-color: @teal-700 !important;
+    }
+
+    span:last-child {
+      font-size: 0.8125rem;
+      color: @stone-700;
+    }
+  }
+}
+
+// ─── Health thresholds ────────────────────────────────────────────────────────
+
+.thresholdList {
+  display: flex;
+  flex-direction: column;
+  gap: 0.625rem;
+}
+
+.thresholdRow {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+}
+
+.dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.dotAmber { background: @amber-600; }
+.dotRose  { background: @rose-600; }
+
+.thresholdLabel {
+  font-size: 0.8125rem;
+  color: @stone-700;
+  flex: 1;
+}
+
+.thresholdInput {
+  width: 72px !important;
+
+  :global {
+    .ant-input-number-input {
+      font-size: 0.8125rem !important;
+      height: 26px !important;
+      padding: 0 0.5rem !important;
+    }
+  }
+}
+
+.unitLabel {
+  font-size: 0.75rem;
+  color: @stone-400;
+}
+
+// ─── Code format radio cards ──────────────────────────────────────────────────
+
+.radioGroup {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+
+  :global {
+    .ant-radio-checked .ant-radio-inner {
+      border-color: @teal-700 !important;
+      &::after { background: @teal-700 !important; }
+    }
+  }
+}
+
+.radioCard {
+  display: flex;
+  align-items: center;
+  gap: 0.625rem;
+  padding: 0.625rem 0.875rem;
+  border: 1px solid @stone-200;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: border-color 0.12s, background 0.12s;
+
+  &:hover {
+    border-color: @teal-700;
+    background: @teal-50;
+  }
+}
+
+.radioContent {
+  display: flex;
+  flex-direction: column;
+  gap: 0.125rem;
+}
+
+.radioCode {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: @stone-900;
+  font-family: 'Inter', system-ui, sans-serif;
+}
+
+.radioDesc {
+  font-size: 0.6875rem;
+  color: @stone-400;
+}
+
+// ─── Tabs card ────────────────────────────────────────────────────────────────
+
+.tabsCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.06);
+  flex-shrink: 0;
+
+  :global(.ant-tabs-nav) {
+    margin-bottom: 0;
+    background: @stone-50;
+    border-bottom: 1px solid @stone-200;
+    padding: 0 1rem;
+  }
+
+  :global(.ant-tabs-tab) {
+    font-size: 13px;
+    color: @stone-500;
+    padding: 10px 4px;
+  }
+
+  :global(.ant-tabs-tab-active .ant-tabs-tab-btn) {
+    color: @teal-700 !important;
+    font-weight: 500;
+  }
+
+  :global(.ant-tabs-ink-bar) {
+    background: @teal-700;
+  }
+
+  :global(.ant-tabs-content-holder) {
+    padding: 1.25rem;
+  }
+}
+
+// ─── Profile card ─────────────────────────────────────────────────────────────
+
+.profileCard {
+  background: @white;
+  border: 1px solid @stone-200;
+  border-radius: 8px;
+  padding: 1rem 1.125rem 1.125rem;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
+
+  .cardTitle {
+    margin-bottom: 0.875rem;
+  }
+}
+
+.profileLoading {
+  color: @stone-500;
+  font-size: 12px;
+  padding: 0.5rem 0;
+}
+
+.profileGrid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem 1.5rem;
+
+  @media (max-width: 960px) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  @media (max-width: 560px) {
+    grid-template-columns: 1fr;
+  }
+}
+
+.profileItem {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.profileKey {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: @stone-500;
+}
+
+.profileVal {
+  font-size: 13px;
+  font-weight: 500;
+  color: @stone-900;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.roleBadge {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  font-size: 11px;
+  font-weight: 600;
+  color: @teal-700;
+  background: @teal-50;
+  border: 1px solid @teal-700;
+  border-radius: 4px;
+  padding: 1px 8px;
+  line-height: 1.45;
+}
+
+.profileFlags {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  margin-top: 0.25rem;
+  padding-top: 0.875rem;
+  border-top: 1px solid @stone-100;
+}
+
+.profileFlagsRow {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.flagWarn {
+  background: @amber-50 !important;
+  color: @amber-700 !important;
+  border-color: @amber-200 !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  margin: 0 !important;
+}
+
+.flagOk {
+  background: @emerald-50 !important;
+  color: @emerald-700 !important;
+  border-color: @emerald-200 !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  margin: 0 !important;
+}
+
+.fieldHelp {
+  margin: -0.25rem 0 0.5rem;
+  font-size: 11px;
+  color: @stone-500;
+  line-height: 1.45;
+}
+
+.logoUpload {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.625rem;
+}
+
+.logoPreview {
+  max-width: 160px;
+  max-height: 64px;
+  object-fit: contain;
+  border: 1px solid @stone-200;
+  border-radius: 6px;
+  padding: 0.375rem;
+  background: @stone-50;
+}
+
+.logoPlaceholder {
+  font-size: 12px;
+  color: @stone-400;
+  font-style: italic;
+  padding: 0.375rem 0;
+}
+
+.logoActions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.smtpWarning {
+  margin-bottom: 1rem;
+}
+
+.unsavedHint {
+  font-size: 12px;
+  color: @amber-700;
+  font-weight: 500;
+  margin-right: auto;
+}
+
+.savedFlash {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  font-weight: 500;
+  color: @emerald-700;
+  margin-right: auto;
+  animation: fadeSaved 2.5s ease forwards;
+}
+
+@keyframes fadeSaved {
+  0%, 70% { opacity: 1; }
+  100% { opacity: 0; }
+}
+
+// ─── Section divider inside tab ───────────────────────────────────────────────
+
+.sectionHeading {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: @stone-500;
+  margin: 1.25rem 0 0.75rem;
+  padding-bottom: 0.375rem;
+  border-bottom: 1px solid @stone-100;
+}
+
+.sectionHeadingFirst {
+  margin-top: 0;
+}
+
+// ─── Save bar ─────────────────────────────────────────────────────────────────
+
+.saveBar {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  padding-top: 1rem;
+  margin-top: 1.25rem;
+  border-top: 1px solid @stone-100;
+  gap: 0.625rem;
+}
+
+// ─── SMTP test result ─────────────────────────────────────────────────────────
+
+.smtpTestResult {
+  font-size: 12px;
+  padding: 0.375rem 0.625rem;
+  border-radius: 5px;
+}
+
+.smtpTestOk  { background: @emerald-50; color: @emerald-700; }
+.smtpTestErr { background: @rose-50;    color: @rose-700;    }

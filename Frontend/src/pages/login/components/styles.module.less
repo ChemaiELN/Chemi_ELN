@@ -1,0 +1,255 @@
+@import (reference) '../../../styles/variables.less';
+
+.root {
+  display: flex;
+  height: 100vh;
+  width: 100vw;
+  overflow: hidden;
+  position: relative;
+
+  @media (max-width: 1023px) and (min-width: 640px) {
+    flex-direction: column;
+  }
+
+  @media (max-width: 639px) {
+    flex-direction: column;
+  }
+}
+
+.imagePanel {
+  position: relative;
+  flex: 0 0 50%;
+  overflow: hidden;
+
+  @media (max-width: 1023px) and (min-width: 640px) {
+    flex: none;
+    width: 100%;
+    height: 50%;
+  }
+
+  @media (max-width: 639px) {
+    position: absolute;
+    inset: 0;
+    flex: none;
+    width: 100%;
+    height: 100%;
+  }
+}
+
+.imagePanelImg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  display: block;
+}
+
+.imageOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(135deg, rgba(90, 163, 161,0.55) 0%, rgba(69,137,136,0.35) 60%, rgba(0,0,0,0.15) 100%);
+}
+
+.imageBadge {
+  position: absolute;
+  top: 2rem;
+  left: 2rem;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  @media (max-width: 639px) {
+    top: 1.5rem;
+    left: 1.25rem;
+  }
+}
+
+.imageBadgeDot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: @white;
+  opacity: 0.9;
+}
+
+.imageBadgeText {
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.9);
+}
+
+.formPanel {
+  flex: 0 0 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: @white;
+  padding: 2.5rem 2rem;
+  overflow-y: auto;
+
+  @media (max-width: 1023px) and (min-width: 640px) {
+    flex: none;
+    width: 100%;
+    height: 50%;
+  }
+
+  @media (max-width: 639px) {
+    position: relative;
+    z-index: 10;
+    flex: none;
+    width: 100%;
+    height: 100%;
+    background: rgba(255, 255, 255, 0.88);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    padding: 2rem 1.5rem;
+  }
+}
+
+.formCard {
+  width: 100%;
+  max-width: 380px;
+  display: flex;
+  flex-direction: column;
+}
+
+.brandBlock { margin-bottom: 1rem; }
+
+.brandIcon {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, @teal-700 0%, @teal-600 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1.25rem;
+  box-shadow: 0 4px 12px rgba(90, 163, 161, 0.3);
+}
+
+.brandTitle {
+  font-size: 1.625rem;
+  font-weight: 700;
+  color: @stone-900;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+}
+
+.divider {
+  height: 1px;
+  background: @stone-200;
+  margin: 1.75rem 0;
+}
+
+// --- Ant Design Form overrides ------------------------------------------------
+
+.form {
+  :global {
+    // Label
+    .ant-form-item-label > label {
+      font-size: 0.8125rem;
+      font-weight: 500;
+      color: @stone-700;
+      letter-spacing: 0.01em;
+      height: auto;
+    }
+
+    // Remove default bottom margin on the last item (submit button)
+    .ant-form-item:last-child {
+      margin-bottom: 0;
+    }
+
+    // Inputs
+    .ant-input,
+    .ant-input-affix-wrapper {
+      height: 31px;
+      border-radius: 6px;
+      border-color: @stone-200;
+      font-family: 'Inter', system-ui, sans-serif;
+      font-size: 0.875rem;
+      color: @stone-900;
+      background: @stone-50;
+      transition: border-color 0.18s, box-shadow 0.18s;
+
+      &:hover { border-color: @teal-600; }
+
+      &:focus,
+      &.ant-input-affix-wrapper-focused {
+        border-color: @teal-700;
+        box-shadow: 0 0 0 3px rgba(90, 163, 161, 0.12);
+        background: @white;
+      }
+
+      input {
+        font-family: 'Inter', system-ui, sans-serif;
+        font-size: 0.875rem;
+        color: @stone-900;
+        background: transparent;
+      }
+    }
+
+    .ant-input-password .ant-input { height: auto; }
+
+    // Inline validation error text
+    .ant-form-item-explain-error {
+      font-size: 0.75rem;
+      color: #e11d48;
+      margin-top: 0.25rem;
+    }
+
+    // Red border on invalid field
+    .ant-form-item-has-error {
+      .ant-input,
+      .ant-input-affix-wrapper {
+        border-color: #fda4af !important;
+        background: #fff1f2;
+
+        &:focus,
+        &.ant-input-affix-wrapper-focused {
+          border-color: #e11d48 !important;
+          box-shadow: 0 0 0 3px rgba(225, 29, 72, 0.1) !important;
+        }
+      }
+    }
+  }
+}
+
+.submitItem {
+  margin-top: 0.5rem;
+}
+
+.submitBtn {
+  width: 100%;
+  height: 31px !important;
+  border-radius: 6px !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  font-family: 'Inter', system-ui, sans-serif !important;
+  font-size: 0.875rem !important;
+  font-weight: 600 !important;
+  color: @white !important;
+  box-shadow: 0 2px 8px rgba(90, 163, 161, 0.25) !important;
+  transition: background 0.18s, box-shadow 0.18s, transform 0.1s !important;
+
+  &:hover {
+    background: @teal-600 !important;
+    border-color: @teal-600 !important;
+    box-shadow: 0 4px 14px rgba(90, 163, 161, 0.35) !important;
+  }
+
+  &:active { transform: translateY(1px) !important; }
+}
+
+.footerNote {
+  margin-top: 1.25rem;
+  text-align: center;
+  font-size: 0.75rem;
+  color: @stone-400;
+  line-height: 1.5;
+}
+
+@media (max-width: 639px) {
+  .formCard { max-width: 340px; }
+}

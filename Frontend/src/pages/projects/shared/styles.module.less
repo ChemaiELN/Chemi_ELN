@@ -1,0 +1,68 @@
+@import (reference) '../../../styles/variables.less';
+
+.emptyState {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  background: @white;
+  border: 1px dashed @stone-300;
+  border-radius: 8px;
+  padding: 2.5rem 1.5rem;
+  text-align: center;
+}
+
+.emptyStateCompact {
+  padding: 2rem 1.25rem;
+}
+
+.emptyStateIcon {
+  font-size: 32px;
+  color: @stone-300;
+  margin-bottom: 0.75rem;
+}
+
+.emptyStateText {
+  margin: 0;
+  font-size: 13px;
+  color: @stone-500;
+  line-height: 1.5;
+  max-width: 360px;
+}
+
+.primaryActionBtn {
+  display: inline-flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  font-size: 0.75rem !important;
+  font-weight: 500 !important;
+  height: 31px !important;
+  padding: 0 0.75rem !important;
+  background: @teal-700 !important;
+  border-color: @teal-700 !important;
+  color: #ffffff !important;
+  border-radius: 5px !important;
+  box-shadow: none !important;
+
+  :global(.ant-btn-icon) {
+    line-height: 0 !important;
+    margin-inline-end: 0 !important;
+  }
+
+  svg {
+    color: #ffffff;
+    stroke: #ffffff;
+    flex-shrink: 0;
+  }
+
+  &:hover {
+    background: @teal-600 !important;
+    border-color: @teal-600 !important;
+    color: #ffffff !important;
+
+    svg {
+      color: #ffffff;
+      stroke: #ffffff;
+    }
+  }
+}

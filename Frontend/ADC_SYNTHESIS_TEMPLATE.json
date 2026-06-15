@@ -1,0 +1,2776 @@
+{
+  "sections": [
+    {
+      "key": "section_1",
+      "title": "1. Project and Experiment Information",
+      "screens": [
+        {
+          "key": "screen_1_1",
+          "title": "Project Master",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "project_id",
+              "label": "Project ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "customer",
+              "label": "Customer",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "product_name",
+              "label": "Product Name",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "adc_code",
+              "label": "ADC Code",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "target_antigen",
+              "label": "Target Antigen",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "antibody_clone",
+              "label": "Antibody Clone",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "payload",
+              "label": "Payload",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "linker",
+              "label": "Linker",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "target_dar",
+              "label": "Target DAR",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "project_stage",
+              "label": "Project Stage",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Discovery",
+                "Preclinical",
+                "IND-enabling",
+                "Phase 1",
+                "Phase 2/3",
+                "Commercial"
+              ]
+            },
+            {
+              "key": "project_master_remarks",
+              "label": "Project Master · Remarks",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_1_2",
+          "title": "Team Assignment",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "pd_scientist",
+              "label": "PD Scientist",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Dr. Priya Reddy",
+                "Dr. Sanjay Patel",
+                "Dr. Anjali Verma",
+                "Dr. Michael Chen",
+                "Dr. Rakesh Iyer",
+                "Dr. Meera Joshi"
+              ]
+            },
+            {
+              "key": "pd_reviewer",
+              "label": "PD Reviewer",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Dr. Michael Chen",
+                "Dr. Rakesh Iyer",
+                "Dr. Priya Reddy",
+                "Dr. Anjali Verma",
+                "Dr. Meera Joshi"
+              ]
+            },
+            {
+              "key": "analytical_scientist",
+              "label": "Analytical Scientist",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Dr. Sanjay Patel",
+                "Dr. Anjali Verma",
+                "Dr. Meera Joshi",
+                "Dr. Priya Reddy",
+                "Dr. Michael Chen",
+                "Dr. Rakesh Iyer"
+              ]
+            },
+            {
+              "key": "analytical_reviewer",
+              "label": "Analytical Reviewer",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Dr. Anjali Verma",
+                "Dr. Michael Chen",
+                "Dr. Sanjay Patel",
+                "Dr. Meera Joshi",
+                "Dr. Rakesh Iyer"
+              ]
+            },
+            {
+              "key": "qa_reviewer",
+              "label": "QA Reviewer",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Sarah Williams",
+                "Rajesh Kumar",
+                "Dr. Michael Chen"
+              ]
+            },
+            {
+              "key": "department",
+              "label": "Department",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "site",
+              "label": "Site",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "qa_review_required",
+              "label": "QA Review required?",
+              "type": "select",
+              "required": false,
+              "options": ["Yes", "No"]
+            }
+          ]
+        },
+        {
+          "key": "screen_1_3",
+          "title": "Experiment Metadata",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "general_information",
+              "label": "General Information",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "experiment_number",
+              "label": "Experiment Number",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "notebook_number",
+              "label": "Notebook Number",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "version",
+              "label": "Version",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "date",
+              "label": "Date",
+              "type": "date",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "scientist",
+              "label": "Scientist",
+              "type": "text",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_1_4",
+          "title": "Objective",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "objective_study_purpose",
+              "label": "Objective · Study purpose",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "objective_hypothesis",
+              "label": "Objective · Hypothesis",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "objective_success_criteria",
+              "label": "Objective · Success criteria",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_1_5",
+          "title": "Related Documents",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "related_documents_files",
+              "label": "Related Documents",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "related_documents_comments",
+              "label": "Comments on references",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_1_6",
+          "title": "Regulatory Classification Cytotoxic",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "oel_band",
+              "label": "OEL band",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Band 1 (>1 mg/m³)",
+                "Band 2 (0.1–1 mg/m³)",
+                "Band 3 (0.01–0.1 mg/m³)",
+                "Band 4 (0.001–0.01 mg/m³)",
+                "Band 5 (<0.001 mg/m³)"
+              ]
+            },
+            {
+              "key": "containment_category",
+              "label": "Containment category",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Open handling",
+                "Local exhaust ventilation",
+                "Glovebox / isolator",
+                "High-containment suite"
+              ]
+            },
+            {
+              "key": "gmp_non_gmp",
+              "label": "GMP / Non-GMP",
+              "type": "select",
+              "required": true,
+              "options": [
+                "GMP",
+                "Non-GMP (PD)",
+                "Non-GMP (Research)"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "screen_1_7",
+          "title": "Risk Assessment",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "assessment_id",
+              "label": "Assessment ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "assessment_type",
+              "label": "Assessment type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "FMEA",
+                "HAZOP",
+                "Pre-run risk review",
+                "Deviation risk review"
+              ]
+            },
+            {
+              "key": "last_reviewed",
+              "label": "Last reviewed",
+              "type": "date",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reviewed_by",
+              "label": "Reviewed by",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "overall_risk_level",
+              "label": "Overall risk level",
+              "type": "select",
+              "required": true,
+              "options": ["Low", "Medium", "High", "Critical"]
+            },
+            {
+              "key": "risk_status",
+              "label": "Status",
+              "type": "select",
+              "required": true,
+              "options": ["Draft", "Under review", "Approved", "Superseded"]
+            },
+            {
+              "key": "risk_additional_notes",
+              "label": "Risk Assessment · Additional notes",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "section_2",
+      "title": "2. Materials and Consumables",
+      "screens": [
+        {
+          "key": "screen_2_1",
+          "title": "Antibody Info",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "antibody_code",
+              "label": "Antibody code",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "antibody_clone",
+              "label": "Clone",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "isotype",
+              "label": "Isotype",
+              "type": "select",
+              "required": true,
+              "options": [
+                "IgG1κ",
+                "IgG1λ",
+                "IgG2κ",
+                "IgG2λ",
+                "IgG3",
+                "IgG4",
+                "Other"
+              ]
+            },
+            {
+              "key": "antibody_molecular_weight",
+              "label": "Molecular weight (Da)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lot_number",
+              "label": "Lot number",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "manufacturing_date",
+              "label": "Manufacturing date",
+              "type": "date",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "antibody_storage_conditions",
+              "label": "Storage conditions",
+              "type": "select",
+              "required": true,
+              "options": [
+                "−80°C",
+                "−20°C",
+                "2-8°C",
+                "RT (controlled)"
+              ]
+            },
+            {
+              "key": "antibody_expiry_date",
+              "label": "Expiry date",
+              "type": "date",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "antibody_supporting_documents",
+              "label": "Supporting documents (CoA, release certificate, batch record)",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "antibody_doc_comments",
+              "label": "Comments",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_2_2",
+          "title": "Linker-payload Info",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "linker_type",
+              "label": "Linker type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Cleavable — Val-Cit-PAB (protease)",
+                "Cleavable — Disulfide (SPDB / SPP)",
+                "Non-cleavable — MCC (thioether)",
+                "Non-cleavable — MC (maleimidocaproyl)"
+              ]
+            },
+            {
+              "key": "payload_type",
+              "label": "Payload type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "DXd (Exatecan derivative · TOP1 inhibitor)",
+                "MMAE (auristatin)",
+                "DM1 (maytansinoid)",
+                "PBD dimer"
+              ]
+            },
+            {
+              "key": "linker_payload_type",
+              "label": "Linker-payload type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "MC-GGFG-DXd (Deruxtecan)",
+                "MC-Val-Cit-PAB-MMAE (Vedotin)",
+                "SMCC-DM1 (Emtansine)",
+                "SPDB-DM4 (Soravtansine)"
+              ]
+            },
+            {
+              "key": "lp_molecular_weight",
+              "label": "Molecular weight (Da)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "dar_target",
+              "label": "DAR target (linker-payload : mAb)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lp_lot_number",
+              "label": "Lot number",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lp_supplier",
+              "label": "Supplier",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lp_coa_upload",
+              "label": "Upload CoA / supplier documents",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "lp_doc_comments",
+              "label": "Comments",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_2_3",
+          "title": "Reagents and Salts",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "reagent_chemical",
+              "label": "Chemical",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reagent_make",
+              "label": "Make",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reagent_cat_no",
+              "label": "Cat. No.",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reagent_cas_no",
+              "label": "CAS No.",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reagent_coa",
+              "label": "CoA",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reagent_msds",
+              "label": "MSDS",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reagent_others",
+              "label": "Others",
+              "type": "text",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_2_4",
+          "title": "Consumables",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "consumable_item",
+              "label": "Item",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "consumable_category",
+              "label": "Category",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "consumable_make",
+              "label": "Make / Brand",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "consumable_cat_no",
+              "label": "Catalogue No.",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "consumable_lot_no",
+              "label": "Lot No.",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "consumable_qty",
+              "label": "Quantity used",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "consumable_unit",
+              "label": "Unit",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "consumable_remarks",
+              "label": "Step remarks / operator observations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_2_5",
+          "title": "Equipment Details",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "equipment_name",
+              "label": "Name of Equipment",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "equipment_id",
+              "label": "Equipment ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "equipment_logbook_no",
+              "label": "Log Book No.",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "calibration_status",
+              "label": "Calibration Status",
+              "type": "select",
+              "required": true,
+              "options": ["OK", "Due Soon", "Overdue"]
+            },
+            {
+              "key": "calibration_due",
+              "label": "Calibration Due",
+              "type": "date",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "pv_due",
+              "label": "PV Due",
+              "type": "date",
+              "required": false,
+              "options": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "section_3",
+      "title": "3. Buffer Preparation",
+      "screens": [
+        {
+          "key": "screen_3_1",
+          "title": "Buffer Preparation",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "buffer_name",
+              "label": "Buffer Name",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_subtitle",
+              "label": "Buffer description / subtitle",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "buffer_makeup_volume_ml",
+              "label": "Make-up volume (mL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_required_conc",
+              "label": "Required concentration",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_required_conc_uom",
+              "label": "Concentration UOM",
+              "type": "select",
+              "required": true,
+              "options": ["mM", "M", "% w/v", "% v/v", "g/L", "mg/mL"]
+            },
+            {
+              "key": "buffer_components",
+              "label": "Components (name and quantity)",
+              "type": "textarea",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_qc_before_ph",
+              "label": "QC before adjustment · pH",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_qc_before_cond",
+              "label": "QC before adjustment · Conductivity (mS/cm)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_qc_after_ph",
+              "label": "QC after adjustment · pH",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_qc_after_cond",
+              "label": "QC after adjustment · Conductivity (mS/cm)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "buffer_storage_temp",
+              "label": "Storage temperature",
+              "type": "text",
+              "required": true,
+              "options": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "section_4",
+      "title": "4. Bioconjugation",
+      "screens": [
+        {
+          "key": "screen_4_1",
+          "title": "Thaw, Pool and Filter mAb",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "batch_record_id",
+              "label": "Batch Record ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "mab_lot_no",
+              "label": "Lot No.",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "mab_vial_id",
+              "label": "Vial ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "mab_initial_volume_ul",
+              "label": "Initial volume (µL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "mab_concentration_um",
+              "label": "Concentration (µM)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "mab_storage",
+              "label": "Storage",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "thawing_method",
+              "label": "Thawing method",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Water bath",
+                "Ambient air thaw (RT)",
+                "Refrigerated thaw (2–8 °C)",
+                "Programmable controlled-rate thawer",
+                "Dry block / heat block"
+              ]
+            },
+            {
+              "key": "thawing_temperature_c",
+              "label": "Thawing temperature (°C)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "thaw_start_time",
+              "label": "Thaw start time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "thaw_end_time",
+              "label": "Thaw end time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "thaw_duration_auto",
+              "label": "Duration (auto)",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "vials_pooled_count",
+              "label": "Vials pooled (count)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "pooling_container_ids",
+              "label": "Pooling container ID(s)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "total_pooled_volume_ul",
+              "label": "Total pooled volume (µL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "filter_type",
+              "label": "Filter type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "0.22 µm PES syringe filter",
+                "0.22 µm PVDF syringe filter",
+                "0.45 µm PES syringe filter",
+                "0.22 µm PES centrifugal filter"
+              ]
+            },
+            {
+              "key": "filter_lot",
+              "label": "Filter lot",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "filter_expiry",
+              "label": "Filter expiry",
+              "type": "date",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "filtration_method",
+              "label": "Filtration method",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Centrifugation",
+                "Syringe / manual",
+                "Pressure-driven",
+                "N/A"
+              ]
+            },
+            {
+              "key": "filtration_speed_pressure",
+              "label": "Speed / pressure",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "filtration_duration_min",
+              "label": "Duration (min)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "recovered_volume_ul",
+              "label": "Recovered volume (µL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "thaw_intermediate_sample_id",
+              "label": "Sample ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "thaw_storage_condition",
+              "label": "Storage condition",
+              "type": "select",
+              "required": true,
+              "options": [
+                "2–8 °C",
+                "Room temperature (use within 4 h)",
+                "−20 °C"
+              ]
+            },
+            {
+              "key": "thaw_storage_location",
+              "label": "Storage location",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "thaw_step_remarks",
+              "label": "Step remarks / operator observations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_4_2",
+          "title": "System Checks",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "training_verified",
+              "label": "Training verified",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "access_verified",
+              "label": "Access verified",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "template_version_locked",
+              "label": "Template version locked",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "material_status_check",
+              "label": "Material status check",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "equipment_readiness",
+              "label": "Equipment readiness",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "containment_verified",
+              "label": "Containment verified",
+              "type": "text",
+              "required": true,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_4_3",
+          "title": "Reduction Reaction",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "reduction_intermediate_sample",
+              "label": "Intermediate sample",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "reduction_parent_lots",
+              "label": "Parent lot(s)",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_available_volume_ul",
+              "label": "Available volume (µL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reducing_agent",
+              "label": "Reducing agent",
+              "type": "select",
+              "required": true,
+              "options": [
+                "TCEP·HCl",
+                "DTT",
+                "2-Mercaptoethanol (2-ME)",
+                "Cysteamine",
+                "Other"
+              ]
+            },
+            {
+              "key": "tcep_lot",
+              "label": "TCEP lot (from registry)",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "equivalents_vs_mab",
+              "label": "Equivalents (vs mAb)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "target_molar_ratio_tcep_mab",
+              "label": "Target molar ratio (TCEP : mAb)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "actual_molar_ratio_tcep_mab",
+              "label": "Actual molar ratio (TCEP : mAb)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reduction_planned_duration",
+              "label": "Planned duration",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reduction_temperature_c",
+              "label": "Temperature (°C)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "protein_concentration",
+              "label": "Protein concentration",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "mixing_conditions",
+              "label": "Mixing conditions",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "hold_time",
+              "label": "Hold time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reduction_reaction_start_time",
+              "label": "Reaction start time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reduction_reaction_end_time",
+              "label": "Reaction end time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reduction_duration_auto",
+              "label": "Duration (auto)",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_free_thiols_per_mab",
+              "label": "Free thiols (per mAb) — result",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_residual_reductant",
+              "label": "Residual reductant (TCEP) — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_dar_prediction",
+              "label": "DAR prediction — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_sec_chromatograms",
+              "label": "Attachments — SEC chromatograms",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_ms_spectra",
+              "label": "Attachments — MS spectra",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_reduced_mab_sample_id",
+              "label": "New intermediate Sample ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reduction_output_storage_condition",
+              "label": "Storage condition",
+              "type": "select",
+              "required": true,
+              "options": [
+                "2–8 °C",
+                "Room temperature (use within 30 min)",
+                "On ice"
+              ]
+            },
+            {
+              "key": "reduction_operator_observations",
+              "label": "Operator observations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_deviations_observations",
+              "label": "Deviations · Observations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "reduction_deviations_corrective_actions",
+              "label": "Deviations · Corrective actions",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_4_4",
+          "title": "Conjugation Reaction (Linker-Payload)",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "conjugation_intermediate_sample",
+              "label": "Intermediate sample",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "conjugation_parent_lineage",
+              "label": "Parent lineage",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "conjugation_available_volume_ul",
+              "label": "Available volume (µL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "lp_lot",
+              "label": "Linker-Payload lot",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "lp_expiry_retest",
+              "label": "LP expiry / retest",
+              "type": "date",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "lp_added_ul",
+              "label": "LP added (µL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "dmso_lot",
+              "label": "DMSO lot",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "dmso_grade",
+              "label": "DMSO grade",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "dmso_added_ul",
+              "label": "DMSO added (µL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "target_molar_ratio_lp_mab_sh",
+              "label": "Target molar ratio (LP : mAb-SH)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "actual_molar_ratio_lp_mab_sh",
+              "label": "Actual molar ratio (LP : mAb-SH)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_reaction_start_time",
+              "label": "Reaction start time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_reaction_end_time",
+              "label": "Reaction end time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_duration_auto",
+              "label": "Duration (auto)",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "target_dar",
+              "label": "Target DAR",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "solvent_composition",
+              "label": "Solvent composition",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "addition_mode",
+              "label": "Addition mode",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Dropwise",
+                "Bolus",
+                "Slow infusion (syringe pump)",
+                "Continuous"
+              ]
+            },
+            {
+              "key": "addition_rate",
+              "label": "Addition rate",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_mixing_speed",
+              "label": "Mixing speed",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_temperature",
+              "label": "Temperature",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_crude_adc_sample_id",
+              "label": "New crude ADC Sample ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_output_volume_ul",
+              "label": "Volume registered (µL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "conjugation_output_storage_condition",
+              "label": "Storage condition",
+              "type": "select",
+              "required": true,
+              "options": [
+                "2–8 °C",
+                "Room temperature (use within 30 min)",
+                "On ice"
+              ]
+            },
+            {
+              "key": "conjugation_step_remarks",
+              "label": "Step remarks / contemporaneous notes",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "conjugation_deviations_observations",
+              "label": "Deviations · Observations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "conjugation_deviations_corrective_actions",
+              "label": "Deviations · Corrective actions",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_4_5",
+          "title": "In Process Analysis and Quenching",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "nac_lot",
+              "label": "NAC lot",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "nac_lp_molar_ratio",
+              "label": "NAC : Linker-Payload molar ratio",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "quench_time_min",
+              "label": "Quench time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "quench_start_time",
+              "label": "Start time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "quench_end_time",
+              "label": "End time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "quench_temperature",
+              "label": "Quench Temperature",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "dar_time0",
+              "label": "Time0 DAR",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "dar_time30",
+              "label": "Time30 DAR",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "dar_time60",
+              "label": "Time60 DAR",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "dar_time90",
+              "label": "Time90 DAR",
+              "type": "number",
+              "required": false,
+              "options": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "section_5",
+      "title": "5. Purification",
+      "screens": [
+        {
+          "key": "screen_5_1",
+          "title": "5.1 Purification",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "purif_intermediate_sample",
+              "label": "Intermediate sample",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "purif_parent_lineage",
+              "label": "Parent lineage",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "purif_available_volume_ul",
+              "label": "Available volume (µL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "chromatography_type",
+              "label": "Chromatography type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "HIC (Hydrophobic Interaction) — DAR distribution control",
+                "SEC (Size Exclusion) — aggregate / free drug removal",
+                "Affinity (Protein A) — re-capture / polish",
+                "RP (Reverse Phase) — free drug clearance"
+              ]
+            },
+            {
+              "key": "chromatography_mode",
+              "label": "Mode",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Bind-and-elute",
+                "Flow-through",
+                "Isocratic"
+              ]
+            },
+            {
+              "key": "chromatography_purpose",
+              "label": "Purpose",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "resin_column",
+              "label": "Resin / column",
+              "type": "select",
+              "required": true,
+              "options": [
+                "TOSOH TSKgel Butyl-NPR (HIC)",
+                "GE Capto Butyl (HIC)",
+                "Superdex 200 Increase (SEC)",
+                "MabSelect SuRe (Protein A)",
+                "Source 15 RPC (RP)"
+              ]
+            },
+            {
+              "key": "resin_lot",
+              "label": "Resin lot",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "column_dimensions_mm",
+              "label": "Column dimensions (Ø × L, mm)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "bed_column_volume_ml",
+              "label": "Bed / column volume (mL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "flow_rate_ml_min",
+              "label": "Flow rate (mL/min)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "residence_time_min",
+              "label": "Residence time (min)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "load_mg_per_ml_resin",
+              "label": "Load (mg ADC / mL resin)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "column_temperature_c",
+              "label": "Column temperature (°C)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "instrument_id",
+              "label": "System / instrument ID",
+              "type": "select",
+              "required": true,
+              "options": [
+                "AKTA-PURE-25-L · AKTA-PD-04",
+                "AKTA-AVANT-150 · AKTA-PD-07"
+              ]
+            },
+            {
+              "key": "gradient_type",
+              "label": "Gradient type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Linear A→B",
+                "Step elution",
+                "Isocratic"
+              ]
+            },
+            {
+              "key": "gradient_start_pct_b",
+              "label": "Start %B",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "gradient_end_pct_b",
+              "label": "End %B",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "gradient_length_cv",
+              "label": "Gradient length (CV)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "wash_cv",
+              "label": "Wash (CV at start %B)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "re_equilibration_cv",
+              "label": "Re-equilibration (CV of A)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "run_start_time",
+              "label": "Run start time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "run_end_time",
+              "label": "Run end time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "run_duration_auto",
+              "label": "Duration (auto)",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "chrom_uv_traces",
+              "label": "Process Data · UV traces / chromatogram attachments",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "pooling_criteria",
+              "label": "Pooling criteria",
+              "type": "select",
+              "required": true,
+              "options": [
+                "DAR window (HIC fractions matching target DAR 4 ± 0.3)",
+                "A280 threshold (≥ 50 % of peak max)",
+                "Predefined CV window",
+                "Manual pooling on chromatogram"
+              ]
+            },
+            {
+              "key": "fractions_pooled",
+              "label": "Fractions pooled",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "pool_volume_ml",
+              "label": "Pool volume (mL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "pool_a280_mau",
+              "label": "Pool A280 (mAU)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "pool_mass_balance_pct",
+              "label": "Pool mass balance (% of load)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "step_recovery_pct",
+              "label": "Step recovery (protein mass) — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "monomer_purity_pct",
+              "label": "Monomer purity — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "free_drug_pct",
+              "label": "Free drug (unconjugated) — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "chrom_analytical_files",
+              "label": "Attachments — analytical chromatograms (HIC, SEC, RP, LC-MS)",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "purified_adc_sample_id",
+              "label": "New intermediate Sample ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "purif_output_storage_condition",
+              "label": "Storage condition",
+              "type": "select",
+              "required": true,
+              "options": [
+                "2–8 °C",
+                "Room temperature (use within 4 h)",
+                "−20 °C"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "screen_5_2",
+          "title": "5.2 UF/DF",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "ufdf_intermediate_sample",
+              "label": "Intermediate sample",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "ufdf_parent_lineage",
+              "label": "Parent lineage",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_available_volume_ml",
+              "label": "Available volume (mL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_starting_conc_mg_ml",
+              "label": "Starting concentration (mg/mL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_starting_mass_mg",
+              "label": "Starting protein mass (mg)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "incoming_buffer",
+              "label": "Incoming buffer",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "membrane_type",
+              "label": "Membrane type",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Pellicon 3 Ultracel (regenerated cellulose, screen C)",
+                "Sartocon Slice 50 Hydrosart (stabilised cellulose)",
+                "Pellicon 2 Biomax (PES)",
+                "Amicon Ultra-15 centrifugal (Ultracel) — small-scale alternative",
+                "Vivaspin 20 (PES) centrifugal — small-scale alternative"
+              ]
+            },
+            {
+              "key": "mwco",
+              "label": "MWCO",
+              "type": "select",
+              "required": true,
+              "options": [
+                "10 kDa",
+                "30 kDa",
+                "50 kDa",
+                "100 kDa"
+              ]
+            },
+            {
+              "key": "surface_area_cm2",
+              "label": "Surface area (cm²)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "membrane_part_number",
+              "label": "Membrane part number",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "membrane_lot",
+              "label": "Membrane lot",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "membrane_installed_cycles",
+              "label": "Membrane installed (cycles)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "tff_system_instrument_id",
+              "label": "TFF system / instrument ID",
+              "type": "select",
+              "required": true,
+              "options": [
+                "TFF-PD-01 · Millipore Labscale",
+                "TFF-PD-02 · Sartorius SartoFlow Smart",
+                "Centrifuge AB/ADC-PD-030 (centrifugal UF)"
+              ]
+            },
+            {
+              "key": "pre_use_nwp",
+              "label": "Pre-use NWP (LMH/psi)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "df_buffer_name",
+              "label": "Diafiltration buffer name",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "df_buffer_composition",
+              "label": "Diafiltration buffer composition",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "df_buffer_lot",
+              "label": "Diafiltration buffer lot",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "df_buffer_conductivity",
+              "label": "Diafiltration buffer conductivity (mS/cm)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "df_buffer_ph",
+              "label": "Diafiltration buffer pH",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ufdf_mode",
+              "label": "Mode",
+              "type": "select",
+              "required": true,
+              "options": [
+                "UF → DF → UF (concentrate, diafilter, final concentrate)",
+                "DF → UF (diafilter, then concentrate)",
+                "Constant-volume diafiltration only"
+              ]
+            },
+            {
+              "key": "tmp_target_psi",
+              "label": "TMP target (psi)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "feed_flow_rate_ml_min",
+              "label": "Feed flow rate (mL/min)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "crossflow_lmm",
+              "label": "Crossflow (L/m²/min)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "flux_lmh",
+              "label": "Flux (LMH)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "diafiltration_volumes",
+              "label": "Diafiltration volumes (DV)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "df_mode",
+              "label": "DF mode",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Constant-volume DF",
+                "Sequential dilution / concentration",
+                "Single-pass TFF"
+              ]
+            },
+            {
+              "key": "process_temperature_c",
+              "label": "Process temperature (°C)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "target_retentate_conc_mg_ml",
+              "label": "Target retentate concentration (mg/mL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ufdf_run_start_time",
+              "label": "Run start time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ufdf_run_end_time",
+              "label": "Run end time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ufdf_total_duration_auto",
+              "label": "Total duration (auto)",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "post_use_nwp",
+              "label": "Post-use NWP (LMH/psi)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "nwp_recovery_pct",
+              "label": "NWP recovery (%)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_run_log",
+              "label": "Process Data · TFF run log / pressure profile",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_step_recovery_pct",
+              "label": "Step recovery (protein mass) — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_final_conc_mg_ml",
+              "label": "Final retentate concentration — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_retentate_conductivity",
+              "label": "Retentate conductivity — result",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_analytical_files",
+              "label": "Attachments — analytical chromatograms (SEC, RP, LC-MS, HIC)",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ufdf_step_remarks",
+              "label": "Step remarks / operator observations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ds_intermediate_sample_id",
+              "label": "New intermediate Sample ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ufdf_output_storage_condition",
+              "label": "Storage condition",
+              "type": "select",
+              "required": true,
+              "options": [
+                "2–8 °C",
+                "−20 °C",
+                "−80 °C"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "screen_5_3",
+          "title": "5.3 Scientist Conclusion",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "scientist_conclusion",
+              "label": "Scientist conclusion",
+              "type": "textarea",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "disposition",
+              "label": "Conclusion",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Release for formulation",
+                "Hold for additional testing",
+                "Reject"
+              ]
+            }
+          ]
+        },
+        {
+          "key": "screen_5_4",
+          "title": "5.4 Peer Review → Approval e-Sig → Record Locked",
+          "persona": "Reviewer",
+          "has_signature": true,
+          "has_files": false,
+          "fields": [
+            {
+              "key": "reviewer_username",
+              "label": "Reviewer username",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reviewer_password",
+              "label": "Password (2nd component)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "reason_for_signature",
+              "label": "Reason for signature",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Peer reviewed and approved",
+                "Supervisor reviewed and approved",
+                "Approved with comments"
+              ]
+            },
+            {
+              "key": "signature_timestamp",
+              "label": "Signature timestamp",
+              "type": "text",
+              "required": false,
+              "options": null
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "key": "section_6",
+      "title": "6. Formulation and Lyo Studies",
+      "screens": [
+        {
+          "key": "screen_6_1",
+          "title": "6.1 High-throughput Formulation Screening",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "ht_intermediate_sample",
+              "label": "Intermediate sample",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "ht_available_volume_ml",
+              "label": "Available volume (mL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ht_starting_conc_mg_ml",
+              "label": "Starting concentration (mg/mL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ht_starting_dar",
+              "label": "Starting DAR (LC-MS)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ht_incoming_buffer",
+              "label": "Incoming buffer",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "plate_format",
+              "label": "Plate format",
+              "type": "select",
+              "required": true,
+              "options": [
+                "96-well",
+                "384-well",
+                "Custom microvial array"
+              ]
+            },
+            {
+              "key": "doe_strategy",
+              "label": "DoE strategy",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Full factorial",
+                "Fractional factorial (resolution V)",
+                "JMP-designed custom DoE",
+                "D-optimal",
+                "Latin hypercube"
+              ]
+            },
+            {
+              "key": "number_of_formulations",
+              "label": "Number of formulations",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "replicates_per_condition",
+              "label": "Replicates per condition",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "working_volume_per_well_ul",
+              "label": "Working volume per well (µL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "robotics_platform",
+              "label": "Robotics platform",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Tecan Freedom EVO",
+                "Hamilton STAR",
+                "Manual / multichannel pipette"
+              ]
+            },
+            {
+              "key": "ht_ph_range",
+              "label": "pH range",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ht_ionic_strength_mm",
+              "label": "Ionic strength (mM)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ht_adc_concentration_levels",
+              "label": "ADC concentration levels (mg/mL)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "ht_execution_observations",
+              "label": "Execution Observations / Deviations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "ht_analytical_files",
+              "label": "Attachments — DoE plate map, SEC / HIC / RP / LC-MS chromatograms",
+              "type": "file",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_6_2",
+          "title": "6.2 Formulation Optimization Screening",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "opt_top_candidates",
+              "label": "Top candidates carried",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_source_intermediate",
+              "label": "Source intermediate",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "opt_adc_concentration_mg_ml",
+              "label": "ADC concentration (mg/mL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_format",
+              "label": "Format",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Glass vial (2R / 6R)",
+                "Pre-fill syringe surrogate",
+                "Low-binding PP tube"
+              ]
+            },
+            {
+              "key": "opt_doe_strategy",
+              "label": "DoE strategy",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Central composite (CCD)",
+                "Box-Behnken",
+                "Full factorial (narrow)",
+                "JMP-designed custom DoE"
+              ]
+            },
+            {
+              "key": "opt_number_of_formulations",
+              "label": "Number of formulations",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_replicates_per_condition",
+              "label": "Replicates per condition",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_fill_volume_per_vial_ml",
+              "label": "Fill volume per vial (mL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_headspace",
+              "label": "Headspace",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Air",
+                "Nitrogen overlay",
+                "Argon overlay"
+              ]
+            },
+            {
+              "key": "opt_ph_range",
+              "label": "pH range",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_ionic_strength_mm",
+              "label": "Ionic strength (mM)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_adc_concentration_levels",
+              "label": "ADC concentration levels (mg/mL)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "opt_execution_observations",
+              "label": "Execution Observations / Deviations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "locked_formulation_id",
+              "label": "Locked formulation ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "recipe_version",
+              "label": "Recipe version",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Formulation v2.0 (HTF-locked)",
+                "Formulation v1.2",
+                "Formulation v1.1 (superseded)"
+              ]
+            },
+            {
+              "key": "recipe_approver",
+              "label": "Recipe approver",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "recipe_effective_date",
+              "label": "Effective date",
+              "type": "date",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "recipe_change_history",
+              "label": "Recipe change history",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "opt_stability_data_files",
+              "label": "Attachments — extended stability data (SEC / HIC / RP / LC-MS / HIAC)",
+              "type": "file",
+              "required": false,
+              "options": null
+            }
+          ]
+        },
+        {
+          "key": "screen_6_3",
+          "title": "6.3 Lyophilization Cycle Optimization Suites",
+          "persona": "PD Scientist",
+          "has_signature": false,
+          "has_files": true,
+          "fields": [
+            {
+              "key": "lyo_locked_formulation",
+              "label": "Locked formulation",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "lyo_composition",
+              "label": "Composition",
+              "type": "text",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "lyo_adc_concentration_mg_ml",
+              "label": "ADC concentration (mg/mL)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lyo_source_intermediate",
+              "label": "Source intermediate",
+              "type": "select",
+              "required": true,
+              "options": []
+            },
+            {
+              "key": "lyo_available_volume_ml",
+              "label": "Available volume (mL)",
+              "type": "number",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "tg_prime_c",
+              "label": "Tg′ (glass transition of maximally freeze-concentrated phase)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "tc_collapse_temp_c",
+              "label": "Tc (collapse temperature)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "te_eutectic_c",
+              "label": "Te (eutectic, if present)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "tg_dry_product_c",
+              "label": "Tg (dry product)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "thermal_char_method",
+              "label": "Method",
+              "type": "select",
+              "required": true,
+              "options": [
+                "mDSC",
+                "FDM (freeze-dry microscopy)",
+                "DEA"
+              ]
+            },
+            {
+              "key": "thermal_char_instrument_id",
+              "label": "Instrument ID",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "selected_lyo_cycle",
+              "label": "Selected cycle",
+              "type": "select",
+              "required": true,
+              "options": [
+                "Conservative",
+                "Optimized",
+                "Aggressive"
+              ]
+            },
+            {
+              "key": "lyophilizer_instrument_id",
+              "label": "Lyophilizer instrument ID",
+              "type": "select",
+              "required": true,
+              "options": [
+                "LyoStar 3 · LYO-PD-01",
+                "FTS LyoStar II · LYO-PD-02",
+                "Pilot LyoStar · LYO-PD-03"
+              ]
+            },
+            {
+              "key": "loading_temperature_c",
+              "label": "Loading temperature (°C)",
+              "type": "number",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "annealing_step",
+              "label": "Annealing step?",
+              "type": "select",
+              "required": true,
+              "options": [
+                "No",
+                "Yes — −15 °C for 4 h"
+              ]
+            },
+            {
+              "key": "lyo_cycle_start_time",
+              "label": "Cycle start time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lyo_cycle_end_time",
+              "label": "Cycle end time",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lyo_cycle_log_files",
+              "label": "Process Data · Lyo cycle log (shelf / product / chamber pressure traces)",
+              "type": "file",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "lyo_execution_observations",
+              "label": "Execution Observations / Deviations",
+              "type": "textarea",
+              "required": false,
+              "options": null
+            },
+            {
+              "key": "lead_vial_fill",
+              "label": "Lead vial / fill",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lead_lyo_cycle",
+              "label": "Lead lyo cycle",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lead_selection_justification",
+              "label": "Justification (one-line)",
+              "type": "text",
+              "required": true,
+              "options": null
+            },
+            {
+              "key": "lyo_analytical_files",
+              "label": "Attachments — post-lyo analytical (SEC / HIC / RP / LC-MS / KF / HIAC + cake photos)",
+              "type": "file",
+              "required": false,
+              "options": null
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}

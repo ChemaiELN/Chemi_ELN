@@ -1,0 +1,184 @@
+@import './variables.less';
+
+// ── Global Ant Design sizing: all buttons & single-line inputs at 31px ────────
+// Imported once from main.tsx — applies app-wide including modals & drawers.
+
+@control-h: 31px;
+@control-lh: 29px;
+@control-fs: 12px;
+
+// Buttons
+.ant-btn {
+  height: @control-h !important;
+  min-height: @control-h !important;
+  line-height: @control-lh !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+  font-size: @control-fs !important;
+  display: inline-flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+
+  // Keep icons visible: inherit text color, consistent size, no line-height clipping
+  .ant-btn-icon {
+    line-height: 0 !important;
+    display: inline-flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+  }
+
+  .anticon {
+    color: inherit !important;
+    font-size: 14px !important;
+    line-height: 1 !important;
+    vertical-align: middle;
+  }
+}
+
+.ant-btn-sm,
+.ant-btn-lg {
+  height: @control-h !important;
+  min-height: @control-h !important;
+  line-height: @control-lh !important;
+}
+
+.ant-btn-icon-only {
+  width: @control-h !important;
+  min-width: @control-h !important;
+  padding-inline: 0 !important;
+
+  .anticon {
+    font-size: 14px !important;
+  }
+}
+
+// Text / password inputs (single-line only — textareas keep natural height)
+.ant-input:not(textarea),
+.ant-input-affix-wrapper {
+  height: @control-h !important;
+  min-height: @control-h !important;
+  font-size: @control-fs !important;
+  line-height: @control-lh !important;
+}
+
+textarea.ant-input,
+.ant-input-textarea textarea,
+.ant-input-textarea-show-count textarea,
+.ant-modal textarea.ant-input,
+.ant-drawer textarea.ant-input {
+  height: auto !important;
+  min-height: 72px !important;
+  line-height: 1.5 !important;
+  padding-top: 6px !important;
+  padding-bottom: 6px !important;
+  resize: vertical;
+}
+
+.ant-input-affix-wrapper {
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+
+  .ant-input {
+    height: @control-lh !important;
+    min-height: @control-lh !important;
+  }
+}
+
+// Number input
+.ant-input-number {
+  height: @control-h !important;
+  min-height: @control-h !important;
+  font-size: @control-fs !important;
+
+  .ant-input-number-input {
+    height: @control-lh !important;
+    min-height: @control-lh !important;
+    font-size: @control-fs !important;
+  }
+}
+
+// Select (single)
+.ant-select-single:not(.ant-select-customize-input) .ant-select-selector {
+  height: @control-h !important;
+  min-height: @control-h !important;
+  font-size: @control-fs !important;
+}
+
+.ant-select-single .ant-select-selector .ant-select-selection-item,
+.ant-select-single .ant-select-selector .ant-select-selection-placeholder {
+  line-height: @control-lh !important;
+  font-size: @control-fs !important;
+}
+
+.ant-select-single .ant-select-selector .ant-select-selection-search-input {
+  height: @control-lh !important;
+}
+
+// Select (multiple) — min height matches single-line controls
+.ant-select-multiple .ant-select-selector {
+  min-height: @control-h !important;
+  font-size: @control-fs !important;
+}
+
+// Date / time pickers
+.ant-picker {
+  height: @control-h !important;
+  min-height: @control-h !important;
+  font-size: @control-fs !important;
+  padding-top: 0 !important;
+  padding-bottom: 0 !important;
+}
+
+// Search input wrapper
+.ant-input-search {
+  .ant-input,
+  .ant-input-affix-wrapper {
+    height: @control-h !important;
+  }
+
+  .ant-input-search-button {
+    height: @control-h !important;
+  }
+}
+
+// Modal / drawer footer buttons
+.ant-modal-footer .ant-btn,
+.ant-drawer-footer .ant-btn,
+.ant-popconfirm-buttons .ant-btn {
+  height: @control-h !important;
+  min-height: @control-h !important;
+}
+
+// Pagination controls
+.ant-pagination-item,
+.ant-pagination-prev,
+.ant-pagination-next,
+.ant-pagination-jump-prev,
+.ant-pagination-jump-next {
+  min-width: @control-h !important;
+  height: @control-h !important;
+  line-height: @control-lh !important;
+}
+
+// Segmented control
+.ant-segmented-item {
+  min-height: @control-h !important;
+}
+
+// Tags — consistent bordered pill style app-wide
+.ant-tag {
+  font-family: 'Inter', system-ui, sans-serif;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.45;
+  border: 1px solid currentColor !important;
+}
+
+// Primary brand focus ring (uses new teal)
+.ant-input:focus,
+.ant-input-affix-wrapper-focused,
+.ant-input-number-focused,
+.ant-picker-focused,
+.ant-select-focused .ant-select-selector {
+  box-shadow: 0 0 0 2px fade(@teal-700, 12%) !important;
+}

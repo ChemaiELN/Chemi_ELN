@@ -13,6 +13,7 @@ class UserShort(BaseModel):
     id:           str
     emp_no:       str
     display_name: str
+    role:         Optional[str] = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -50,6 +51,7 @@ class NotebookUpdate(BaseModel):
     route_id:    Optional[str] = None
     stage_id:    Optional[str] = None
     status:      Optional[str] = None   # ACTIVE / ARCHIVED / LOCKED
+    template_id: Optional[str] = None
 
 
 class NotebookResponse(BaseModel):

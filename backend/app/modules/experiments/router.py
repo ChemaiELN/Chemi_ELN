@@ -45,9 +45,10 @@ from app.schemas.experiment import (
     ExperimentLinkPreliminary, ExperimentNewVersion, ExperimentReject,
     ExperimentResponse, ExperimentReviewResponse,
     ExperimentSign, ExperimentSummary, ExperimentUpdate,
+    experiment_summary_from_orm,
 )
 from app.utils.deps import get_current_user
-from app.utils.privileges import require_privilege, NOTEBOOKS_CREATE, NOTEBOOKS_EDIT, EXPERIMENTS_APPROVE
+from app.utils.privileges import require_privilege, NOTEBOOKS_CREATE, NOTEBOOKS_EDIT, EXPERIMENTS_APPROVE, EXPERIMENTS_VOID
 
 nb_router = APIRouter()
 router    = APIRouter()
@@ -223,12 +224,17 @@ def list_experiments(
     db:           Session       = Depends(get_db),
     _:            User          = Depends(get_current_user),
 ):
-    q = db.query(Experiment).filter(Experiment.notebook_id == notebook_id)
+    q = (
+        db.query(Experiment)
+        .options(selectinload(Experiment.creator))
+        .filter(Experiment.notebook_id == notebook_id)
+    )
     if latest_only:
         q = q.filter(Experiment.is_latest_version.is_(True))
     if section_key:
         q = q.filter(Experiment.section_key == section_key)
-    return q.order_by(Experiment.base_code, Experiment.version).all()
+    rows = q.order_by(Experiment.base_code, Experiment.version).all()
+    return [experiment_summary_from_orm(e) for e in rows]
 
 
 # ── Get single experiment ─────────────────────────────────────────────────────
@@ -492,6 +498,29 @@ def reject_experiment(
     return _load(db, exp_id)
 
 
+# ── Void ──────────────────────────────────────────────────────────────────────
+
+_void = require_privilege(EXPERIMENTS_VOID)
+
+@router.post("/{exp_id}/void", response_model=ExperimentResponse)
+def void_experiment(
+    exp_id: str,
+    body:   ExperimentReject,
+    db:     Session = Depends(get_db),
+    actor:  User    = Depends(_void),
+):
+    exp = _load(db, exp_id)
+    if exp.status == "VOID":
+        raise HTTPException(400, "Experiment is already void")
+    exp.status           = "VOID"
+    exp.rejected_by      = actor.id
+    exp.rejected_at      = _utcnow()
+    exp.rejection_reason = body.reason
+    _log(db, exp_id, actor.id, "VOID", {"reason": body.reason})
+    db.commit()
+    return _load(db, exp_id)
+
+
 # ── New version (HOD) ─────────────────────────────────────────────────────────
 
 @router.post("/{exp_id}/versions", response_model=ExperimentResponse, status_code=201)
@@ -588,12 +617,25 @@ def get_history(
 ):
     if not db.get(Experiment, exp_id):
         raise HTTPException(404, "Experiment not found")
-    return (
+    rows = (
         db.query(ExperimentHistory)
         .filter(ExperimentHistory.experiment_id == exp_id)
         .order_by(ExperimentHistory.created_at)
         .all()
     )
+    result = []
+    for r in rows:
+        actor = db.get(User, r.actor_id)
+        result.append(ExperimentHistoryResponse(
+            id=r.id,
+            experiment_id=r.experiment_id,
+            actor_id=r.actor_id,
+            actor_name=actor.display_name if actor else None,
+            action=r.action,
+            details=r.details,
+            created_at=r.created_at,
+        ))
+    return result
 
 
 # ── File upload ───────────────────────────────────────────────────────────────

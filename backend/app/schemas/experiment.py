@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, computed_field
 
 
 # ── File ──────────────────────────────────────────────────────────────────────
@@ -17,6 +17,11 @@ class ExperimentFileResponse(BaseModel):
     uploaded_by:   str
     uploaded_at:   datetime
     model_config = ConfigDict(from_attributes=True)
+
+    @computed_field
+    @property
+    def url(self) -> str:
+        return f"/api/experiments/{self.experiment_id}/files/{self.id}"
 
 
 # ── Review (multi-reviewer) ───────────────────────────────────────────────────
@@ -43,6 +48,7 @@ class ExperimentHistoryResponse(BaseModel):
     id:            str
     experiment_id: str
     actor_id:      str
+    actor_name:    Optional[str] = None
     action:        str
     details:       Optional[Dict[str, Any]]
     created_at:    datetime
@@ -146,6 +152,7 @@ class ExperimentResponse(BaseModel):
     submitted_at:     Optional[datetime]
     approved_by:      Optional[str]
     approved_at:      Optional[datetime]
+    approver:         Optional[_UserShort]
     rejected_by:      Optional[str]
     rejected_at:      Optional[datetime]
     rejection_reason: Optional[str]

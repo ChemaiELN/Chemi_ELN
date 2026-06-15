@@ -36,9 +36,10 @@ class WorkflowTemplateResponse(BaseModel):
 
 class WorkflowTemplateSummary(BaseModel):
     """Lightweight — for dropdowns when creating a notebook."""
-    id:       str
-    name:     str
-    slug:     str
-    category: Optional[str]
-    version:  int
+    id:        str
+    name:      str
+    slug:      str
+    category:  Optional[str]
+    version:   int
+    is_active: bool
     model_config = ConfigDict(from_attributes=True)

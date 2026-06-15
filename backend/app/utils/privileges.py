@@ -176,28 +176,8 @@ def require_privilege(privilege_key: str):
         current_user: User    = Depends(get_current_user),
         db:           Session = Depends(get_db),
     ) -> User:
-        # QA is always super-admin
-        if current_user.role.code == "QA":
+        if user_has_privilege(current_user, db, privilege_key):
             return current_user
-
-        # Explicit DB override takes priority over defaults
-        priv = db.query(RolePrivilege).filter(
-            RolePrivilege.role_id       == current_user.role_id,
-            RolePrivilege.privilege_key == privilege_key,
-        ).first()
-
-        if priv is not None:
-            if priv.is_granted:
-                return current_user
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail=f"Privilege '{privilege_key}' has been revoked for your role.",
-            )
-
-        # Fall back to hardcoded defaults
-        if current_user.role.code in DEFAULT_GRANTS.get(privilege_key, frozenset()):
-            return current_user
-
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail=f"Missing privilege: {privilege_key}",

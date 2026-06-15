@@ -386,7 +386,7 @@ if exp_id:
 
     # Sub-resources
     r_inp = check("post", f"/experiments/{exp_id}/inputs",
-                  json={"material_name": "Smoke Water", "quantity": 100, "uom": "mL", "role": "SM"},
+                  json={"material_name": "Smoke Water", "quantity": 100, "unit": "mL", "role": "SM"},
                   token=token, expected=(201,))
     inp_id = r_inp.json()["id"] if r_inp else None
     check("get", f"/experiments/{exp_id}/inputs", token=token)
@@ -751,7 +751,7 @@ if mat_id:
         check("patch", f"/inventory/batches/{batch_id}/toggle", token=token)
         check("get",   f"/inventory/batches/{batch_id}/events", token=token)
         check("post",  f"/inventory/batches/{batch_id}/issue",
-              json={"quantity": 5.0, "issued_to": "Smoke Test"}, token=token, expected=(200,))
+              json={"qty": 5.0, "issued_to": "Smoke Test"}, token=token, expected=(200,))
 
 print("\n=== INVENTORY — Batch Verifications ===")
 check("get", "/inventory/batch-verifications", token=token)

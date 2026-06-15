@@ -46,11 +46,17 @@ _nb_perms  = require_privilege(NOTEBOOKS_PERMISSIONS)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _role_code(user: Optional[User]) -> Optional[str]:
+    if not user or not user.role:
+        return None
+    return user.role.code
+
+
 def _load_notebook(db: Session, notebook_id: str) -> Notebook:
     nb = (
         db.query(Notebook)
         .options(
-            selectinload(Notebook.creator),
+            selectinload(Notebook.creator).selectinload(User.role),
             selectinload(Notebook.template),
         )
         .filter(Notebook.id == notebook_id)
@@ -69,6 +75,7 @@ def _build_response(nb: Notebook) -> NotebookResponse:
             id=nb.creator.id,
             emp_no=nb.creator.emp_no,
             display_name=nb.creator.display_name,
+            role=_role_code(nb.creator),
         )
     return NotebookResponse(
         id=nb.id, code=nb.code, title=nb.title,
@@ -92,6 +99,7 @@ def _perm_response(p: NotebookPermission) -> PermissionResponse:
             id=p.user.id,
             emp_no=p.user.emp_no,
             display_name=p.user.display_name,
+            role=_role_code(p.user),
         )
     return PermissionResponse(
         id=p.id, notebook_id=p.notebook_id, user_id=p.user_id, user=user,
@@ -216,7 +224,7 @@ def list_notebooks(
 ):
     actor_roles = {actor.role.code}
 
-    q = db.query(Notebook).options(selectinload(Notebook.creator))
+    q = db.query(Notebook).options(selectinload(Notebook.creator).selectinload(User.role))
 
     # QA and HOD see all notebooks; others only see ones they have permission on
     if "QA" not in actor_roles and "HOD" not in actor_roles:
@@ -285,8 +293,23 @@ def update_notebook(
     if body.status and body.status.upper() not in valid_statuses:
         raise HTTPException(400, f"Invalid status. Use: {valid_statuses}")
 
+    updates = body.model_dump(exclude_unset=True)
+
+    # When template_id changes, validate and refresh the snapshot
+    if "template_id" in updates and updates["template_id"] != nb.template_id:
+        new_template_id = updates["template_id"]
+        if new_template_id:
+            tmpl = db.get(WorkflowTemplate, new_template_id)
+            if not tmpl:
+                raise HTTPException(404, "Workflow template not found")
+            if not tmpl.is_active:
+                raise HTTPException(400, "Workflow template is inactive")
+            nb.template_snapshot = tmpl.definition
+        else:
+            nb.template_snapshot = None
+
     changed = []
-    for field, value in body.model_dump(exclude_unset=True).items():
+    for field, value in updates.items():
         if field == "status":
             value = value.upper()
         if getattr(nb, field) != value:
@@ -390,7 +413,7 @@ def grant_permission(
     # Load user for response
     perm = (
         db.query(NotebookPermission)
-        .options(selectinload(NotebookPermission.user))
+        .options(selectinload(NotebookPermission.user).selectinload(User.role))
         .filter(NotebookPermission.id == perm.id)
         .first()
     )
@@ -410,7 +433,7 @@ def list_permissions(
     _load_notebook(db, notebook_id)
     perms = (
         db.query(NotebookPermission)
-        .options(selectinload(NotebookPermission.user))
+        .options(selectinload(NotebookPermission.user).selectinload(User.role))
         .filter(NotebookPermission.notebook_id == notebook_id)
         .all()
     )
@@ -442,7 +465,7 @@ def update_permission(
     db.commit()
     perm = (
         db.query(NotebookPermission)
-        .options(selectinload(NotebookPermission.user))
+        .options(selectinload(NotebookPermission.user).selectinload(User.role))
         .filter(
             NotebookPermission.notebook_id == notebook_id,
             NotebookPermission.user_id     == user_id,

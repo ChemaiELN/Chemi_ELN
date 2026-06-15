@@ -30,16 +30,23 @@ def _get_or_404(db: Session, template_id: str) -> WorkflowTemplate:
 
 @router.get("/", response_model=List[WorkflowTemplateSummary])
 def list_templates(
-    category:  Optional[str]  = Query(None),
-    is_active: Optional[bool] = Query(None),
-    db:        Session        = Depends(get_db),
-    _:         User           = Depends(get_current_user),
+    category:  Optional[str] = Query(None),
+    is_active: Optional[str] = Query(None),
+    db:        Session       = Depends(get_db),
+    _:         User          = Depends(get_current_user),
 ):
     q = db.query(WorkflowTemplate)
     if category:
         q = q.filter(WorkflowTemplate.category == category)
     if is_active is not None:
-        q = q.filter(WorkflowTemplate.is_active == is_active)
+        if is_active == "":
+            pass  # return all regardless of active state
+        elif is_active.lower() in ("true", "1"):
+            q = q.filter(WorkflowTemplate.is_active.is_(True))
+        elif is_active.lower() in ("false", "0"):
+            q = q.filter(WorkflowTemplate.is_active.is_(False))
+        else:
+            raise HTTPException(400, "Invalid is_active value")
     else:
         q = q.filter(WorkflowTemplate.is_active.is_(True))
     return q.order_by(WorkflowTemplate.category, WorkflowTemplate.name).all()

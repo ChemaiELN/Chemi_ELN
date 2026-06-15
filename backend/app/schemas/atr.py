@@ -4,6 +4,12 @@ from typing import List, Optional
 from pydantic import BaseModel, ConfigDict
 
 
+class _UserShort(BaseModel):
+    id:           str
+    display_name: str
+    model_config = ConfigDict(from_attributes=True)
+
+
 # ── ATR Attachments ──────────────────────────────────────────────────────────
 
 class ATRAttachmentResponse(BaseModel):
@@ -59,6 +65,7 @@ class ATRSummary(BaseModel):
     id: str
     atr_no: str
     test_type: str
+    objectives: Optional[str] = None
     status: str
     version: int
     is_latest_version: bool
@@ -66,6 +73,7 @@ class ATRSummary(BaseModel):
     notebook_id: Optional[str] = None
     project_id: Optional[str] = None
     raised_by: str
+    raised_user: Optional[_UserShort] = None
     raised_at: datetime
     submitted_to: Optional[str] = None
     assigned_to: Optional[str] = None

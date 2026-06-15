@@ -269,22 +269,22 @@ def my_activity(
     db:    Session = Depends(get_db),
     actor: User    = Depends(get_current_user),
 ):
-    """Recent experiments created or submitted by the current user."""
-    from app.models.experiment import Experiment
-    recent = (
-        db.query(Experiment)
-        .filter(Experiment.created_by == actor.id)
-        .order_by(Experiment.updated_at.desc())
+    """Recent experiment history actions performed by the current user."""
+    from app.models.experiment import ExperimentHistory
+    rows = (
+        db.query(ExperimentHistory)
+        .filter(ExperimentHistory.actor_id == actor.id)
+        .order_by(ExperimentHistory.created_at.desc())
         .limit(limit)
         .all()
     )
     return {"items": [
         {
-            "id":        e.id,
-            "full_code": e.full_code,
-            "title":     e.title,
-            "status":    e.status,
-            "updated_at": e.updated_at,
+            "id":            r.id,
+            "experiment_id": r.experiment_id,
+            "action":        r.action,
+            "action_by":     r.actor_id,
+            "action_at":     r.created_at,
         }
-        for e in recent
+        for r in rows
     ]}

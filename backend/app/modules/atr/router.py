@@ -110,8 +110,9 @@ def list_atr(
     project_id: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     test_type: Optional[str] = Query(None),
+    latest_only: bool = Query(False),
     page: int = Query(1, ge=1),
-    page_size: int = Query(20, ge=1, le=100),
+    page_size: int = Query(20, ge=1, le=500),
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
@@ -133,6 +134,8 @@ def list_atr(
         q = q.filter(ATR.status == status.upper())
     if test_type:
         q = q.filter(ATR.test_type.ilike(f"%{test_type}%"))
+    if latest_only:
+        q = q.filter(ATR.is_latest_version == True)  # noqa: E712
 
     total = q.count()
     pg = paginate(total, page, page_size)

@@ -37,17 +37,16 @@ def experiment_counts(
     if "QA" in roles or "HOD" in roles:
         q = db.query(Experiment).filter(Experiment.is_latest_version.is_(True))
     else:
-        nb_ids = [
-            p.notebook_id
-            for p in db.query(NotebookPermission)
+        nb_ids_sq = (
+            db.query(NotebookPermission.notebook_id)
             .filter(
                 NotebookPermission.user_id == actor.id,
                 NotebookPermission.can_view.is_(True),
             )
-            .all()
-        ]
+            .subquery()
+        )
         q = db.query(Experiment).filter(
-            Experiment.notebook_id.in_(nb_ids),
+            Experiment.notebook_id.in_(nb_ids_sq),
             Experiment.is_latest_version.is_(True),
         )
 
@@ -220,17 +219,16 @@ def sla_alerts(
     if "QA" in roles or "HOD" in roles:
         base_q = db.query(Experiment).filter(Experiment.is_latest_version.is_(True))
     else:
-        nb_ids = [
-            p.notebook_id
-            for p in db.query(NotebookPermission)
+        nb_ids_sq = (
+            db.query(NotebookPermission.notebook_id)
             .filter(
                 NotebookPermission.user_id == actor.id,
                 NotebookPermission.can_view.is_(True),
             )
-            .all()
-        ]
+            .subquery()
+        )
         base_q = db.query(Experiment).filter(
-            Experiment.notebook_id.in_(nb_ids),
+            Experiment.notebook_id.in_(nb_ids_sq),
             Experiment.is_latest_version.is_(True),
         )
 

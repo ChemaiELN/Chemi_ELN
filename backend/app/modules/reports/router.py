@@ -164,6 +164,7 @@ def export_experiment_pdf(
             selectinload(Experiment.creator),
             selectinload(Experiment.linked_preliminary),
             selectinload(Experiment.files),
+            selectinload(Experiment.reviews),
         )
         .filter(Experiment.id == exp_id)
         .first()

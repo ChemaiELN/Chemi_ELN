@@ -4,7 +4,7 @@ from typing import List, Optional
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
 from fastapi.responses import FileResponse
 from sqlalchemy import or_
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models.atr import ATR, ATRAttachment
@@ -487,8 +487,7 @@ def create_unlock_request(
         ip_address=get_ip(request),
     )
     db.commit()
-    db.refresh(req)
-    return _enrich_unlock(db, req)
+    return _enrich_unlock(_load_unlock(db, req.id))
 
 
 @unlock_router.get("/", response_model=PaginatedResponse[UnlockRequestResponse])
@@ -550,16 +549,29 @@ def list_unlock_requests(
     return PaginatedResponse(items=result, **pg)
 
 
-def _enrich_unlock(db: Session, req: UnlockRequest) -> UnlockRequestResponse:
-    """Attach experiment_full_code, requester_name, reviewer_name to a response."""
+def _load_unlock(db: Session, req_id: str) -> UnlockRequest:
+    """Load an UnlockRequest with experiment + requester + reviewer eagerly loaded."""
+    req = (
+        db.query(UnlockRequest)
+        .options(
+            selectinload(UnlockRequest.experiment),
+            selectinload(UnlockRequest.requester),
+            selectinload(UnlockRequest.reviewer),
+        )
+        .filter(UnlockRequest.id == req_id)
+        .first()
+    )
+    if not req:
+        raise HTTPException(404, "Unlock request not found")
+    return req
+
+
+def _enrich_unlock(req: UnlockRequest) -> UnlockRequestResponse:
+    """Build response from already-loaded relationships — no extra queries."""
     resp = UnlockRequestResponse.model_validate(req)
-    exp = db.get(Experiment, req.experiment_id)
-    resp.experiment_full_code = exp.full_code if exp else None
-    requester = db.get(User, req.requested_by)
-    resp.requester_name = requester.display_name if requester else None
-    if req.reviewed_by:
-        reviewer = db.get(User, req.reviewed_by)
-        resp.reviewer_name = reviewer.display_name if reviewer else None
+    resp.experiment_full_code = req.experiment.full_code if req.experiment else None
+    resp.requester_name = req.requester.display_name if req.requester else None
+    resp.reviewer_name = req.reviewer.display_name if req.reviewer else None
     return resp
 
 
@@ -569,10 +581,8 @@ def get_unlock_request(
     db: Session = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
-    req = db.get(UnlockRequest, req_id)
-    if not req:
-        raise HTTPException(404, "Unlock request not found")
-    return _enrich_unlock(db, req)
+    req = _load_unlock(db, req_id)
+    return _enrich_unlock(req)
 
 
 @unlock_router.post("/{req_id}/approve", response_model=UnlockRequestResponse)
@@ -612,8 +622,7 @@ def approve_unlock_request(
         ip_address=get_ip(request),
     )
     db.commit()
-    db.refresh(req)
-    return _enrich_unlock(db, req)
+    return _enrich_unlock(_load_unlock(db, req.id))
 
 
 @unlock_router.post("/{req_id}/reject", response_model=UnlockRequestResponse)
@@ -647,5 +656,4 @@ def reject_unlock_request(
         ip_address=get_ip(request),
     )
     db.commit()
-    db.refresh(req)
-    return _enrich_unlock(db, req)
+    return _enrich_unlock(_load_unlock(db, req.id))

@@ -1,5 +1,43 @@
 # Changes
 
+## 2026-06-15 — ADC Synthesis: backend support + seed template
+
+### New: `experiment_materials` table + endpoints
+Added `ExperimentMaterial` model (`experiment_materials` table) to formally track which
+inventory batches are reserved / issued for each reagent role in a synthesis experiment.
+
+New endpoints on `router` (mounted under `/api/experiments`):
+- `GET  /{id}/materials` — list reserved batches for an experiment
+- `POST /{id}/materials` — reserve a batch (validates AVAILABLE status + sufficient qty)
+- `PATCH /{id}/materials/{mat_id}` — update qty_issued / status (RESERVED → ISSUED → RETURNED)
+
+### New: `GET /{id}/preliminary-data` endpoint
+Returns the linked preliminary experiment's full `data` JSON so the synthesis frontend
+can pre-fill read-only fields (antibody lot, concentration, LP purity, dispositions, etc.)
+without loading the entire preliminary experiment response.
+
+### Fix: Synthesis submit gate — preliminary disposition check
+`submit_experiment` now blocks submission if the linked preliminary experiment's
+`disposition` or `lp_disposition` fields are not `"Release for conjugation"`,
+preventing synthesis from proceeding before materials are characterised and released.
+
+### New: `seed_adc_synthesis.py`
+Seed script for the ADC Synthesis workflow template (slug `adc-synthesis`).
+2 sections, 13 screens, 136 user-entered fields. Preliminary + inventory data
+are resolved at runtime via `linked_preliminary_id` and `inv_batches`; only
+user-entered and auto-stamped fields are in the template definition.
+
+**Files changed:**
+- `backend/app/models/experiment_material.py` — new model
+- `backend/app/models/__init__.py` — registered `ExperimentMaterial`
+- `backend/app/schemas/experiment.py` — `ExperimentMaterialCreate/Update/Response`, `PreliminaryDataResponse`
+- `backend/app/modules/experiments/router.py` — 3 new material endpoints, preliminary-data endpoint, submit gate
+- `backend/seed_adc_synthesis.py` — new synthesis template seed
+
+---
+
+
+
 ## 2026-06-13 — Fix: Verify/Save/Submit race condition with CRD settings
 
 **Bug:** Clicking Verify (or Save / Submit for Verification) immediately after the experiment editor page loads could trigger a 422 error from the backend. The root cause was a race condition: `triggerWithESign` evaluates `crdSettings?.reauth_verification ?? false` — when `crdSettings` is still `null` (fetch in flight), this falls through to `false` and calls `fn()` directly without a password, which the sign endpoint rejects with 422.

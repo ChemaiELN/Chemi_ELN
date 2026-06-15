@@ -37,14 +37,20 @@ from app.core.security import verify_password
 from app.database import get_db
 from app.models.base import new_uuid
 from app.models.experiment import Experiment, ExperimentFile, ExperimentHistory, ExperimentReview
+from app.models.experiment_material import ExperimentMaterial
+from app.models.inventory_batches import InvBatch
+from app.models.inventory_materials import InvMaterial
+from app.models.inventory_manufacturers import InvManufacturer
 from app.models.notebook import Notebook, NotebookPermission
 from app.models.user import User
 from app.schemas.experiment import (
     AssignReviewer,
     ExperimentCreate, ExperimentFileResponse, ExperimentHistoryResponse,
-    ExperimentLinkPreliminary, ExperimentNewVersion, ExperimentReject,
+    ExperimentLinkPreliminary, ExperimentMaterialCreate, ExperimentMaterialResponse,
+    ExperimentMaterialUpdate, ExperimentNewVersion, ExperimentReject,
     ExperimentResponse, ExperimentReviewResponse,
     ExperimentSign, ExperimentSummary, ExperimentUpdate,
+    PreliminaryDataResponse,
     experiment_summary_from_orm,
 )
 from app.utils.deps import get_current_user
@@ -299,6 +305,23 @@ def submit_experiment(
     _require_nb_submit(exp, actor, db)
     if exp.status != "DRAFT":
         raise HTTPException(400, f"Cannot submit — experiment is {exp.status}")
+
+    # Synthesis gate: both preliminary dispositions must be "Release for conjugation"
+    if exp.linked_preliminary_id and exp.linked_preliminary:
+        prelim_data = exp.linked_preliminary.data or {}
+        mab_ok = prelim_data.get("disposition") == "Release for conjugation"
+        lp_ok  = prelim_data.get("lp_disposition") == "Release for conjugation"
+        if not mab_ok:
+            raise HTTPException(
+                400,
+                "Cannot submit: linked preliminary mAb disposition is not 'Release for conjugation'",
+            )
+        if not lp_ok:
+            raise HTTPException(
+                400,
+                "Cannot submit: linked preliminary LP disposition is not 'Release for conjugation'",
+            )
+
     exp.status       = "SUBMITTED"
     exp.submitted_by = actor.id
     exp.submitted_at = _utcnow()
@@ -346,7 +369,13 @@ def assign_reviewer(
     db.add(review)
     _log(db, exp_id, actor.id, "REVIEWER_ASSIGNED", {"reviewer_id": body.reviewer_id})
     db.commit()
-    db.refresh(review)
+    # Re-query with eager load so reviewer relationship is populated
+    review = (
+        db.query(ExperimentReview)
+        .options(selectinload(ExperimentReview.reviewer))
+        .filter(ExperimentReview.id == review.id)
+        .first()
+    )
     return review
 
 
@@ -607,6 +636,177 @@ def link_preliminary(
     return _load(db, exp_id)
 
 
+# ── Preliminary data snapshot ─────────────────────────────────────────────────
+
+@router.get("/{exp_id}/preliminary-data", response_model=PreliminaryDataResponse)
+def get_preliminary_data(
+    exp_id: str,
+    db:     Session = Depends(get_db),
+    _:      User    = Depends(get_current_user),
+):
+    """Return the linked preliminary experiment's field data for pre-filling synthesis screens."""
+    # Lightweight query — only load linked_preliminary, skip files/reviews
+    exp = (
+        db.query(Experiment)
+        .options(selectinload(Experiment.linked_preliminary))
+        .filter(Experiment.id == exp_id)
+        .first()
+    )
+    if not exp:
+        raise HTTPException(404, "Experiment not found")
+    if not exp.linked_preliminary_id or not exp.linked_preliminary:
+        raise HTTPException(404, "No preliminary experiment linked to this experiment")
+    prelim = exp.linked_preliminary
+    return PreliminaryDataResponse(
+        preliminary_id=prelim.id,
+        full_code=prelim.full_code,
+        title=prelim.title,
+        status=prelim.status,
+        data=prelim.data,
+    )
+
+
+# ── Experiment materials (batch reservations) ─────────────────────────────────
+
+def _materials_query(db: Session, experiment_id: str):
+    """Single query that eagerly loads batch → manufacturer and material — no N+1."""
+    return (
+        db.query(ExperimentMaterial)
+        .options(
+            selectinload(ExperimentMaterial.material),
+            selectinload(ExperimentMaterial.batch).selectinload(InvBatch.manufacturer),
+        )
+        .filter(ExperimentMaterial.experiment_id == experiment_id)
+        .order_by(ExperimentMaterial.reserved_at)
+    )
+
+
+def _material_response(row: ExperimentMaterial) -> ExperimentMaterialResponse:
+    batch    = row.batch
+    material = row.material
+    mfr_name = batch.manufacturer.name if (batch and batch.manufacturer) else None
+    return ExperimentMaterialResponse(
+        id=row.id,
+        experiment_id=row.experiment_id,
+        material_role=row.material_role,
+        material_id=row.material_id,
+        batch_id=row.batch_id,
+        qty_reserved=float(row.qty_reserved),
+        unit=row.unit,
+        qty_issued=float(row.qty_issued) if row.qty_issued is not None else None,
+        status=row.status,
+        remarks=row.remarks,
+        reserved_by=row.reserved_by,
+        reserved_at=row.reserved_at,
+        material_name=material.name if material else None,
+        material_code=material.code if material else None,
+        batch_no=batch.batch_no if batch else None,
+        manufacturer_name=mfr_name,
+    )
+
+
+@router.get("/{exp_id}/materials", response_model=List[ExperimentMaterialResponse])
+def list_experiment_materials(
+    exp_id: str,
+    db:     Session = Depends(get_db),
+    _:      User    = Depends(get_current_user),
+):
+    if not db.get(Experiment, exp_id):
+        raise HTTPException(404, "Experiment not found")
+    rows = _materials_query(db, exp_id).all()
+    return [_material_response(r) for r in rows]
+
+
+@router.post("/{exp_id}/materials", response_model=ExperimentMaterialResponse, status_code=201)
+def reserve_experiment_material(
+    exp_id: str,
+    body:   ExperimentMaterialCreate,
+    db:     Session = Depends(get_db),
+    actor:  User    = Depends(get_current_user),
+):
+    exp = _load(db, exp_id)
+    _require_nb_edit(exp, actor, db)
+    if exp.status != "DRAFT":
+        raise HTTPException(400, f"Cannot reserve materials — experiment is {exp.status}")
+
+    material = db.get(InvMaterial, body.material_id)
+    if not material:
+        raise HTTPException(404, f"Material {body.material_id} not found")
+
+    batch = db.get(InvBatch, body.batch_id)
+    if not batch:
+        raise HTTPException(404, f"Batch {body.batch_id} not found")
+    if batch.material_id != body.material_id:
+        raise HTTPException(400, "Batch does not belong to the specified material")
+    if batch.status != "AVAILABLE":
+        raise HTTPException(400, f"Batch is {batch.status} — only AVAILABLE batches can be reserved")
+    if float(batch.qty_available) < body.qty_reserved:
+        raise HTTPException(
+            400,
+            f"Insufficient stock: requested {body.qty_reserved} {body.unit} "
+            f"but only {batch.qty_available} {batch.unit} available",
+        )
+
+    row = ExperimentMaterial(
+        id=new_uuid(),
+        experiment_id=exp_id,
+        material_role=body.material_role,
+        material_id=body.material_id,
+        batch_id=body.batch_id,
+        qty_reserved=body.qty_reserved,
+        unit=body.unit,
+        qty_issued=None,
+        status="RESERVED",
+        remarks=body.remarks,
+        reserved_by=actor.id,
+    )
+    db.add(row)
+    _log(db, exp_id, actor.id, "MATERIAL_RESERVED", {
+        "role": body.material_role,
+        "batch_no": batch.batch_no,
+        "qty": body.qty_reserved,
+        "unit": body.unit,
+    })
+    db.commit()
+    # Re-query with eager loads instead of refresh + lazy loads
+    row = _materials_query(db, exp_id).filter(ExperimentMaterial.id == row.id).first()
+    return _material_response(row)
+
+
+@router.patch("/{exp_id}/materials/{mat_id}", response_model=ExperimentMaterialResponse)
+def update_experiment_material(
+    exp_id: str,
+    mat_id: str,
+    body:   ExperimentMaterialUpdate,
+    db:     Session = Depends(get_db),
+    actor:  User    = Depends(get_current_user),
+):
+    exp = _load(db, exp_id)
+    _require_nb_edit(exp, actor, db)
+
+    row = db.query(ExperimentMaterial).filter(
+        ExperimentMaterial.id == mat_id,
+        ExperimentMaterial.experiment_id == exp_id,
+    ).first()
+    if not row:
+        raise HTTPException(404, "Material reservation not found")
+
+    if body.qty_issued is not None:
+        row.qty_issued = body.qty_issued
+    if body.status is not None:
+        if body.status not in ("RESERVED", "ISSUED", "RETURNED"):
+            raise HTTPException(400, "status must be RESERVED, ISSUED, or RETURNED")
+        row.status = body.status
+    if body.remarks is not None:
+        row.remarks = body.remarks
+
+    _log(db, exp_id, actor.id, "MATERIAL_UPDATED", {"mat_id": mat_id, "status": row.status})
+    db.commit()
+    # Re-query with eager loads instead of refresh + lazy loads
+    row = _materials_query(db, exp_id).filter(ExperimentMaterial.id == mat_id).first()
+    return _material_response(row)
+
+
 # ── Audit history ─────────────────────────────────────────────────────────────
 
 @router.get("/{exp_id}/history", response_model=List[ExperimentHistoryResponse])
@@ -619,23 +819,23 @@ def get_history(
         raise HTTPException(404, "Experiment not found")
     rows = (
         db.query(ExperimentHistory)
+        .options(selectinload(ExperimentHistory.actor))
         .filter(ExperimentHistory.experiment_id == exp_id)
         .order_by(ExperimentHistory.created_at)
         .all()
     )
-    result = []
-    for r in rows:
-        actor = db.get(User, r.actor_id)
-        result.append(ExperimentHistoryResponse(
+    return [
+        ExperimentHistoryResponse(
             id=r.id,
             experiment_id=r.experiment_id,
             actor_id=r.actor_id,
-            actor_name=actor.display_name if actor else None,
+            actor_name=r.actor.display_name if r.actor else None,
             action=r.action,
             details=r.details,
             created_at=r.created_at,
-        ))
-    return result
+        )
+        for r in rows
+    ]
 
 
 # ── File upload ───────────────────────────────────────────────────────────────

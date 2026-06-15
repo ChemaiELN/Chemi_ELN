@@ -11,6 +11,7 @@ from app.models.route import Route, Stage  # noqa: F401
 from app.models.workflow_template import WorkflowTemplate  # noqa: F401
 from app.models.notebook import Notebook, NotebookPermission  # noqa: F401
 from app.models.experiment import Experiment, ExperimentFile, ExperimentReview, ExperimentHistory  # noqa: F401
+from app.models.experiment_material import ExperimentMaterial  # noqa: F401
 from app.models.unlock_request import UnlockRequest  # noqa: F401
 from app.models.atr import ATR, ATRAttachment, ATRFinalReport  # noqa: F401
 from app.models.audit import AuditLog  # noqa: F401

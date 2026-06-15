@@ -11,8 +11,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy import func, and_
-from sqlalchemy.orm import Session
+from sqlalchemy import func, and_, case
+from sqlalchemy.orm import Session, selectinload
 
 from app.database import get_db
 from app.models.inventory_materials import InvMaterial
@@ -90,64 +90,39 @@ def get_kpis(
     today = date.today()
     in_30 = today + timedelta(days=30)
 
-    # Materials
+    # Materials — single count
     total_materials = db.query(func.count(InvMaterial.id)).filter(InvMaterial.is_active == True).scalar() or 0
 
-    # Batches
-    batches_available = (
-        db.query(func.count(InvBatch.id))
-        .filter(InvBatch.category == "available", InvBatch.is_active == True)
-        .scalar() or 0
-    )
-
-    # Low stock — available < 10% of received (and not zero)
-    low_stock = (
-        db.query(func.count(InvBatch.id))
-        .filter(
-            InvBatch.category == "available",
-            InvBatch.is_active == True,
+    # All batch KPIs in ONE query using conditional aggregation
+    batch_row = db.query(
+        func.count(case((and_(InvBatch.category == "available", InvBatch.is_active == True), 1))).label("available"),
+        func.count(case((and_(
+            InvBatch.category == "available", InvBatch.is_active == True,
             InvBatch.qty_available > 0,
-            InvBatch.qty_available < (InvBatch.qty_received * 0.10),
-        )
-        .scalar() or 0
-    )
-
-    # Expiring within 30 days
-    expiring_30 = (
-        db.query(func.count(InvBatch.id))
-        .filter(
-            InvBatch.is_active == True,
-            InvBatch.expiry_date != None,
-            InvBatch.expiry_date >= today,
-            InvBatch.expiry_date <= in_30,
+            InvBatch.qty_available < InvBatch.qty_received * 0.10,
+        ), 1))).label("low_stock"),
+        func.count(case((and_(
+            InvBatch.is_active == True, InvBatch.expiry_date != None,
+            InvBatch.expiry_date >= today, InvBatch.expiry_date <= in_30,
             InvBatch.qty_available > 0,
-        )
-        .scalar() or 0
-    )
+        ), 1))).label("expiring_30"),
+        func.count(case((and_(
+            InvBatch.is_active == True, InvBatch.expiry_date != None,
+            InvBatch.expiry_date < today, InvBatch.qty_available > 0,
+        ), 1))).label("expired"),
+    ).one()
+    batches_available = batch_row.available
+    low_stock         = batch_row.low_stock
+    expiring_30       = batch_row.expiring_30
+    expired           = batch_row.expired
 
-    # Expired (expiry_date < today and still has qty)
-    expired = (
-        db.query(func.count(InvBatch.id))
-        .filter(
-            InvBatch.is_active == True,
-            InvBatch.expiry_date != None,
-            InvBatch.expiry_date < today,
-            InvBatch.qty_available > 0,
-        )
-        .scalar() or 0
-    )
-
-    # Stock requests
-    sr_pending = (
-        db.query(func.count(InvStockRequest.id))
-        .filter(InvStockRequest.status == "PENDING")
-        .scalar() or 0
-    )
-    sr_critical = (
-        db.query(func.count(InvStockRequest.id))
-        .filter(InvStockRequest.status == "PENDING", InvStockRequest.criticality == "CRITICAL")
-        .scalar() or 0
-    )
+    # Stock requests — single query with conditional aggregation
+    sr_row = db.query(
+        func.count(case((InvStockRequest.status == "PENDING", 1))).label("pending"),
+        func.count(case((and_(InvStockRequest.status == "PENDING", InvStockRequest.criticality == "CRITICAL"), 1))).label("critical"),
+    ).one()
+    sr_pending  = sr_row.pending
+    sr_critical = sr_row.critical
 
     # Maintenance due
     maint_due = (
@@ -163,22 +138,10 @@ def get_kpis(
         .scalar() or 0
     )
 
-    # Pending verifications (batch + equipment + instrument)
-    bv_pending = (
-        db.query(func.count(InvBatchVerification.id))
-        .filter(InvBatchVerification.status == "PENDING")
-        .scalar() or 0
-    )
-    ev_pending = (
-        db.query(func.count(InvEquipmentVerification.id))
-        .filter(InvEquipmentVerification.status == "PENDING")
-        .scalar() or 0
-    )
-    iv_pending = (
-        db.query(func.count(InvInstrumentVerification.id))
-        .filter(InvInstrumentVerification.status == "PENDING")
-        .scalar() or 0
-    )
+    # Pending verifications — 3 separate tables, fast indexed COUNTs
+    bv_pending = db.query(func.count(InvBatchVerification.id)).filter(InvBatchVerification.status == "PENDING").scalar() or 0
+    ev_pending = db.query(func.count(InvEquipmentVerification.id)).filter(InvEquipmentVerification.status == "PENDING").scalar() or 0
+    iv_pending = db.query(func.count(InvInstrumentVerification.id)).filter(InvInstrumentVerification.status == "PENDING").scalar() or 0
     verif_pending = bv_pending + ev_pending + iv_pending
 
     return KpiResponse(
@@ -204,47 +167,53 @@ def get_available_stock(
     db:            Session        = Depends(get_db),
     current_user:  User           = Depends(get_current_user),
 ):
-    today    = date.today()
-    in_60    = today + timedelta(days=60)
+    today = date.today()
+    in_60 = today + timedelta(days=60)
 
-    q = db.query(InvMaterial).filter(InvMaterial.is_active == True)
+    # Single aggregated query — no per-material loop
+    q = (
+        db.query(
+            InvMaterial.id,
+            InvMaterial.code,
+            InvMaterial.name,
+            InvMaterial.material_type,
+            func.coalesce(func.sum(InvBatch.qty_available), 0).label("total_available"),
+            func.count(InvBatch.id).label("batch_count"),
+            func.max(InvBatch.unit).label("unit"),
+            func.max(case(
+                (and_(
+                    InvBatch.expiry_date != None,
+                    InvBatch.expiry_date >= today,
+                    InvBatch.expiry_date <= in_60,
+                ), 1),
+                else_=0,
+            )).label("has_expiring"),
+        )
+        .outerjoin(InvBatch, and_(
+            InvBatch.material_id == InvMaterial.id,
+            InvBatch.category == "available",
+            InvBatch.is_active == True,
+        ))
+        .filter(InvMaterial.is_active == True)
+        .group_by(InvMaterial.id, InvMaterial.code, InvMaterial.name, InvMaterial.material_type)
+        .order_by(InvMaterial.code)
+    )
     if material_type:
         q = q.filter(InvMaterial.material_type == material_type)
 
-    rows = []
-    for mat in q.order_by(InvMaterial.code).all():
-        active_batches = (
-            db.query(InvBatch)
-            .filter(
-                InvBatch.material_id == mat.id,
-                InvBatch.category    == "available",
-                InvBatch.is_active   == True,
-            )
-            .all()
+    return [
+        AvailableStockRow(
+            material_id=r.id,
+            material_code=r.code,
+            material_name=r.name,
+            material_type=r.material_type,
+            total_available=float(r.total_available),
+            unit=r.unit or "",
+            batch_count=r.batch_count,
+            has_expiring=bool(r.has_expiring),
         )
-
-        total_avail = float(sum(b.qty_available for b in active_batches))
-        batch_count = len(active_batches)
-        units       = {b.unit for b in active_batches}
-        unit        = next(iter(units), "")
-
-        has_expiring = any(
-            b.expiry_date and today <= b.expiry_date <= in_60
-            for b in active_batches
-        )
-
-        rows.append(AvailableStockRow(
-            material_id=mat.id,
-            material_code=mat.code,
-            material_name=mat.name,
-            material_type=mat.material_type,
-            total_available=total_avail,
-            unit=unit,
-            batch_count=batch_count,
-            has_expiring=has_expiring,
-        ))
-
-    return rows
+        for r in q.all()
+    ]
 
 
 # ── Expiring Soon ─────────────────────────────────────────────────────────────
@@ -260,6 +229,7 @@ def get_expiring_soon(
 
     batches = (
         db.query(InvBatch)
+        .options(selectinload(InvBatch.material))
         .filter(
             InvBatch.is_active    == True,
             InvBatch.expiry_date  != None,
@@ -297,9 +267,10 @@ def get_pending_actions(
 ):
     actions: List[PendingActionRow] = []
 
-    # Critical / High stock requests
+    # Critical / High stock requests — eager-load material to avoid N+1
     for sr in (
         db.query(InvStockRequest)
+        .options(selectinload(InvStockRequest.material))
         .filter(InvStockRequest.status == "PENDING")
         .order_by(InvStockRequest.requested_at)
         .all()
@@ -313,8 +284,13 @@ def get_pending_actions(
             priority=priority,
         ))
 
-    # Pending batch verifications
-    for bv in db.query(InvBatchVerification).filter(InvBatchVerification.status == "PENDING").all():
+    # Pending batch verifications — eager-load batch to avoid N+1
+    for bv in (
+        db.query(InvBatchVerification)
+        .options(selectinload(InvBatchVerification.batch))
+        .filter(InvBatchVerification.status == "PENDING")
+        .all()
+    ):
         batch_no = bv.batch.batch_no if bv.batch else "?"
         actions.append(PendingActionRow(
             category="BATCH_VERIFICATION",
@@ -323,8 +299,13 @@ def get_pending_actions(
             priority="MEDIUM",
         ))
 
-    # Pending equipment verifications
-    for ev in db.query(InvEquipmentVerification).filter(InvEquipmentVerification.status == "PENDING").all():
+    # Pending equipment verifications — eager-load equipment to avoid N+1
+    for ev in (
+        db.query(InvEquipmentVerification)
+        .options(selectinload(InvEquipmentVerification.equipment))
+        .filter(InvEquipmentVerification.status == "PENDING")
+        .all()
+    ):
         asset = ev.equipment.asset_id if ev.equipment else "?"
         actions.append(PendingActionRow(
             category="EQUIP_VERIFICATION",
@@ -333,8 +314,13 @@ def get_pending_actions(
             priority="MEDIUM",
         ))
 
-    # Pending instrument verifications
-    for iv in db.query(InvInstrumentVerification).filter(InvInstrumentVerification.status == "PENDING").all():
+    # Pending instrument verifications — eager-load instrument to avoid N+1
+    for iv in (
+        db.query(InvInstrumentVerification)
+        .options(selectinload(InvInstrumentVerification.instrument))
+        .filter(InvInstrumentVerification.status == "PENDING")
+        .all()
+    ):
         asset = iv.instrument.asset_id if iv.instrument else "?"
         actions.append(PendingActionRow(
             category="INSTR_VERIFICATION",
@@ -343,7 +329,7 @@ def get_pending_actions(
             priority="MEDIUM",
         ))
 
-    # Equipment maintenance due
+    # Equipment maintenance due (no relationship access — fields are on the model itself)
     for eq in db.query(InvEquipmentCatalogue).filter(
         InvEquipmentCatalogue.maintenance_status.in_(["DUE", "OVERDUE"])
     ).all():
@@ -355,7 +341,7 @@ def get_pending_actions(
             priority=priority,
         ))
 
-    # Instrument calibration due
+    # Instrument calibration due (no relationship access — fields are on the model itself)
     for ins in db.query(InvInstrumentCatalogue).filter(
         InvInstrumentCatalogue.calibration_status.in_(["DUE", "EXPIRED"])
     ).all():

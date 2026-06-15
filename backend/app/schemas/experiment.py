@@ -94,6 +94,55 @@ class ExperimentLinkPreliminary(BaseModel):
     preliminary_experiment_id: str = Field(description="ID of a LOCKED preliminary experiment")
 
 
+# ── Experiment Materials (batch reservations) ─────────────────────────────────
+
+class ExperimentMaterialCreate(BaseModel):
+    material_role: str     = Field(description="e.g. mAb, TCEP, LP, DMSO, NAC, TFF_filter")
+    material_id:   int
+    batch_id:      int
+    qty_reserved:  float
+    unit:          str
+    remarks:       Optional[str] = None
+
+
+class ExperimentMaterialUpdate(BaseModel):
+    qty_issued: Optional[float] = None
+    status:     Optional[str]   = None   # RESERVED | ISSUED | RETURNED
+    remarks:    Optional[str]   = None
+
+
+class ExperimentMaterialResponse(BaseModel):
+    id:            str
+    experiment_id: str
+    material_role: str
+    material_id:   int
+    batch_id:      int
+    qty_reserved:  float
+    unit:          str
+    qty_issued:    Optional[float]
+    status:        str
+    remarks:       Optional[str]
+    reserved_by:   str
+    reserved_at:   datetime
+    # denormalised — filled by router
+    material_name:  Optional[str] = None
+    material_code:  Optional[str] = None
+    batch_no:       Optional[str] = None
+    manufacturer_name: Optional[str] = None
+    model_config = ConfigDict(from_attributes=True)
+
+
+# ── Preliminary data snapshot ─────────────────────────────────────────────────
+
+class PreliminaryDataResponse(BaseModel):
+    preliminary_id:   str
+    full_code:        str
+    title:            str
+    status:           str
+    data:             Optional[Dict[str, Any]]
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ExperimentReject(BaseModel):
     reason: str
 

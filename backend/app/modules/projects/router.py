@@ -177,6 +177,15 @@ def get_project(
     return _project_response(_load_project(db, project_id))
 
 
+@router.get("/{project_id}/overview", response_model=ProjectResponse, summary="Get project overview (alias for GET /{project_id})")
+def get_project_overview(
+    project_id: str,
+    db: Session = Depends(get_db),
+    _:  User    = Depends(get_current_user),
+):
+    return _project_response(_load_project(db, project_id))
+
+
 # ── PATCH /{project_id} ───────────────────────────────────────────────────────
 
 @router.patch("/{project_id}", response_model=ProjectResponse, summary="Update a project (QA / TL)")

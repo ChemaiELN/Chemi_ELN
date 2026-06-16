@@ -3,7 +3,8 @@ from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Query
 from pydantic import BaseModel
-from sqlalchemy.orm import Session
+from sqlalchemy import func, or_
+from sqlalchemy.orm import Session, selectinload  # noqa: F401 (selectinload used inside endpoint)
 
 from app.database import get_db
 from app.models.audit import AuditLog
@@ -23,8 +24,9 @@ from app.schemas.admin import (
     SequenceCounterResponse,
 )
 from app.schemas.common import PaginatedResponse, paginate
+from app.schemas.user import UserResponse
 from app.utils.deps import get_current_user, require_roles
-from app.utils.privileges import require_privilege, ADMIN_SETTINGS
+from app.utils.privileges import require_privilege, ADMIN_SETTINGS, USERS_MANAGE
 
 router = APIRouter()
 
@@ -225,6 +227,49 @@ def list_privilege_keys(
             ))
         groups.append(_PrivilegeGroup(module=group["module"], privileges=privs))
     return groups
+
+
+# ── Users (admin view) ────────────────────────────────────────────────────────
+
+@router.get("/users", response_model=PaginatedResponse[UserResponse])
+def admin_list_users(
+    page:          int           = Query(1, ge=1),
+    page_size:     int           = Query(20, ge=1, le=100),
+    search:        Optional[str] = Query(None),
+    department_id: Optional[str] = Query(None),
+    role_code:     Optional[str] = Query(None),
+    is_active:     Optional[bool]= Query(None),
+    db:            Session       = Depends(get_db),
+    _:             User          = Depends(require_privilege(USERS_MANAGE)),
+):
+    """Admin user management — full user list with filters (requires USERS_MANAGE privilege)."""
+    q = db.query(User).options(selectinload(User.role), selectinload(User.department))
+    if search:
+        term = f"%{search}%"
+        q = q.filter(or_(
+            User.display_name.ilike(term),
+            User.username.ilike(term),
+            User.emp_no.ilike(term),
+            User.email.ilike(term),
+        ))
+    if department_id:
+        q = q.filter(User.department_id == department_id)
+    if role_code:
+        from app.models.user import Role
+        role = db.query(Role).filter(Role.code == role_code.upper()).first()
+        if role:
+            q = q.filter(User.role_id == role.id)
+    if is_active is not None:
+        q = q.filter(User.is_active == is_active)
+
+    total = q.with_entities(func.count(User.id)).scalar() or 0
+    items = q.order_by(User.display_name).offset((page - 1) * page_size).limit(page_size).all()
+
+    from app.modules.users.router import _build_response as _user_resp
+    return PaginatedResponse[UserResponse](
+        items=[_user_resp(u) for u in items],
+        **paginate(total, page, page_size),
+    )
 
 
 # ── Audit Log ─────────────────────────────────────────────────────────────────

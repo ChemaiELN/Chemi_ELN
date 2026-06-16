@@ -273,6 +273,21 @@ def get_notebook(
     return _build_response(nb)
 
 
+@router.get(
+    "/{notebook_id}/overview",
+    response_model=NotebookResponse,
+    summary="Get notebook overview (alias for GET /{notebook_id})",
+)
+def get_notebook_overview(
+    notebook_id: str,
+    db:   Session = Depends(get_db),
+    actor: User   = Depends(get_current_user),
+):
+    nb = _load_notebook(db, notebook_id)
+    _assert_can_view(db, notebook_id, actor)
+    return _build_response(nb)
+
+
 # ── PATCH /{notebook_id} ──────────────────────────────────────────────────────
 
 @router.patch(

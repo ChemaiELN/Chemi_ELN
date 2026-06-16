@@ -176,7 +176,9 @@ def export_experiment_pdf(
 
     content_type = "text/plain; charset=utf-8"
     suffix = "txt"
+    body_bytes = text_body.encode("utf-8")
 
+    # Try weasyprint first (best quality), then fpdf2 (pure-Python, Windows-friendly)
     try:
         from weasyprint import HTML
         html_content = (
@@ -188,7 +190,32 @@ def export_experiment_pdf(
         content_type = "application/pdf"
         suffix       = "pdf"
     except ImportError:
-        body_bytes = text_body.encode("utf-8")
+        try:
+            from fpdf import FPDF
+
+            _UNICODE_MAP = {
+                "—": "--", "–": "-", "‒": "-",
+                "‘": "'",  "’": "'", "“": '"', "”": '"',
+                "…": "...", "°": "deg", "µ": "u",
+                "≥": ">=", "≤": "<=", "×": "x",
+            }
+
+            def _ascii_safe(s: str) -> str:
+                for ch, rep in _UNICODE_MAP.items():
+                    s = s.replace(ch, rep)
+                return s.encode("latin-1", errors="replace").decode("latin-1")
+
+            pdf = FPDF()
+            pdf.set_auto_page_break(auto=True, margin=10)
+            pdf.add_page()
+            pdf.set_font("Courier", size=8)
+            for line in text_body.split("\n"):
+                pdf.cell(0, 4, _ascii_safe(line[:120]), ln=True)
+            body_bytes   = bytes(pdf.output())
+            content_type = "application/pdf"
+            suffix       = "pdf"
+        except ImportError:
+            pass  # fall back to text/plain already set above
 
     filename = f"{exp.full_code.replace('/', '_')}_report.{suffix}"
     return Response(

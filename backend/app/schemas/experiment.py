@@ -1,7 +1,8 @@
+import re
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, computed_field
+from pydantic import BaseModel, ConfigDict, Field, computed_field, field_validator
 
 
 # ── File ──────────────────────────────────────────────────────────────────────
@@ -57,6 +58,13 @@ class ExperimentHistoryResponse(BaseModel):
 
 # ── Experiment ────────────────────────────────────────────────────────────────
 
+def _sanitize_str(v: Optional[str]) -> Optional[str]:
+    """Strip null bytes and leading/trailing whitespace from any string field."""
+    if v is None:
+        return v
+    return v.replace("\x00", "").strip()
+
+
 class ExperimentCreate(BaseModel):
     title:        str
     screen_key:   Optional[str]            = None
@@ -66,6 +74,11 @@ class ExperimentCreate(BaseModel):
     conclusion:   Optional[str]            = None
     scheme_mol:   Optional[str]            = None
 
+    @field_validator("title", "observations", "conclusion", mode="before")
+    @classmethod
+    def sanitize_text(cls, v):
+        return _sanitize_str(v)
+
 
 class ExperimentUpdate(BaseModel):
     title:        Optional[str]            = None
@@ -74,6 +87,11 @@ class ExperimentUpdate(BaseModel):
     conclusion:   Optional[str]            = None
     disposition:  Optional[str]            = None
     scheme_mol:   Optional[str]            = None
+
+    @field_validator("title", "observations", "conclusion", "disposition", mode="before")
+    @classmethod
+    def sanitize_text(cls, v):
+        return _sanitize_str(v)
 
 
 class ExperimentNewVersion(BaseModel):

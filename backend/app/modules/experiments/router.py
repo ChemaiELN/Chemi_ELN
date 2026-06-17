@@ -26,6 +26,7 @@ Endpoints (mounted under /api/experiments):
 import os
 import uuid
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
@@ -54,6 +55,7 @@ from app.schemas.experiment import (
     experiment_summary_from_orm,
 )
 from app.utils.deps import get_current_user
+from app.utils.files import validate_upload, save_upload, upload_dir
 from app.utils.privileges import require_privilege, NOTEBOOKS_CREATE, NOTEBOOKS_EDIT, EXPERIMENTS_APPROVE, EXPERIMENTS_VOID
 
 nb_router = APIRouter()
@@ -96,7 +98,16 @@ def _require_nb_submit(exp: "Experiment", actor: User, db: Session) -> None:
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _assert_valid_uuid(exp_id: str) -> None:
+    """Reject non-UUID strings before they hit the DB and cause a 500."""
+    try:
+        uuid.UUID(exp_id)
+    except (ValueError, AttributeError):
+        raise HTTPException(400, f"Invalid experiment ID format: '{exp_id}'")
+
+
 def _load(db: Session, exp_id: str) -> Experiment:
+    _assert_valid_uuid(exp_id)
     exp = (
         db.query(Experiment)
         .options(
@@ -854,14 +865,9 @@ async def upload_file(
     if exp.status == "LOCKED":
         raise HTTPException(400, "Cannot upload files to a LOCKED experiment")
 
-    upload_dir = os.path.join(settings.UPLOAD_DIR, "experiments", exp_id)
-    os.makedirs(upload_dir, exist_ok=True)
-
-    safe_name = f"{uuid.uuid4().hex}_{file.filename}"
-    file_path = os.path.join(upload_dir, safe_name)
-    content   = await file.read()
-    with open(file_path, "wb") as fh:
-        fh.write(content)
+    validate_upload(file)  # extension + MIME whitelist check
+    subdir = upload_dir() / "experiments" / exp_id
+    file_path, file_size = await save_upload(file, subdir)
 
     ef = ExperimentFile(
         id=new_uuid(),
@@ -869,8 +875,8 @@ async def upload_file(
         section_key=section_key,
         filename=file.filename,
         file_path=file_path,
-        file_size=len(content),
-        file_type=(file.filename.rsplit(".", 1)[-1].lower() if "." in file.filename else None),
+        file_size=file_size,
+        file_type=Path(file.filename or "").suffix.lstrip(".").lower() or None,
         uploaded_by=actor.id,
     )
     db.add(ef)

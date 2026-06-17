@@ -6,6 +6,7 @@ from slowapi.util import get_remote_address
 
 from app.core.config import settings
 from app.middleware.logging import BodySizeLimitMiddleware, RequestLoggingMiddleware, configure_logging
+from app.middleware.security import SecurityHeadersMiddleware
 
 configure_logging(log_level="INFO")
 
@@ -22,6 +23,9 @@ app = FastAPI(
 # Attach limiter to app state so slowapi middleware can find it
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+# ── Security headers (outermost — applied to every response) ─────────────────
+app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Body size limit (outermost after CORS — rejects oversized JSON early) ─────
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.MAX_BODY_BYTES)

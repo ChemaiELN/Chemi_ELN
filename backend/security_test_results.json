@@ -1,0 +1,227 @@
+{
+  "summary": {
+    "PASS": 26,
+    "FAIL": 0,
+    "WARN": 3,
+    "INFO": 7
+  },
+  "total": 36,
+  "results": [
+    {
+      "category": "Auth",
+      "name": "1. No token -> 401/403",
+      "status": "PASS",
+      "detail": "Returned 403 - unauthenticated access denied"
+    },
+    {
+      "category": "Auth",
+      "name": "2. Garbage token -> 401/403",
+      "status": "PASS",
+      "detail": "Returned 401 -- invalid token rejected"
+    },
+    {
+      "category": "Auth",
+      "name": "3. Wrong password -> 401/400",
+      "status": "PASS",
+      "detail": "Returned 401 -- bad credentials rejected"
+    },
+    {
+      "category": "Auth",
+      "name": "4. SQL injection in login",
+      "status": "PASS",
+      "detail": "All SQLi payloads rejected (last status: 429)"
+    },
+    {
+      "category": "Auth",
+      "name": "5. Brute-force -> rate limited (429)",
+      "status": "PASS",
+      "detail": "Rate limiting triggered after 1 attempts -- statuses: [429]"
+    },
+    {
+      "category": "Auth",
+      "name": "6. Empty credentials -> 400/422 (or 429 rate-limited)",
+      "status": "PASS",
+      "detail": "Returned 429 -- request correctly blocked (rate limiter fired first)"
+    },
+    {
+      "category": "Auth-Z",
+      "name": "7. Admin can PATCH other user",
+      "status": "INFO",
+      "detail": "Admin (sys.admin) patched user fdeb1bdf\u2026 -- status 200 (expected; admin has USERS_MANAGE)"
+    },
+    {
+      "category": "Auth-Z",
+      "name": "8. /api/admin/users requires USERS_MANAGE (admin has it)",
+      "status": "INFO",
+      "detail": "Admin correctly gets 200 -- endpoint protected by require_privilege(USERS_MANAGE)"
+    },
+    {
+      "category": "Auth-Z",
+      "name": "8b. /api/admin/users blocks unauthenticated",
+      "status": "PASS",
+      "detail": "Returned 403 -- unauthenticated access denied"
+    },
+    {
+      "category": "Auth-Z",
+      "name": "9. IDOR experiment access (admin token)",
+      "status": "INFO",
+      "detail": "Admin can access experiment 6df73dae\u2026 -- check if non-notebook-members can also access (not tested -- no second token available)"
+    },
+    {
+      "category": "Auth-Z",
+      "name": "10. Horizontal priv: PATCH non-existent exp -> 404",
+      "status": "PASS",
+      "detail": "Returned 404 -- non-existent experiment correctly rejected"
+    },
+    {
+      "category": "Injection",
+      "name": "11. XSS stored as-is in experiment title",
+      "status": "WARN",
+      "detail": "XSS payload stored without server-side sanitization -- no server-side XSS but frontend must escape on render"
+    },
+    {
+      "category": "Injection",
+      "name": "12. SQLi in search param -> no crash",
+      "status": "PASS",
+      "detail": "Returned 200 -- handled cleanly (ORM parameterized queries)"
+    },
+    {
+      "category": "Injection",
+      "name": "13. SQLi in users search -> no crash",
+      "status": "PASS",
+      "detail": "Returned 200 -- handled cleanly"
+    },
+    {
+      "category": "Injection",
+      "name": "14. Oversized payload (10MB) -> 413/400",
+      "status": "PASS",
+      "detail": "Returned 413 -- body size limit enforced"
+    },
+    {
+      "category": "Injection",
+      "name": "15. Null byte in title -> accepted (WARN)",
+      "status": "WARN",
+      "detail": "Null byte was accepted -- check DB storage handles it gracefully"
+    },
+    {
+      "category": "Injection",
+      "name": "16a. Negative page -> 400/422",
+      "status": "PASS",
+      "detail": "Returned 422 -- invalid page param rejected"
+    },
+    {
+      "category": "Injection",
+      "name": "16b. Huge page -> empty list (not crash)",
+      "status": "PASS",
+      "detail": "Page 999999 returns empty list -- correct behavior"
+    },
+    {
+      "category": "Injection",
+      "name": "17. Path traversal in filename -> rejected",
+      "status": "PASS",
+      "detail": "Returned 400 -- malicious filename sanitized/rejected"
+    },
+    {
+      "category": "Exposure",
+      "name": "18. Password not in user response",
+      "status": "PASS",
+      "detail": "No password fields found in GET /api/users/{id} response (must_reset_password is a legitimate boolean field, not a leak)"
+    },
+    {
+      "category": "Exposure",
+      "name": "19. JWT secret not in health response",
+      "status": "PASS",
+      "detail": "Health endpoint is clean: {\"status\":\"ok\",\"app\":\"Chemia ELN\",\"version\":\"2.0.0\"}"
+    },
+    {
+      "category": "Exposure",
+      "name": "20a. 404 returns generic error (no traceback)",
+      "status": "PASS",
+      "detail": "Clean 404 response: {\"detail\":\"Not Found\"}"
+    },
+    {
+      "category": "Exposure",
+      "name": "20b. Malformed JSON -> clean error (no traceback)",
+      "status": "PASS",
+      "detail": "Returned 422 with clean error: {\"detail\":[{\"type\":\"json_invalid\",\"loc\":[\"body\",1],\"msg\":\"JSON decode error\",\"input\":{},\"ctx\":{\"erro"
+    },
+    {
+      "category": "Exposure",
+      "name": "21. Invalid UUID -> clean error (no schema leak)",
+      "status": "PASS",
+      "detail": "Returned 400 with clean message: {\"detail\":\"Invalid experiment ID format: 'not-a-valid-uuid'\"}"
+    },
+    {
+      "category": "RateLimit",
+      "name": "22. Login rate limit (15 attempts) -> 429",
+      "status": "PASS",
+      "detail": "Rate limit triggered after 6 attempts -- config: 5/minute. Statuses: [401, 401, 401, 401, 401, 429]"
+    },
+    {
+      "category": "RateLimit",
+      "name": "23. Dashboard no rate limit on 20 requests",
+      "status": "WARN",
+      "detail": "No rate limiting on GET /api/dashboard/counts after 20 rapid requests. Statuses seen: [200]. Consider adding rate limit to data-heavy endpoints."
+    },
+    {
+      "category": "Upload",
+      "name": "24. .py file rejected",
+      "status": "PASS",
+      "detail": "Returned 400 -- Python file rejected by extension whitelist"
+    },
+    {
+      "category": "Upload",
+      "name": "25. 6MB file",
+      "status": "INFO",
+      "detail": "Returned 201: {\"id\":\"02b2fb84-ae5c-41a8-b4bb-7da8186d2bda\",\"experiment_id\":\"6df73dae-f87b-49d4-ad38-e496a5dccd32\",\"section_key\":null,\"filename\":\"large_test.pdf\",\"fi"
+    },
+    {
+      "category": "Upload",
+      "name": "26. Double extension .pdf.exe rejected",
+      "status": "PASS",
+      "detail": "Returned 400 -- .exe extension in double ext rejected"
+    },
+    {
+      "category": "CORS",
+      "name": "27. Evil origin blocked (no ACAO header)",
+      "status": "PASS",
+      "detail": "https://evil.com not in allowed origins -- CORS correctly blocked"
+    },
+    {
+      "category": "Headers",
+      "name": "28. All security headers present",
+      "status": "PASS",
+      "detail": "All security headers set: ['X-Content-Type-Options: nosniff', 'X-Frame-Options: DENY', \"Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self'; connect-src 'self'; frame-ancestors 'none';\", 'Strict-Transport-Security: max-age=31536000; includeSubDomains', 'X-XSS-Protection: 0']"
+    },
+    {
+      "category": "CORS",
+      "name": "29. OPTIONS preflight on /api/auth/login",
+      "status": "INFO",
+      "detail": "Status: 200, Allow-Methods: 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT', Headers: {'date': 'Wed, 17 Jun 2026 10:00:10 GMT', 'server': 'uvicorn', 'vary': 'Origin', 'access-control-allow-methods': 'DELETE, GET, HEAD, OPTIONS, PATCH, POST, PUT', 'access-control-max-age': '600', 'access-control-allow-credentials': 'true'}"
+    },
+    {
+      "category": "BizLogic",
+      "name": "30. Double submit -> rejected (400/409)",
+      "status": "PASS",
+      "detail": "Re-submitting SUBMITTED experiment returns 400 -- double submission blocked"
+    },
+    {
+      "category": "BizLogic",
+      "name": "31. Approve without all reviews -> 400",
+      "status": "PASS",
+      "detail": "Approve without reviewer sign-off returns 400 -- business rule enforced"
+    },
+    {
+      "category": "BizLogic",
+      "name": "32. Materials on LOCKED experiment",
+      "status": "INFO",
+      "detail": "No LOCKED experiment found -- skipped"
+    },
+    {
+      "category": "BizLogic",
+      "name": "33. Void LOCKED experiment",
+      "status": "INFO",
+      "detail": "No LOCKED experiment found -- skipped"
+    }
+  ]
+}

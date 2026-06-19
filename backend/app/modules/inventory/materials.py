@@ -62,6 +62,7 @@ def list_materials(
     search:        Optional[str]  = Query(None),
     material_type: Optional[str]  = Query(None),
     is_active:     Optional[bool] = Query(None),
+    department_id: Optional[str]  = Query(None),
     db:            Session        = Depends(get_db),
     current_user:  User           = Depends(get_current_user),
 ):
@@ -80,6 +81,8 @@ def list_materials(
         q = q.filter(InvMaterial.material_type == material_type)
     if is_active is not None:
         q = q.filter(InvMaterial.is_active == is_active)
+    if department_id:
+        q = q.filter(InvMaterial.department_id == department_id)
     return q.order_by(InvMaterial.code).all()
 
 

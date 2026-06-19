@@ -24,6 +24,20 @@ class Project(Base):
     # ACTIVE / ON HOLD / COMPLETED / CANCELLED
     status:        Mapped[str]  = mapped_column(String(20), default="ACTIVE", nullable=False)
     description:   Mapped[Optional[str]] = mapped_column(Text)
+    objective:     Mapped[Optional[str]] = mapped_column(Text)
+    observation:   Mapped[Optional[str]] = mapped_column(Text)
+
+    # ── ADC-specific fields (1.1 Project Master) ──────────────────────────────
+    customer:         Mapped[Optional[str]] = mapped_column(String(200))
+    adc_code:         Mapped[Optional[str]] = mapped_column(String(100))
+    target_antigen:   Mapped[Optional[str]] = mapped_column(String(200))
+    antibody_clone:   Mapped[Optional[str]] = mapped_column(String(200))
+    payload:          Mapped[Optional[str]] = mapped_column(String(300))
+    linker:           Mapped[Optional[str]] = mapped_column(String(200))
+    target_dar:       Mapped[Optional[str]] = mapped_column(String(50))
+    project_stage:    Mapped[Optional[str]] = mapped_column(String(50))
+    qa_review_required: Mapped[Optional[bool]] = mapped_column(Boolean)
+
     created_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at:    Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
@@ -41,6 +55,7 @@ class ProjectUser(Base):
 
     project_id: Mapped[str] = mapped_column(PUUID, ForeignKey("projects.id"), primary_key=True)
     user_id:    Mapped[str] = mapped_column(PUUID, ForeignKey("users.id"), primary_key=True)
+    role:       Mapped[Optional[str]] = mapped_column(String(50))   # pd_scientist / pd_reviewer / analytical_scientist / analytical_reviewer / qa_reviewer
     added_at:   Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     added_by:   Mapped[Optional[str]] = mapped_column(PUUID, ForeignKey("users.id"))
 
@@ -77,6 +92,7 @@ class ProjectAttachment(Base):
     file_path:   Mapped[str] = mapped_column(String(500), nullable=False)
     file_size:   Mapped[Optional[int]]  = mapped_column(BigInteger)    # bytes
     file_type:   Mapped[Optional[str]] = mapped_column(String(50))    # pdf / xlsx / docx
+    comments:    Mapped[Optional[str]] = mapped_column(Text)
     uploaded_by: Mapped[str] = mapped_column(PUUID, ForeignKey("users.id"), nullable=False)
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
 

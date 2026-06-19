@@ -44,6 +44,7 @@ from app.models.inventory_manufacturers import (  # noqa: F401
 from app.models.inventory_batches import (  # noqa: F401
     InvBatch,
     InvBatchEvent,
+    InvBatchPack,
     InvBatchVerification,
 )
 from app.models.inventory_stock import (  # noqa: F401
@@ -62,4 +63,11 @@ from app.models.inventory_equipment import (  # noqa: F401
     InvEquipmentVerification,
     InvInstrumentVerification,
     InvAuditTrail,
+)
+from app.models.inventory_lookup import InvGeneralLookup  # noqa: F401
+
+# ── ADC Synthesis models ──────────────────────────────────────────────────────
+from app.models.adc_synthesis import (  # noqa: F401
+    AdcObjective, AdcRegulatoryClassification,
+    AdcRiskAssessment, AdcRiskItem,
 )

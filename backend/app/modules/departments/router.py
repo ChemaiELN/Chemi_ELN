@@ -6,6 +6,7 @@ Endpoints:
     GET    /api/departments/           List departments
     GET    /api/departments/{dept_id}  Get single department
     PATCH  /api/departments/{dept_id}  Update department (QA only)
+    DELETE /api/departments/{dept_id}  Delete department (QA only — blocked if users assigned)
 """
 from typing import Optional
 
@@ -16,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.department import Department
 from app.models.user import User
+from app.models.inventory_materials import InvMaterial
 from app.schemas.common import MessageResponse, PaginatedResponse, paginate
 from app.schemas.department import (
     DepartmentCreate, DepartmentResponse, DepartmentUpdate,
@@ -167,3 +169,53 @@ def update_department(
         db.commit()
         db.refresh(dept)
     return dept
+
+
+# ── DELETE /{dept_id}  — Delete ───────────────────────────────────────────────
+
+@router.delete(
+    "/{dept_id}",
+    response_model=MessageResponse,
+    summary="Delete a department (QA only — blocked if users are assigned)",
+)
+def delete_department(
+    dept_id: str,
+    request: Request,
+    db:      Session = Depends(get_db),
+    actor:   User    = Depends(require_privilege(DEPARTMENTS_MANAGE)),
+):
+    dept = db.get(Department, dept_id)
+    if not dept:
+        raise HTTPException(404, "Department not found")
+
+    assigned_users = db.query(User).filter(User.department_id == dept_id).count()
+    if assigned_users:
+        raise HTTPException(
+            400,
+            f"Cannot delete department '{dept.code}': {assigned_users} user(s) are still assigned to it. "
+            "Reassign or deactivate those users first.",
+        )
+
+    assigned_materials = db.query(InvMaterial).filter(InvMaterial.department_id == dept_id).count()
+    if assigned_materials:
+        raise HTTPException(
+            400,
+            f"Cannot delete department '{dept.code}': {assigned_materials} material(s) reference it. "
+            "Update those materials first.",
+        )
+
+    log_action(
+        db,
+        user_id      = actor.id,
+        username     = actor.username,
+        module       = "Departments",
+        action       = "DELETED",
+        target_type  = "department",
+        target_id    = dept_id,
+        target_label = dept.code,
+        detail       = f"Deleted department '{dept.name}'",
+        ip_address   = get_ip(request),
+    )
+    db.delete(dept)
+    db.commit()
+    return MessageResponse(message=f"Department '{dept.code}' deleted successfully")

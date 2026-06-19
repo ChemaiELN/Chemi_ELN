@@ -1,5 +1,6 @@
 from sqlalchemy import Column, Integer, String, Text, Boolean, Numeric, ForeignKey
 from sqlalchemy.orm import relationship
+from sqlalchemy.dialects.postgresql import UUID as PgUUID
 from app.models.base import Base
 
 
@@ -17,8 +18,10 @@ class InvMaterial(Base):
     hazard_class      = Column(String(100), nullable=True)
     description       = Column(Text, nullable=True)
     is_active         = Column(Boolean, default=True, nullable=False)
+    department_id     = Column(PgUUID(as_uuid=False), ForeignKey("departments.id", ondelete="SET NULL"), nullable=True, index=True)
 
     # Relationships
+    department        = relationship("Department", foreign_keys=[department_id])
     chemical_props    = relationship("InvMaterialChemicalProps", back_populates="material", uselist=False, cascade="all, delete-orphan")
     formulation_props = relationship("InvMaterialFormulationProps", back_populates="material", uselist=False, cascade="all, delete-orphan")
     manufacturer_mappings = relationship("InvManufacturerMapping", back_populates="material", cascade="all, delete-orphan")

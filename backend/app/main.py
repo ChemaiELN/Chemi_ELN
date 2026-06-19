@@ -1,31 +1,57 @@
+from contextlib import asynccontextmanager
+from datetime import datetime, timezone
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
-from slowapi.util import get_remote_address
 
 from app.core.config import settings
+from app.core.limiter import limiter
 from app.middleware.logging import BodySizeLimitMiddleware, RequestLoggingMiddleware, configure_logging
-from app.middleware.security import SecurityHeadersMiddleware
 
 configure_logging(log_level="INFO")
 
-# ── Rate limiter (shared instance — routers import this) ──────────────────────
-limiter = Limiter(key_func=get_remote_address)
+
+def _cleanup_expired_tokens() -> None:
+    """Delete expired/revoked refresh tokens and expired password-reset tokens."""
+    from app.database import SessionLocal
+    from app.models.user import PasswordResetToken, RefreshToken
+    db = SessionLocal()
+    try:
+        now = datetime.now(timezone.utc)
+        db.query(RefreshToken).filter(
+            RefreshToken.expires_at < now
+        ).delete(synchronize_session=False)
+        db.query(PasswordResetToken).filter(
+            PasswordResetToken.expires_at < now
+        ).delete(synchronize_session=False)
+        db.commit()
+    except Exception:
+        db.rollback()
+    finally:
+        db.close()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    import asyncio
+    loop = asyncio.get_event_loop()
+    await loop.run_in_executor(None, _cleanup_expired_tokens)
+    yield
+
 
 app = FastAPI(
     title="Chemia ELN API",
     version="2.0.0",
     docs_url="/api/docs",
     redoc_url="/api/redoc",
+    lifespan=lifespan,
 )
 
 # Attach limiter to app state so slowapi middleware can find it
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
-
-# ── Security headers (outermost — applied to every response) ─────────────────
-app.add_middleware(SecurityHeadersMiddleware)
 
 # ── Body size limit (outermost after CORS — rejects oversized JSON early) ─────
 app.add_middleware(BodySizeLimitMiddleware, max_bytes=settings.MAX_BODY_BYTES)
@@ -71,6 +97,7 @@ from app.modules.admin       import master_data as _md_mod       # noqa: E402
 from app.modules.dashboard   import router as _dash_mod          # noqa: E402
 from app.modules.search      import router as _search_mod        # noqa: E402
 from app.modules.reports     import router as _reports_mod       # noqa: E402
+from app.modules.adc         import router as _adc_mod           # noqa: E402
 
 # ── Inventory module (all sub-routers in one import) ─────────────────────────
 from app.modules.inventory import (                              # noqa: E402
@@ -81,6 +108,7 @@ from app.modules.inventory import (                              # noqa: E402
     col_cat_router, maint_router, calib_router,
     equip_ver_router, instr_ver_router,
     inv_dashboard_router, inv_reports_router,
+    lookup_router,
 )
 
 # ── Core routes ───────────────────────────────────────────────────────────────
@@ -125,3 +153,7 @@ app.include_router(equip_ver_router,      prefix="/api/inventory/equipment-verif
 app.include_router(instr_ver_router,      prefix="/api/inventory/instrument-verifications", tags=["Inventory Instrument Verifications"])
 app.include_router(inv_dashboard_router,  prefix="/api/inventory/dashboard",              tags=["Inventory Dashboard"])
 app.include_router(inv_reports_router,    prefix="/api/inventory/reports",                tags=["Inventory Reports"])
+app.include_router(lookup_router,         prefix="/api/inventory/lookup",                 tags=["Inventory Lookup"])
+
+# ── ADC Synthesis ─────────────────────────────────────────────────────────────
+app.include_router(_adc_mod.router,       prefix="/api/adc",                              tags=["ADC Synthesis"])

@@ -67,6 +67,7 @@ class MaterialCreate(BaseModel):
     hazard_class:      Optional[str]     = None
     description:       Optional[str]     = None
     is_active:         bool              = True
+    department_id:     Optional[str]     = None
 
 
 class MaterialUpdate(BaseModel):
@@ -79,6 +80,7 @@ class MaterialUpdate(BaseModel):
     hazard_class:      Optional[str]     = None
     description:       Optional[str]     = None
     is_active:         Optional[bool]    = None
+    department_id:     Optional[str]     = None
 
 
 class MaterialOut(BaseModel):
@@ -94,5 +96,6 @@ class MaterialOut(BaseModel):
     hazard_class:      Optional[str]     = None
     description:       Optional[str]     = None
     is_active:         bool
+    department_id:     Optional[str]     = None
     chemical_props:    Optional[ChemicalPropsOut]    = None
     formulation_props: Optional[FormulationPropsOut] = None

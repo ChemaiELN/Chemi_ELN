@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'UniversLTPro-55Roman', 'Inter', sans-serif;
+    @apply antialiased;
+  }
+  #root { min-height: 100dvh; display: flex; flex-direction: column; }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/30 backdrop-blur-xl border border-white/50;
+  }
+  .glass-card {
+    @apply bg-white/50 backdrop-blur-xl border border-white/70 shadow-xl shadow-violet-200/30;
+  }
+  .glass-strong {
+    @apply bg-white/60 backdrop-blur-2xl border border-white/80 shadow-2xl shadow-violet-300/20;
+  }
+  .glass-sidebar {
+    @apply bg-white/25 backdrop-blur-2xl border-r border-white/40;
+  }
+  .glass-header {
+    @apply bg-white/40 backdrop-blur-xl border-b border-white/50;
+  }
+  .glass-input {
+    @apply bg-white/60 backdrop-blur-sm border border-white/80 focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition-all;
+  }
+}
+
+/* Blob animation */
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(20px, -30px) scale(1.05); }
+  66%       { transform: translate(-15px, 15px) scale(0.95); }
+}
+.animate-blob { animation: blob 10s 3 ease-in-out forwards; }
+.animation-delay-2000 { animation-delay: 2s; }
+.animation-delay-4000 { animation-delay: 4s; }

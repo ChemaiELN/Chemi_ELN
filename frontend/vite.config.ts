@@ -1,0 +1,24 @@
+import { defineConfig } from 'vite'
+import react from '@vitejs/plugin-react'
+import path from 'path'
+
+// https://vite.dev/config/
+export default defineConfig({
+  plugins: [react()],
+  resolve: {
+    alias: {
+      react: path.resolve('./node_modules/react'),
+      'react-dom': path.resolve('./node_modules/react-dom'),
+    },
+    dedupe: ['react', 'react-dom'],
+  },
+  optimizeDeps: {
+    // ketcher-react and its CJS transitive deps must be pre-bundled as ESM
+    include: [
+      'ketcher-react',
+      'ketcher-standalone',
+      'lodash',
+      '@babel/runtime/regenerator',
+    ],
+  },
+})

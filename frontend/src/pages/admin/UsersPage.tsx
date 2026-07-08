@@ -30,9 +30,7 @@ export default function UsersPage() {
 
   const [page, setPage] = useState(1)
   const [search, setSearch] = useState('')
-  const [filterRole, setFilterRole] = useState<string | undefined>()
-  const [filterDept, setFilterDept] = useState<string | undefined>()
-  const [filterActive, setFilterActive] = useState<string | undefined>()
+  const [includeDeactivated, setIncludeDeactivated] = useState(false)
 
   const [createOpen, setCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<UserOut | null>(null)
@@ -43,20 +41,59 @@ export default function UsersPage() {
   const [resetForm] = Form.useForm()
   const [msg, ctx] = message.useMessage()
 
-  const { data: roles = [] } = useQuery({ queryKey: ['roles'], queryFn: () => adminApi.listRoles() })
   const { data: allRoles = [] } = useQuery({ queryKey: ['roles', true], queryFn: () => adminApi.listRoles(true) })
   const { data: depts = [] } = useQuery({ queryKey: ['departments'], queryFn: () => adminApi.listDepts() })
+  const { data: deptRoleMap = [] } = useQuery({ queryKey: ['dept-role-mapping'], queryFn: () => adminApi.listDeptRoleMapping() })
+
+  // department_id -> Set(role_id) and role_id -> department_id[] — drives the
+  // dependent Role/Department dropdowns below (mirrors the backend's
+  // department_role_mapping validation in users/router.py).
+  const rolesByDept = new Map<string, Set<string>>()
+  const deptsByRole = new Map<string, string[]>()
+  for (const row of deptRoleMap) {
+    rolesByDept.set(row.department_id, new Set(row.role_ids))
+    for (const roleId of row.role_ids) {
+      deptsByRole.set(roleId, [...(deptsByRole.get(roleId) ?? []), row.department_id])
+    }
+  }
+  const rolesForDept = (deptId: string | undefined) =>
+    deptId && rolesByDept.has(deptId)
+      ? allRoles.filter((r) => rolesByDept.get(deptId)!.has(r.id))
+      : allRoles
+  const createDeptId = Form.useWatch('department_id', createForm)
+  const editDeptId = Form.useWatch('department_id', editForm)
+
+  // Reverse rule: if the chosen role only maps to a single department (e.g.
+  // Store Incharge -> Inventory), auto-select that department for the user.
+  const applyReverseRoleRule = (form: typeof createForm, roleId: string) => {
+    const validDepts = deptsByRole.get(roleId)
+    if (validDepts?.length === 1) form.setFieldValue('department_id', validDepts[0])
+  }
+  // If the department changes and the currently-picked role isn't valid for it
+  // anymore, clear the role so the user re-picks from the filtered list.
+  const applyForwardDeptRule = (form: typeof createForm, deptId: string | undefined) => {
+    const roleId = form.getFieldValue('role_id')
+    if (roleId && deptId && !rolesByDept.get(deptId)?.has(roleId)) {
+      form.setFieldValue('role_id', undefined)
+    }
+  }
+  // One API call per active/deactivated toggle state — the (small, admin-only)
+  // user list is then searched and paged entirely on the client, so typing in
+  // the search box never triggers a network request.
   const { data, isLoading } = useQuery({
-    queryKey: ['users', page, search, filterRole, filterDept, filterActive],
+    queryKey: ['users', includeDeactivated],
     queryFn: () => adminApi.listUsers({
-      page, page_size: 20,
-      ...(search && { search }),
-      ...(filterRole && { role_id: filterRole }),
-      ...(filterDept && { dept_id: filterDept }),
-      ...(filterActive !== undefined && { is_active: filterActive }),
+      page: 1, page_size: 100,
+      ...(!includeDeactivated && { is_active: true }),
     }),
     placeholderData: (prev) => prev,
   })
+
+  const term = search.trim().toLowerCase()
+  const filteredUsers = (data?.items ?? []).filter((u) => !term || [
+    u.username, u.email, u.emp_no, u.role_name, u.role_code,
+    u.department_name, u.site, u.is_active ? 'active' : 'inactive',
+  ].some((v) => v != null && String(v).toLowerCase().includes(term)))
 
   const inv = () => qc.invalidateQueries({ queryKey: ['users'] })
 
@@ -164,7 +201,7 @@ export default function UsersPage() {
     <div className="p-4 md:p-6">
       {ctx}
 
-      {/* Filters + New button */}
+      {/* Search + toggle + New button */}
       <div className="glass-card rounded-lg px-4 py-3 mb-4 flex flex-wrap gap-2 items-center">
         <Input
           prefix={<Search size={13} className="text-slate-400" />}
@@ -172,32 +209,8 @@ export default function UsersPage() {
           onChange={(e) => { setSearch(e.target.value); setPage(1) }}
           placeholder="Search users…"
           className="rounded-md"
-          style={{ width: 180 }}
+          style={{ width: 240 }}
           allowClear
-        />
-        <Select
-          value={filterRole}
-          onChange={(v) => { setFilterRole(v); setPage(1) }}
-          placeholder="All Roles"
-          allowClear
-          style={{ minWidth: 140 }}
-          options={roles.map((r) => ({ value: r.id, label: `${r.name} (${r.code})` }))}
-        />
-        <Select
-          value={filterDept}
-          onChange={(v) => { setFilterDept(v); setPage(1) }}
-          placeholder="All Depts"
-          allowClear
-          style={{ minWidth: 140 }}
-          options={depts.map((d) => ({ value: d.id, label: d.name }))}
-        />
-        <Select
-          value={filterActive}
-          onChange={(v) => { setFilterActive(v); setPage(1) }}
-          placeholder="All Status"
-          allowClear
-          style={{ minWidth: 120 }}
-          options={[{ value: 'true', label: 'Active' }, { value: 'false', label: 'Inactive' }]}
         />
         <Button
           type="primary"
@@ -207,11 +220,19 @@ export default function UsersPage() {
         >
           {screens.sm ? 'New User' : 'New'}
         </Button>
+        <div className="flex items-center gap-2">
+          <Switch
+            size="small"
+            checked={includeDeactivated}
+            onChange={(checked) => { setIncludeDeactivated(checked); setPage(1) }}
+          />
+          <span className="text-[13px] text-slate-600">Show Deactivated Users</span>
+        </div>
       </div>
 
       <div className="glass-card rounded-lg overflow-hidden">
         <Table
-          dataSource={data?.items ?? []}
+          dataSource={filteredUsers}
           columns={columns}
           rowKey="id"
           loading={isLoading}
@@ -219,7 +240,6 @@ export default function UsersPage() {
           scroll={{ x: 'max-content' }}
           pagination={{
             current: page,
-            total: data?.total,
             pageSize: 20,
             onChange: (p) => setPage(p),
             showTotal: (t) => `${t} users`,
@@ -254,13 +274,18 @@ export default function UsersPage() {
           <p className="text-xs text-slate-400 -mt-2 mb-3">Employee # is auto-assigned. Default password: <span className="font-mono text-slate-500">password@123</span></p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
             <Form.Item name="role_id" label="Role" rules={[{ required: true }]}>
-              <Select placeholder="Select role" options={allRoles.map((r) => ({ value: r.id, label: `${r.name} (${r.code})` }))} />
+              <Select
+                placeholder="Select role"
+                options={rolesForDept(createDeptId).map((r) => ({ value: r.id, label: `${r.name} (${r.code})` }))}
+                onChange={(roleId) => applyReverseRoleRule(createForm, roleId)}
+              />
             </Form.Item>
             <Form.Item name="department_id" label="Department">
               <Select
                 placeholder="None"
                 allowClear
                 options={depts.filter((d) => d.is_active).map((d) => ({ value: d.id, label: d.name }))}
+                onChange={(deptId) => applyForwardDeptRule(createForm, deptId)}
               />
             </Form.Item>
           </div>
@@ -302,13 +327,17 @@ export default function UsersPage() {
           </Form.Item>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
             <Form.Item name="role_id" label="Role" rules={[{ required: true }]}>
-              <Select options={allRoles.map((r) => ({ value: r.id, label: `${r.name} (${r.code})` }))} />
+              <Select
+                options={rolesForDept(editDeptId).map((r) => ({ value: r.id, label: `${r.name} (${r.code})` }))}
+                onChange={(roleId) => applyReverseRoleRule(editForm, roleId)}
+              />
             </Form.Item>
             <Form.Item name="department_id" label="Department">
               <Select
                 placeholder="None"
                 allowClear
                 options={depts.filter((d) => d.is_active).map((d) => ({ value: d.id, label: d.name }))}
+                onChange={(deptId) => applyForwardDeptRule(editForm, deptId)}
               />
             </Form.Item>
           </div>

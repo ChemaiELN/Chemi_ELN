@@ -10,13 +10,7 @@ import { setAuth } from '../../store/authSlice'
 import { setPrivileges } from '../../store/privilegesSlice'
 import { authApi } from '../../api/auth'
 import { ApiError } from '../../api/client'
-import type { PrivilegeKey } from '../../store/privilegesSlice'
-
-const DEFAULT_GRANTS: Record<string, PrivilegeKey[]> = {
-  QA: ['admin.settings','admin.excel_templates','admin.notifications',
-       'admin.role_privileges','users.manage','departments.manage','master_data.manage'],
-  HOD: ['master_data.manage'],
-}
+import { isSuperAdmin, resolveGrants } from '../../utils/privileges'
 
 const schema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -42,9 +36,8 @@ export default function LoginPage() {
       localStorage.setItem('refresh_token', tokens.refresh_token)
       const me = await authApi.me()
       dispatch(setAuth({ user: me, accessToken: tokens.access_token }))
-      const isQA = me.role_code === 'QA'
-      dispatch(setPrivileges({ keys: DEFAULT_GRANTS[me.role_code] ?? [], isQA }))
-      navigate('/dashboard', { replace: true })
+      dispatch(setPrivileges({ keys: resolveGrants(me), isQA: isSuperAdmin(me) }))
+      navigate('/', { replace: true })
     } catch (err) {
       setServerError(err instanceof ApiError ? err.detail : 'An unexpected error occurred.')
     }

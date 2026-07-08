@@ -52,6 +52,12 @@ class DepartmentOut(BaseModel):
     created_at: datetime
 
 
+class DepartmentLookupOut(BaseModel):
+    """Minimal, unprivileged shape for populating dropdowns/pickers."""
+    id: UUID
+    name: str
+
+
 # ── Users ──────────────────────────────────────────────────────
 
 class UserCreate(BaseModel):
@@ -94,6 +100,13 @@ class UserOut(BaseModel):
     must_reset_password: bool
     site: Optional[str] = None
     created_at: datetime
+
+
+# ── Department ↔ Role Mapping ────────────────────────────────────
+
+class DepartmentRoleMappingOut(BaseModel):
+    department_id: UUID
+    role_ids: List[UUID]
 
 
 # ── Role Privileges ────────────────────────────────────────────

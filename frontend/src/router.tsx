@@ -1,6 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAppSelector } from './store'
-import { selectIsAuthenticated } from './store/authSlice'
+import { selectIsAuthenticated, selectUser } from './store/authSlice'
 
 import LoginPage from './pages/auth/LoginPage'
 import ModuleSelectorPage from './pages/ModuleSelectorPage'
@@ -43,6 +43,21 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
   return <>{children}</>
 }
 
+// Administration is only for QA/QC department users — mirrors the backend gate
+// in app/shared/privileges.py (ADMIN_MODULE_DEPARTMENT_CODES). Blocking direct
+// URL navigation here is defense-in-depth; every admin API call is also gated.
+const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC']
+
+function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
+  const isAuthenticated = useAppSelector(selectIsAuthenticated)
+  const user = useAppSelector(selectUser)
+  if (!isAuthenticated) return <Navigate to="/login" replace />
+  if (!ADMIN_MODULE_DEPARTMENT_CODES.includes(user?.department_code ?? '')) {
+    return <Navigate to="/" replace />
+  }
+  return <>{children}</>
+}
+
 export function AppRouter() {
   return (
     <Routes>
@@ -59,13 +74,13 @@ export function AppRouter() {
         }
       />
 
-      {/* Admin section */}
+      {/* Admin section — QA/QC department only */}
       <Route
         path="/admin"
         element={
-          <ProtectedRoute>
+          <AdminProtectedRoute>
             <AppShell />
-          </ProtectedRoute>
+          </AdminProtectedRoute>
         }
       >
         <Route index element={<Navigate to="users" replace />} />

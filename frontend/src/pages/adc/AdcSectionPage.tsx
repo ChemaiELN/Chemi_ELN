@@ -1,15 +1,27 @@
 import { useState, useCallback, useRef, useEffect } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Tag, Spin, Tabs, Alert, Modal, Input, Tooltip } from 'antd'
+import { Button, Tag, Spin, Tabs, Alert, Modal, Input, Tooltip, message } from 'antd'
 import {
   ArrowLeft, CheckCircle, Clock, AlertCircle, Send, ThumbsUp, ThumbsDown,
   Unlock, History, Save, ChevronRight,
 } from 'lucide-react'
 import { notebookApi, experimentApi, type Experiment } from '../../api/adc'
+import { useBreadcrumbLabel } from '../../components/layout/AdcShell'
 import FieldRenderer, { type TemplateField } from './components/FieldRenderer'
 import ESignatureModal from './components/ESignatureModal'
 import { glassModalProps } from '../../utils/modalStyles'
+import { BTN_32 } from '../../utils/buttonSize'
+import { useAppSelector } from '../../store'
+import { selectUser } from '../../store/authSlice'
+
+// Chemists submit for review; leads/HOD approve or reject (HOD already covers
+// the old QA-role admin, now modeled as HOD + QA department).
+const APPROVER_ROLES = new Set(['TL', 'HOD'])
+
+// Only HOD/Team Lead can create Projects/Notebooks/Experiments — this also
+// gates the auto-create-on-first-visit below, since that's still "creating".
+const CREATOR_ROLES = new Set(['HOD', 'TL'])
 
 interface TemplateScreen  { key: string; title: string; fields: TemplateField[] }
 interface TemplateSection { key: string; title: string; screens: TemplateScreen[] }
@@ -31,6 +43,8 @@ export default function AdcSectionPage() {
   }>()
   const navigate = useNavigate()
   const qc       = useQueryClient()
+  const user     = useAppSelector(selectUser)
+  const canCreateExperiment = CREATOR_ROLES.has(user?.role_code ?? '')
 
   const [activeScreen, setActiveScreen] = useState<string | null>(null)
   const [localData,    setLocalData]    = useState<Record<string, Record<string, unknown>> | null>(null)
@@ -51,15 +65,21 @@ export default function AdcSectionPage() {
   const snapshot = nb?.template_snapshot as TemplateSnapshot | null | undefined
   const section  = snapshot?.sections?.find(s => s.key === sectionKey)
 
+  useBreadcrumbLabel(notebookId ?? '', nb?.title ?? nb?.code ?? null)
+  useBreadcrumbLabel(sectionKey ?? '', section?.title ?? null)
+
   // Fetch or create experiment for this section
   const { data: experiments = [], isLoading } = useQuery({
     queryKey: ['adc-experiments', notebookId, sectionKey],
     queryFn:  async () => {
       const list = await experimentApi.listForNotebook(notebookId!, sectionKey)
-      if (list.length === 0) {
+      // Chemists/Analysts can't create experiments — only work on ones already
+      // created (by HOD/TL) and assigned to them. Leave the list empty rather
+      // than attempting a create the backend would 403 on anyway.
+      if (list.length === 0 && canCreateExperiment) {
         const created = await experimentApi.createForNotebook(notebookId!, {
           section_key: sectionKey!,
-          title: section?.title,
+          title: section?.title ?? '',
         })
         qc.invalidateQueries({ queryKey: ['adc-experiments', notebookId] })
         return [created]
@@ -120,11 +140,12 @@ export default function AdcSectionPage() {
     })(),
     mfg_conjugation: {
       ..._conj,
-      intermediate_input_id: (_conj['intermediate_input_id'] as string) || _redOut,
-      parent_lineage:        (_red['parent_sample'] as string) || _redOut,
-      output_id:             _conjOut,
-      parent_sample:         (_red['parent_sample'] as string) || _redOut,
-      reagent_lots_linked:   (_conj['reagent_lots_linked'] as string) || _asText(_conj['lp_lot']),
+      intermediate_input_id:     (_conj['intermediate_input_id'] as string) || _redOut,
+      parent_lineage:            (_red['parent_sample'] as string) || _redOut,
+      conj_available_volume_ul:  _conj['conj_available_volume_ul'] ?? _red['red_volume_registered_ul'] ?? '',
+      output_id:                 _conjOut,
+      parent_sample:             (_red['parent_sample'] as string) || _redOut,
+      reagent_lots_linked:       (_conj['reagent_lots_linked'] as string) || _asText(_conj['lp_lot']),
     },
     mfg_quench: {
       ..._qnch,
@@ -153,6 +174,8 @@ export default function AdcSectionPage() {
   }
 
   const editable = exp ? EDITABLE_STATUSES.has(exp.status) : false
+  const isChemist  = user?.role_code === 'CHEM'
+  const isApprover = APPROVER_ROLES.has(user?.role_code ?? '')
 
   // Auto-save after 1.5s idle
   const scheduleSave = useCallback((data: Record<string, Record<string, unknown>>) => {
@@ -189,6 +212,16 @@ export default function AdcSectionPage() {
     setDirty(true)
   }
 
+  const handleFileUpload = async (screenKey: string, fieldKey: string, file: File) => {
+    if (!exp?.id) return
+    try {
+      const uploaded = await experimentApi.uploadFile(exp.id, file, screenKey)
+      handleFieldChange(screenKey, fieldKey, { filename: uploaded.filename, file_id: uploaded.id })
+    } catch (e: unknown) {
+      message.error((e as Error).message || 'Upload failed')
+    }
+  }
+
   const handleBulkFieldChange = (screenKey: string, updates: Record<string, unknown>) => {
     setLocalData(prev => {
       const merged = { ...(exp?.data ?? {}), ...(prev ?? {}) }
@@ -206,7 +239,7 @@ export default function AdcSectionPage() {
     const chain: Array<[string, string[]]> = [
       ['mfg_thaw_pool_filter', ['intermediate_output_id']],
       ['mfg_reduction',        ['intermediate_input_id', 'parent_lots', 'red_available_volume_ul', 'output_id', 'parent_sample', 'reagent_lot_linked']],
-      ['mfg_conjugation',      ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'reagent_lots_linked']],
+      ['mfg_conjugation',      ['intermediate_input_id', 'parent_lineage', 'conj_available_volume_ul', 'output_id', 'parent_sample', 'reagent_lots_linked']],
       ['mfg_quench',           ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'reagent_lots_linked']],
       ['pur_purification',     ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'resin_lot_linked']],
       ['pur_ufdf',             ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'membrane_lot_linked']],
@@ -229,6 +262,7 @@ export default function AdcSectionPage() {
     effectiveData['mfg_thaw_pool_filter']?.['volume_registered_ul'],
     effectiveData['mfg_reduction']?.['parent_sample'],
     effectiveData['mfg_reduction']?.['tcep_lot'],
+    effectiveData['mfg_reduction']?.['red_volume_registered_ul'],
     effectiveData['mfg_conjugation']?.['lp_lot'],
     effectiveData['mfg_quench']?.['nac_lot'],
     effectiveData['pur_purification']?.['resin_lot'],
@@ -246,11 +280,19 @@ export default function AdcSectionPage() {
       calc_buffer1_ul:  r['buffer1_ul']   ?? '',
       calc_tff_vol_ml:  r['tff_vol_ml']   ?? '',
     })
-    handleBulkFieldChange('mfg_conjugation', {
+    const conjUpdates: Record<string, unknown> = {
+      calc_tff_vol_ml:  r['tff_vol_ml']   ?? '',
       calc_lp_vol_ul:   r['lp_vol_ul']    ?? '',
-      calc_dma_vol_ul:  r['dma_vol_ul']   ?? '',
+      calc_dmso_vol_ul: r['dma_vol_ul']   ?? '',
       calc_buffer2_ul:  r['buffer2_ul']   ?? '',
-    })
+    }
+    // Default the actual "LP Volume added" from the calc sheet — only while the
+    // user hasn't entered their own value, since the actual addition can differ.
+    const lpAdded = effectiveData['mfg_conjugation']?.['lp_added_ul']
+    if ((lpAdded === undefined || lpAdded === null || lpAdded === '') && r['lp_vol_ul'] != null) {
+      conjUpdates['lp_added_ul'] = r['lp_vol_ul']
+    }
+    handleBulkFieldChange('mfg_conjugation', conjUpdates)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [JSON.stringify(effectiveData['mfg_reactant_calc']?.['reactant_calc_sheet'])])
 
@@ -322,6 +364,13 @@ export default function AdcSectionPage() {
       </div>
     )
   }
+  if (!exp && !canCreateExperiment) {
+    return (
+      <div className="p-6 text-slate-500">
+        This section hasn't been set up yet. Ask your Team Lead or HOD to open it once to initialize it before you can start work here.
+      </div>
+    )
+  }
 
   const currentScreen = activeScreen ?? section.screens[0]?.key
   const screenObj = section.screens.find(s => s.key === currentScreen) ?? section.screens[0]
@@ -356,20 +405,22 @@ export default function AdcSectionPage() {
           {/* Workflow actions */}
           <div className="flex items-center gap-2 flex-wrap">
             {dirty && (
-              <Button size="small" icon={<Save size={13} />} onClick={handleManualSave} loading={saving}>
+              <Button size="small" style={BTN_32} icon={<Save size={13} />} onClick={handleManualSave} loading={saving}>
                 Save
               </Button>
             )}
             <Button
               size="small"
+              style={BTN_32}
               icon={<History size={13} />}
               onClick={() => setHistoryOpen(true)}
               type="text"
             />
-            {exp?.status === 'DRAFT' && (
+            {exp?.status === 'DRAFT' && isChemist && (
               <Button
                 type="primary"
                 size="small"
+                style={BTN_32}
                 icon={<Send size={13} />}
                 onClick={() => setSignModal('submit')}
                 disabled={dirty}
@@ -377,11 +428,12 @@ export default function AdcSectionPage() {
                 Submit
               </Button>
             )}
-            {exp?.status === 'SUBMITTED' && (
+            {exp?.status === 'SUBMITTED' && isApprover && (
               <>
                 <Button
                   type="primary"
                   size="small"
+                  style={BTN_32}
                   icon={<ThumbsUp size={13} />}
                   className="!bg-emerald-600 !border-emerald-600 hover:!bg-emerald-700"
                   onClick={() => setSignModal('approve')}
@@ -391,6 +443,7 @@ export default function AdcSectionPage() {
                 <Button
                   danger
                   size="small"
+                  style={BTN_32}
                   icon={<ThumbsDown size={13} />}
                   onClick={() => setRejectModal(true)}
                 >
@@ -401,6 +454,7 @@ export default function AdcSectionPage() {
             {(exp?.status === 'APPROVED' || exp?.status === 'REJECTED') && (
               <Button
                 size="small"
+                style={BTN_32}
                 icon={<Unlock size={13} />}
                 onClick={() => unlockMut.mutate()}
                 loading={unlockMut.isPending}
@@ -445,12 +499,22 @@ export default function AdcSectionPage() {
         <div className="glass-card rounded-2xl p-5">
           <h2 className="text-base font-semibold text-slate-800 mb-5">{screenObj.title}</h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-4">
-            {screenObj.fields.map(field => {
-              const val = effectiveData[screenObj.key]?.[field.key] ?? ''
-              const isHeader = field.type === 'section_header'
+            {(() => {
+              const screenData = effectiveData[screenObj.key] ?? {}
+              // Fields before a *submitted* "Submit to AD" action button are
+              // frozen — the action itself stays interactive so its
+              // "Submitted" state remains visible.
+              const lockIdx = screenObj.fields.findIndex(f =>
+                f.type === 'action' && f.action_type === 'submit_to_ad' &&
+                !!(screenData[f.key] as { submitted?: boolean } | undefined)?.submitted
+              )
+              return screenObj.fields.map((field, idx) => {
               const isTable  = field.type === 'table'
+              const val = screenData[field.key] ?? (isTable ? [] : '')
+              const isHeader = field.type === 'section_header'
               const isTA     = field.type === 'textarea'
-              const isBufGrp = field.type === 'buffer_group' || field.type === 'js_sheet'
+              const isBufGrp = field.type === 'buffer_group' || field.type === 'js_sheet' || field.type === 'done_reviewed_signature'
+              const lockedByAction = lockIdx !== -1 && idx < lockIdx
 
               return (
                 <div
@@ -468,12 +532,19 @@ export default function AdcSectionPage() {
                     value={val}
                     onChange={v => handleFieldChange(screenObj.key, field.key, v)}
                     onBulkChange={updates => handleBulkFieldChange(screenObj.key, updates)}
-                    disabled={!editable}
-                    contextData={{ ...(effectiveData[screenObj.key] ?? {}), __full_data__: effectiveData }}
+                    onFileUpload={file => handleFileUpload(screenObj.key, field.key, file)}
+                    disabled={!editable || lockedByAction}
+                    contextData={{ ...screenData, __full_data__: effectiveData }}
+                    screenFields={screenObj.fields}
+                    screenKey={screenObj.key}
+                    experimentId={exp?.id}
+                    onActionComplete={() => qc.invalidateQueries({ queryKey: ['adc-experiments', notebookId, sectionKey] })}
+                    experimentCode={exp?.full_code}
                   />
                 </div>
               )
-            })}
+              })
+            })()}
           </div>
         </div>
       )}

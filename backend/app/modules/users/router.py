@@ -6,11 +6,25 @@ from sqlalchemy.orm import Session, joinedload
 from app.dependencies import get_db, get_current_user
 from app.shared.privileges import require_privilege
 from app.auth.utils import hash_password
-from app.models.admin import User, Role
+from app.models.admin import User, Role, DepartmentRoleMapping
 from app.schemas.admin import UserCreate, UserUpdate, UserPasswordReset, UserOut
 from app.schemas.common import PaginatedResponse
 
 router = APIRouter()
+
+
+def _check_role_department_pair(db: Session, role_id, department_id) -> None:
+    """A role must be one of the roles allowed for the chosen department — and vice
+    versa (e.g. Store Incharge is only ever valid under the Inventory department)."""
+    if department_id is None:
+        return
+    allowed = db.query(DepartmentRoleMapping).filter_by(
+        department_id=department_id, role_id=role_id,
+    ).first()
+    if not allowed:
+        role = db.query(Role).filter_by(id=role_id).first()
+        role_label = role.name if role else str(role_id)
+        raise HTTPException(400, f"Role '{role_label}' is not permitted for the selected department.")
 
 
 def _out(u: User) -> dict:
@@ -81,6 +95,7 @@ def create_user(
         raise HTTPException(400, f"Email '{payload.email}' already exists.")
     if not db.query(Role).filter_by(id=payload.role_id, is_active=True).first():
         raise HTTPException(400, "Invalid or inactive role.")
+    _check_role_department_pair(db, payload.role_id, payload.department_id)
 
     # Auto-generate emp_no if not provided
     emp_no = payload.emp_no
@@ -170,6 +185,10 @@ def update_user(
     if "role_id" in updates:
         if not db.query(Role).filter_by(id=updates["role_id"], is_active=True).first():
             raise HTTPException(400, "Invalid or inactive role.")
+    if "role_id" in updates or "department_id" in updates:
+        next_role_id = updates.get("role_id", user.role_id)
+        next_department_id = updates.get("department_id", user.department_id)
+        _check_role_department_pair(db, next_role_id, next_department_id)
 
     for k, v in updates.items():
         setattr(user, k, str(v) if k == "email" else v)

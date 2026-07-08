@@ -24,6 +24,15 @@ export interface MeResponse {
   must_reset_password: boolean
   site: string | null
   dashboard_reference: string | null
+  department_name?: string | null
+  department_code?: string | null
+}
+
+export interface VerifyPasswordResponse {
+  verified: boolean
+  user_id: string
+  username: string
+  role_code: string
 }
 
 export const authApi = {
@@ -31,4 +40,6 @@ export const authApi = {
   refresh: (refresh_token: string) => apiPost<TokenResponse>('/api/auth/refresh', { refresh_token }),
   logout: () => apiPost<void>('/api/auth/logout'),
   me: () => apiGet<MeResponse>('/api/auth/me'),
+  verifyPassword: (password: string) =>
+    apiPost<VerifyPasswordResponse>('/api/auth/verify-password', { password }),
 }

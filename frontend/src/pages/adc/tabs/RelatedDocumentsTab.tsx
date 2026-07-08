@@ -1,9 +1,10 @@
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Popconfirm, Spin, message } from 'antd'
-import { Upload, Trash2, FileText, Save, Pencil, X } from 'lucide-react'
+import { Upload, Trash2, FileText, Save, Pencil } from 'lucide-react'
 import { attachmentApi, projectApi, type Project } from '../../../api/adc'
 import RichEditor, { RichDisplay } from '../../../components/RichEditor'
+import { BTN_32 } from '../../../utils/buttonSize'
 import dayjs from 'dayjs'
 
 interface Props { project: Project; projectId: string }
@@ -135,13 +136,8 @@ export default function RelatedDocumentsTab({ project, projectId }: Props) {
       <div className="bg-white rounded-xl border border-slate-200 p-5">
         <div className="flex items-center justify-between mb-4">
           <h2 className="text-sm font-bold text-slate-700">Comments & Observations</h2>
-          {editing ? (
-            <div className="flex gap-2">
-              <Button size="small" icon={<X size={13} />} onClick={() => setEditing(false)}>Cancel</Button>
-              <Button size="small" type="primary" icon={<Save size={12} />} loading={saveMut.isPending} onClick={() => saveMut.mutate()}>Save</Button>
-            </div>
-          ) : (
-            <Button size="small" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
+          {!editing && (
+            <Button size="small" style={BTN_32} icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
           )}
         </div>
 
@@ -154,6 +150,10 @@ export default function RelatedDocumentsTab({ project, projectId }: Props) {
             <div>
               <p className="text-xs text-slate-500 mb-1">Observations</p>
               <RichEditor value={observations} onChange={setObservations} placeholder="Observations…" minHeight={100} />
+            </div>
+            <div className="flex gap-2 mt-2">
+              <Button size="small" style={BTN_32} onClick={() => { setComments(''); setObservations('') }}>Clear</Button>
+              <Button size="small" style={BTN_32} type="primary" icon={<Save size={12} />} loading={saveMut.isPending} onClick={() => saveMut.mutate()}>Save</Button>
             </div>
           </div>
         ) : (

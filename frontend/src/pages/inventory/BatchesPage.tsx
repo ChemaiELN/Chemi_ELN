@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Table, Button, Input, Select, Modal, Form,
   InputNumber, DatePicker, message, Space, Tooltip,
@@ -9,10 +9,13 @@ import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType } from 'antd/es/table'
 import { Plus, Eye, Zap, Search, Pencil, Upload as UploadIcon, FileCheck } from 'lucide-react'
 import dayjs from 'dayjs'
-import { batchApi, materialApi, manufacturerApi, type Batch, type BatchEvent, type Material, type Manufacturer } from '../../api/inventory'
+import { batchApi, materialApi, manufacturerApi, uomApi, type Batch, type BatchEvent, type Material, type Manufacturer, type UomUnit } from '../../api/inventory'
 import { glassModalProps } from '../../utils/modalStyles'
 
-const API_BASE = (import.meta.env.VITE_API_URL as string) || 'http://localhost:8001'
+const API_BASE =
+  (typeof window !== 'undefined' && (window as { __APP_CONFIG__?: { API_URL?: string } }).__APP_CONFIG__?.API_URL) ||
+  (import.meta.env.VITE_API_URL as string) ||
+  'http://localhost:8000'
 
 async function openCoaFile(batchId: number, batchNo: string, coaFilePath: string) {
   const token = localStorage.getItem('access_token')
@@ -78,11 +81,15 @@ export default function BatchesPage() {
   const [saving, setSaving] = useState(false)
 
   const [inhouseLoading, setInhouseLoading] = useState(false)
+  const [nextBatchNo, setNextBatchNo] = useState('')
+  const [massUnits, setMassUnits] = useState<UomUnit[]>([])
   const [coaFile, setCoaFile] = useState<UploadFile | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editBatch, setEditBatch] = useState<Batch | null>(null)
   const [editCoaFile, setEditCoaFile] = useState<UploadFile | null>(null)
   const [editSaving, setEditSaving] = useState(false)
+  const [materialSearchLoading, setMaterialSearchLoading] = useState(false)
+  const materialSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [form] = Form.useForm()
   const [issueForm] = Form.useForm()
   const [editForm] = Form.useForm()
@@ -115,6 +122,43 @@ export default function BatchesPage() {
   useEffect(() => { load() }, [load])
   useEffect(() => { materialApi.list({ active_only: true }).then(setMaterials) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
+
+  // Server-side search for the Material picker: the initial load above only fetches the
+  // backend's default page (50 rows), so materials past that page never show up locally.
+  // Debounce-query the backend as the user types and merge hits into `materials` so both
+  // the dropdown options and the id->name lookups elsewhere on this page stay in sync.
+  const handleMaterialSearch = useCallback((value: string) => {
+    if (materialSearchTimeout.current) clearTimeout(materialSearchTimeout.current)
+    if (!value) return
+    materialSearchTimeout.current = setTimeout(async () => {
+      setMaterialSearchLoading(true)
+      try {
+        const results = await materialApi.list({ active_only: true, search: value, limit: 50 })
+        setMaterials(prev => {
+          const merged = [...prev]
+          for (const m of results) {
+            if (!merged.some(x => x.id === m.id)) merged.push(m)
+          }
+          return merged
+        })
+      } finally {
+        setMaterialSearchLoading(false)
+      }
+    }, 300)
+  }, [])
+  useEffect(() => {
+    uomApi.get('mass')
+      .then(dim => setMassUnits(dim.units.filter(u => u.is_active)))
+      .catch(() => setMassUnits([]))
+  }, [])
+
+  const openCreate = () => {
+    form.resetFields()
+    setCoaFile(null)
+    setCreateOpen(true)
+    setNextBatchNo('')
+    batchApi.nextBatchNo().then(r => setNextBatchNo(r.batch_no)).catch(() => setNextBatchNo(''))
+  }
 
   const handleMaterialChange = async (materialId: number) => {
     form.setFieldValue('inhouse_batch_no', '')
@@ -263,7 +307,7 @@ export default function BatchesPage() {
               <span>{r.qty_available} {r.unit}</span>
               <span className="text-slate-400">/ {r.qty_received}</span>
             </div>
-            <Progress percent={pct} showInfo={false} strokeColor={color} trailColor="#e2e8f0" size={[undefined, 5]} />
+            <Progress percent={pct} showInfo={false} strokeColor={color} trailColor="#e2e8f0" size={['100%', 5]} />
           </div>
         )
       },
@@ -358,7 +402,7 @@ export default function BatchesPage() {
           style={{ width: 340 }}
           allowClear
         />
-        <Button type="primary" icon={<Plus size={14} />} onClick={() => setCreateOpen(true)} className="rounded-md font-medium">
+        <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">
           New Batch
         </Button>
       </div>
@@ -379,7 +423,7 @@ export default function BatchesPage() {
       <Modal
         title="New Batch"
         open={createOpen}
-        onCancel={() => { setCreateOpen(false); form.resetFields(); setCoaFile(null); setInhouseLoading(false) }}
+        onCancel={() => { setCreateOpen(false); form.resetFields(); setCoaFile(null); setInhouseLoading(false); setNextBatchNo('') }}
         onOk={() => form.submit()}
         confirmLoading={saving}
         width={640}
@@ -389,11 +433,19 @@ export default function BatchesPage() {
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <div className="grid grid-cols-2 gap-x-3">
-            <Form.Item name="batch_no" label="Batch No" rules={[{ required: true }]}>
-              <Input />
+            <Form.Item label="Batch No (auto-generated)">
+              <Input value={nextBatchNo || 'Generating…'} disabled />
             </Form.Item>
             <Form.Item name="material_id" label="Material" rules={[{ required: true }]}>
-              <Select showSearch optionFilterProp="label" options={materials.map(m => ({ value: m.id, label: m.name }))} onChange={handleMaterialChange} />
+              <Select
+                showSearch
+                optionFilterProp="label"
+                onSearch={handleMaterialSearch}
+                loading={materialSearchLoading}
+                notFoundContent={materialSearchLoading ? 'Searching…' : undefined}
+                options={materials.map(m => ({ value: m.id, label: m.name }))}
+                onChange={handleMaterialChange}
+              />
             </Form.Item>
             <Form.Item name="manufacturer_id" label="Manufacturer">
               <Select allowClear showSearch optionFilterProp="label" options={manufacturers.map(m => ({ value: m.id, label: m.name }))} />
@@ -401,8 +453,12 @@ export default function BatchesPage() {
             <Form.Item name="qty_received" label="Qty Received per Pack" rules={[{ required: true }]}>
               <InputNumber style={{ width: '100%' }} min={0} />
             </Form.Item>
-            <Form.Item name="unit" label="Unit" initialValue="g">
-              <Input />
+            <Form.Item name="unit" label="Unit" initialValue="g" rules={[{ required: true }]}>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                options={massUnits.map(u => ({ value: u.symbol, label: u.name ? `${u.symbol} — ${u.name}` : u.symbol }))}
+              />
             </Form.Item>
             <Form.Item name="inhouse_batch_no" label="Inhouse Batch No">
               <Input readOnly disabled={inhouseLoading} placeholder={inhouseLoading ? 'Generating…' : 'Select a material first'} className="bg-slate-50 cursor-not-allowed" />

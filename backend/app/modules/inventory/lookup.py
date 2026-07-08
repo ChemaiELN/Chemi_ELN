@@ -12,9 +12,9 @@ from app.shared.inv_audit import write_inv_audit
 router = APIRouter(prefix="/inventory/lookup", tags=["inventory-lookup"])
 
 LOOKUP_TYPES = [
+    "Material Type",
     "STORAGE_LOCATION",
     "HAZARD_CLASS",
-    "MATERIAL_TYPE",
     "DISPOSAL_METHOD",
     "VENDOR_TYPE",
     "SAMPLE_TYPE",

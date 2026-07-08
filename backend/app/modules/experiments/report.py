@@ -34,10 +34,54 @@ def _fmt(val: Any, ftype: str = "text") -> str:
         return _strip_html(str(val))
     if isinstance(val, list):
         return f"({len(val)} row(s))"
+    if ftype == "action" and isinstance(val, dict):
+        if not val.get("submitted"):
+            return "Not submitted"
+        parts = [f"Submitted by {val.get('submitted_by') or '—'}"]
+        when = val.get("submitted_at")
+        if when:
+            parts.append(_fmt_dt(when))
+        if val.get("sku_pack_id"):
+            parts.append(f"SKU: {val['sku_pack_id']}")
+        if val.get("sample_qty"):
+            parts.append(f"Qty: {val['sample_qty']}")
+        return "  ·  ".join(parts)
+    if ftype == "js_sheet" and isinstance(val, dict):
+        return ""  # rendered as its own sub-table, see _render_worksheet
     if isinstance(val, dict):
         import json
         return json.dumps(val)
     return str(val)
+
+
+def _render_worksheet(doc, label: str, raw: dict) -> None:
+    """Render a js_sheet worksheet value as a label/value sub-table."""
+    bag = raw.get("inputs") if isinstance(raw.get("inputs"), dict) else raw
+    entries = [(k, v) for k, v in bag.items() if not isinstance(v, (dict, list))]
+    if not entries:
+        return
+
+    sp = doc.add_paragraph()
+    sr = sp.add_run(label)
+    sr.font.bold = True
+    sr.font.size = Pt(10)
+    sr.font.color.rgb = NAVY
+
+    tbl = doc.add_table(rows=0, cols=2)
+    tbl.style = "Table Grid"
+    for k, v in entries:
+        if isinstance(v, float):
+            v = round(v, 4)
+        row = tbl.add_row()
+        row.cells[0].text = str(k)
+        row.cells[1].text = str(v)
+        _bold_cell(row.cells[0], size_pt=8.5)
+        _shade_cell(row.cells[0], "F1F5F9")
+        _size_cell(row.cells[1], size_pt=8.5)
+
+    _set_col_width(tbl, 0, 2.2)
+    _set_col_width(tbl, 1, 4.1)
+    doc.add_paragraph()
 
 
 def _shade_cell(cell, hex_color: str):
@@ -218,8 +262,9 @@ def generate_experiment_docx(
             if h.runs:
                 h.runs[0].font.color.rgb = NAVY
 
-            simple = [f for f in fields if f.get("type") != "table"]
-            tables = [f for f in fields if f.get("type") == "table"]
+            simple    = [f for f in fields if f.get("type") not in ("table", "js_sheet")]
+            tables    = [f for f in fields if f.get("type") == "table"]
+            worksheets = [f for f in fields if f.get("type") == "js_sheet"]
 
             # Simple fields → label/value table
             if simple:
@@ -300,6 +345,14 @@ def generate_experiment_docx(
                         _set_col_width(tbl, ci, avail)
 
                 doc.add_paragraph()
+
+            # Worksheet fields (js_sheet) → label/value sub-table
+            for wf in worksheets:
+                fkey   = wf.get("key", "")
+                flabel = wf.get("label") or fkey.replace("_", " ").title()
+                raw    = sdata.get(fkey)
+                if isinstance(raw, dict):
+                    _render_worksheet(doc, flabel, raw)
 
     # Footer note
     doc.add_paragraph()

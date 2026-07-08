@@ -76,6 +76,8 @@ export interface DepartmentOut {
 export interface DepartmentCreate { code: string; name: string; description?: string }
 export interface DepartmentUpdate { name?: string; description?: string; is_active?: boolean }
 
+export interface DepartmentRoleMapping { department_id: string; role_ids: string[] }
+
 export interface UserOut {
   id: string
   username: string
@@ -156,6 +158,7 @@ export const adminApi = {
   createDept: (body: DepartmentCreate) => apiPost<DepartmentOut>('/api/departments', body),
   updateDept: (id: string, body: DepartmentUpdate) => apiPatch<DepartmentOut>(`/api/departments/${id}`, body),
   deleteDept: (id: string) => apiDelete(`/api/departments/${id}`),
+  listDeptRoleMapping: () => apiGet<DepartmentRoleMapping[]>('/api/departments/role-mapping'),
 
   // Users
   listUsers: (params?: Record<string, unknown>) => apiGet<PaginatedResponse<UserOut>>('/api/users', params),

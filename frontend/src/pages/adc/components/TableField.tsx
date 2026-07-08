@@ -9,6 +9,7 @@ import {
   type Material, type Batch, type EquipmentCatalogue, type InstrumentCatalogue,
   type ConsumableType, type TestType, type Mapping,
 } from '../../../api/inventory'
+import { BTN_32 } from '../../../utils/buttonSize'
 
 // ── Public types ──────────────────────────────────────────────────────────────
 
@@ -23,6 +24,9 @@ export interface TableColumn {
   test_type_key?: string              // test_master_select: test type key
   width?: number
   read_only?: boolean
+  restrict_to_screen?: string         // material_select: only offer materials chosen in this screen's table
+  restrict_to_table?: string          // material_select: field key of the table on restrict_to_screen
+  restrict_to_column?: string         // material_select: row column on that table holding the material id
 }
 
 interface TableFieldProps {
@@ -33,6 +37,9 @@ interface TableFieldProps {
   layout?: string                         // 'stacked' = vertical card layout per row
   contextData?: Record<string, unknown>  // current screen's field values (for cross-field lookups)
   dynamicColPrefix?: string              // e.g. "f" — enables Add Column button; extra cols inferred from row keys
+  allowRowOps?: boolean                  // keep Add/Delete row available even while `disabled` locks cell editing
+  hideRowOps?: boolean                   // force-hide Add/Delete row regardless of `disabled` (fixed row count)
+  autoIdPrefix?: string                  // e.g. experiment full_code — used to auto-generate the 'sample_id' column
 }
 
 // ── Shared inventory data cache (module-level, avoids re-fetching per instance) ─
@@ -160,7 +167,7 @@ function CellEditor({
   onLoadMaterial, onLoadConMats, onLoadItemLots, onLoadMappings,
   contextData, stackedMode,
 }: CellEditorProps) {
-  const isDisabled = disabled || !!col.read_only
+  const isDisabled = disabled || !!col.read_only || col.key === 'sample_id' || col.key === 'sl_no' || col.key === 'sr_no'
   const sz = 'small' as const
 
   // ── Static types ───────────────────────────────────────────────────────────
@@ -205,8 +212,29 @@ function CellEditor({
     const types = col.material_types
       ? (Array.isArray(col.material_types) ? col.material_types : [col.material_types])
       : []
+
+    // Restrict options to materials chosen in another screen's table (e.g. 3.5 DMSO ← 1.3 rs_chemicals)
+    const restrictScreen = col.restrict_to_screen
+    const restrictTable  = col.restrict_to_table
+    const restrictColumn = col.restrict_to_column ?? 'chemical'
+    const fullData = contextData?.__full_data__ as Record<string, Record<string, unknown>> | undefined
+    const restrictRows = (restrictScreen && restrictTable)
+      ? (fullData?.[restrictScreen]?.[restrictTable] as Record<string, unknown>[] | undefined) ?? []
+      : null
+    const restrictIdsKey = restrictRows
+      ? [...new Set(restrictRows.map(r => Number(r[restrictColumn])).filter(id => id > 0))].join(',')
+      : ''
+
     const [mats, setMats] = useState<Material[]>([])
     useEffect(() => {
+      if (restrictRows) {
+        const ids = restrictIdsKey ? restrictIdsKey.split(',').map(Number) : []
+        if (ids.length === 0) { setMats([]); return }
+        Promise.all(ids.map(id => materialApi.get(id).catch(() => null)))
+          .then(res => setMats(res.filter((m): m is Material => !!m)))
+          .catch(() => {})
+        return
+      }
       const f = types.length > 0
         ? Promise.all(types.map(t => materialApi.list({ material_type: t, active_only: true, limit: 200 })))
             .then(res => {
@@ -216,7 +244,7 @@ function CellEditor({
         : materialApi.list({ active_only: true, limit: 200 }).then(r => Array.isArray(r) ? r : [])
       f.then(setMats).catch(() => {})
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [col.material_types?.toString()])
+    }, [col.material_types?.toString(), restrictIdsKey])
 
     const handleChange = async (matId: number | undefined) => {
       onRowUpdate({ [col.key]: matId ?? '', material_name: '', grade: '', mfg_lot_no: '' })
@@ -243,7 +271,7 @@ function CellEditor({
       <Select
         size={sz} style={{ width: '100%', minWidth: 180 }}
         disabled={isDisabled} showSearch allowClear optionFilterProp="label"
-        placeholder="Select material…"
+        placeholder={restrictRows && mats.length === 0 ? `Add reagents in ${restrictScreen === 'mat_reagents' ? '1.3' : restrictScreen} first` : 'Select material…'}
         value={(value as number) ?? undefined}
         options={mats.map(m => ({ value: m.id, label: `${m.name}${m.code ? ` (${m.code})` : ''}` }))}
         onChange={handleChange}
@@ -296,10 +324,10 @@ function CellEditor({
     for (const b of batches) {
       if (b.include_pack && b.packs?.length) {
         for (const p of b.packs) {
-          if (p.inhouse_batch_no) packOpts.push({ label: p.inhouse_batch_no, value: p.inhouse_batch_no, manufacturerId: b.manufacturer_id })
+          if (p.inhouse_batch_no) packOpts.push({ label: p.inhouse_batch_no, value: p.inhouse_batch_no, manufacturerId: b.manufacturer_id ?? undefined })
         }
       } else if (b.inhouse_batch_no) {
-        packOpts.push({ label: b.inhouse_batch_no, value: b.inhouse_batch_no, manufacturerId: b.manufacturer_id })
+        packOpts.push({ label: b.inhouse_batch_no, value: b.inhouse_batch_no, manufacturerId: b.manufacturer_id ?? undefined })
       }
     }
 
@@ -418,10 +446,24 @@ function CellEditor({
           batchApi.list({ material_id: mat.id, category: 'available', limit: 50 }),
         ])
         onLoadItemLots(matName)
+        const batchList = Array.isArray(batches) ? batches : []
         const firstMap = Array.isArray(mappings) ? mappings[0] : null
-        const firstLot = lotOptionsFrom(Array.isArray(batches) ? batches : [])[0]
+        const firstLot = lotOptionsFrom(batchList)[0]
+
+        // Manufacturer/make: prefer the mapping's manufacturer, else fall back
+        // to the first available batch's manufacturer (mirrors chemical_select).
+        const manufacturerId = firstMap?.manufacturer_id ?? batchList[0]?.manufacturer_id ?? null
+        let makeName = ''
+        if (manufacturerId) {
+          try {
+            const mfr = await manufacturerApi.get(manufacturerId)
+            makeName = mfr.name ?? ''
+          } catch { /* leave blank */ }
+        }
+
         onRowUpdate({
           [col.key]: matName,
+          make_brand: makeName,
           cat_no:     firstMap?.catalogue_no ?? '',
           lot_no:     firstLot?.value ?? '',
         })
@@ -654,8 +696,16 @@ function CellEditor({
 
 // ── TableField ────────────────────────────────────────────────────────────────
 
-export default function TableField({ columns, value = [], onChange, disabled, layout, contextData, dynamicColPrefix }: TableFieldProps) {
-  const rows = value
+export default function TableField({ columns, value = [], onChange, disabled, layout, contextData, dynamicColPrefix, allowRowOps, hideRowOps, autoIdPrefix }: TableFieldProps) {
+  // `value` can arrive as '' (the generic empty-field default upstream) instead of
+  // [] before any row has ever been added — guard so a stray '' doesn't crash
+  // every array operation below (.forEach/.map/.length all behave differently on a string).
+  const rows = Array.isArray(value) ? value : []
+  const hasSampleIdCol = columns.some(c => c.key === 'sample_id')
+  // Cells stay locked by `disabled`, but Add/Delete Row can remain available
+  // (e.g. the auto-filled Batch Information table: cells are never hand-edited,
+  // but users still need to remove/restore rows).
+  const rowOpsEnabled = !hideRowOps && (!disabled || !!allowRowOps)
 
   // ── Dynamic extra columns (derived from row keys matching the prefix) ─────
   const extraCols: TableColumn[] = (() => {
@@ -698,7 +748,7 @@ export default function TableField({ columns, value = [], onChange, disabled, la
 
   useEffect(() => {
     if (hasConType && !_conTypeCache) {
-      consumableTypeApi.list({ is_active: true })
+      consumableTypeApi.list()
         .then(r => { _conTypeCache = Array.isArray(r) ? r : []; setConTypeList(_conTypeCache) })
         .catch(() => {})
     }
@@ -802,15 +852,39 @@ export default function TableField({ columns, value = [], onChange, disabled, la
   // ── Row mutations ──────────────────────────────────────────────────────────
   const commit = (newRows: Record<string, unknown>[]) => onChange?.(newRows)
 
+  // Batch Information-style tables (SKU/Pack ID column keyed 'pack_type') are
+  // pre-populated with one row per available SKU/Pack ID for the selected
+  // material. For these, "Add Row" must not create a blank placeholder row —
+  // it should only bring back a SKU that was previously removed. Deleting a
+  // row returns its SKU to this pool instead of discarding it.
+  const isPackPoolTable = columns.some(c => c.key === 'pack_type')
+  const [removedPackRows, setRemovedPackRows] = useState<Record<string, unknown>[]>([])
+  const canAddRow = !isPackPoolTable || removedPackRows.length > 0
+
+  // Serial-number column — different screens spell the key differently
+  // ('sl_no' vs 'sr_no'), so auto-number whichever one this table has.
+  const serialCol = columns.find(c => c.key === 'sl_no' || c.key === 'sr_no')
+
   const addRow = () => {
+    if (isPackPoolTable) {
+      if (removedPackRows.length === 0) return
+      const [restored, ...rest] = removedPackRows
+      setRemovedPackRows(rest)
+      const row = serialCol ? { ...restored, [serialCol.key]: String(rows.length + 1) } : restored
+      commit([...rows, row])
+      return
+    }
     const blank: Record<string, unknown> = {}
     allColumns.forEach(c => { blank[c.key] = c.type === 'number' ? null : '' })
-    const slCol = columns.find(c => c.key === 'sl_no')
-    if (slCol) blank['sl_no'] = String(rows.length + 1)
+    if (serialCol) blank[serialCol.key] = String(rows.length + 1)
+    if (hasSampleIdCol && autoIdPrefix) blank['sample_id'] = `${autoIdPrefix}-S${rows.length + 1}`
     commit([...rows, blank])
   }
 
-  const removeRow = (idx: number) => commit(rows.filter((_, i) => i !== idx))
+  const removeRow = (idx: number) => {
+    if (isPackPoolTable) setRemovedPackRows(prev => [...prev, rows[idx]])
+    commit(rows.filter((_, i) => i !== idx))
+  }
 
   const addColumn = () => {
     if (!dynamicColPrefix) return
@@ -859,14 +933,17 @@ export default function TableField({ columns, value = [], onChange, disabled, la
 
   // ── Stacked layout ─────────────────────────────────────────────────────────
   if (layout === 'stacked') {
-    const inlineCols = columns.filter(c => c.type !== 'rich_text')
-    const richCols   = columns.filter(c => c.type === 'rich_text')
+    // 'details' columns (Process Steps tables) always drop to their own full-width
+    // row below the step name, whether they're plain text or a rich_text editor.
+    const isFullWidthCol = (c: TableColumn) => c.type === 'rich_text' || c.key === 'details'
+    const inlineCols = columns.filter(c => !isFullWidthCol(c))
+    const richCols   = columns.filter(isFullWidthCol)
 
     return (
       <div className="space-y-2">
         {rows.length === 0 && (
           <p className="text-xs text-slate-400 py-2 text-center">
-            No rows yet{!disabled && ' — click "Add Row" to start'}
+            No rows yet{rowOpsEnabled && ' — click "Add Row" to start'}
           </p>
         )}
         {rows.map((row, ri) => (
@@ -878,7 +955,7 @@ export default function TableField({ columns, value = [], onChange, disabled, la
                   <CellEditor {...cellProps(ri, col, row)} stackedMode />
                 </div>
               ))}
-              {!disabled && (
+              {rowOpsEnabled && (
                 <button
                   onClick={() => removeRow(ri)}
                   className="shrink-0 w-5 h-5 flex items-center justify-center text-slate-300 hover:text-red-500 transition-colors rounded ml-1"
@@ -895,7 +972,7 @@ export default function TableField({ columns, value = [], onChange, disabled, la
             ))}
           </div>
         ))}
-        {!disabled && (
+        {rowOpsEnabled && canAddRow && (
           <button
             onClick={addRow}
             className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-indigo-600 border border-dashed border-slate-300 hover:border-indigo-400 rounded-lg px-3 py-2 w-full justify-center transition-colors"
@@ -938,9 +1015,9 @@ export default function TableField({ columns, value = [], onChange, disabled, la
                   </th>
                 )
               })}
-              {!disabled && (
+              {rowOpsEnabled && (
                 <th className="px-2 py-2 border-b border-slate-200 w-7">
-                  {dynamicColPrefix && (
+                  {dynamicColPrefix && !disabled && (
                     <button
                       onClick={addColumn}
                       className="flex items-center gap-0.5 text-[10px] font-semibold text-indigo-500 hover:text-indigo-700 whitespace-nowrap transition-colors"
@@ -960,7 +1037,7 @@ export default function TableField({ columns, value = [], onChange, disabled, la
                   colSpan={allColumns.length + (disabled ? 0 : 1)}
                   className="px-3 py-4 text-center text-slate-400 text-xs"
                 >
-                  No rows yet{!disabled && ' — click "Add Row" to start'}
+                  No rows yet{rowOpsEnabled && ' — click "Add Row" to start'}
                 </td>
               </tr>
             ) : (
@@ -993,7 +1070,7 @@ export default function TableField({ columns, value = [], onChange, disabled, la
                       />
                     </td>
                   ))}
-                  {!disabled && (
+                  {rowOpsEnabled && (
                     <td className="px-1.5 py-1 align-middle">
                       <button
                         onClick={() => removeRow(ri)}
@@ -1010,10 +1087,12 @@ export default function TableField({ columns, value = [], onChange, disabled, la
         </table>
       </div>
 
-      {!disabled && (
+      {rowOpsEnabled && (
         <Button
-          size="small" icon={<Plus size={12} />}
+          size="small" style={BTN_32} icon={<Plus size={12} />}
           onClick={addRow} className="text-xs"
+          disabled={!canAddRow}
+          title={!canAddRow && isPackPoolTable ? 'All available SKU/Pack IDs are already assigned' : undefined}
         >
           Add Row
         </Button>

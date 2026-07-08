@@ -162,6 +162,20 @@ class InvBatchNoCounter(Base):
     last_seq = Column(Integer, nullable=False, default=10000)
 
 
+# ── Material Code Counter — global per year (MAT/{YY}/{SEQ}) ──────────────────
+class InvMaterialCodeCounter(Base):
+    __tablename__ = "inv_material_code_counter"
+    year     = Column(String(2), primary_key=True)
+    last_seq = Column(Integer, nullable=False, default=10000)
+
+
+# ── Batch Number Counter — global per year (MCE/{YY}/{SEQ}) ───────────────────
+class InvBatchNumberCounter(Base):
+    __tablename__ = "inv_batch_number_counter"
+    year     = Column(String(2), primary_key=True)
+    last_seq = Column(Integer, nullable=False, default=0)
+
+
 # ── Batches ───────────────────────────────────────────────────────────────────
 class InvBatch(Base):
     __tablename__ = "inv_batches"
@@ -239,6 +253,7 @@ class InvBatchPack(Base):
     seq_no           = Column(Integer, nullable=False)
     pack_no          = Column(String(100), nullable=False)
     qty_per_pack     = Column(Numeric(12, 4), nullable=False)
+    qty_available    = Column(Numeric(12, 4), nullable=False)
     inhouse_batch_no = Column(String(100), nullable=False)
 
     batch = relationship("InvBatch", back_populates="packs")

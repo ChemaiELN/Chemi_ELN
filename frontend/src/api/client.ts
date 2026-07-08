@@ -1,12 +1,16 @@
-const BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000'
+const BASE_URL =
+  (typeof window !== 'undefined' && (window as { __APP_CONFIG__?: { API_URL?: string } }).__APP_CONFIG__?.API_URL) ||
+  import.meta.env.VITE_API_URL ||
+  'http://localhost:8000'
 
 export class ApiError extends Error {
-  constructor(
-    public status: number,
-    public detail: string,
-  ) {
+  status: number
+  detail: string
+  constructor(status: number, detail: string) {
     super(detail)
     this.name = 'ApiError'
+    this.status = status
+    this.detail = detail
   }
 }
 

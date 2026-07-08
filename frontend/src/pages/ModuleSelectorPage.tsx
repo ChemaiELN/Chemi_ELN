@@ -1,21 +1,18 @@
 import { useNavigate } from 'react-router-dom'
-import { ShieldCheck, Package2, ChevronRight, LogOut, FlaskConical, Atom, FileText } from 'lucide-react'
-import { useAppDispatch, useAppSelector } from '../store'
-import { selectUser, clearAuth } from '../store/authSlice'
-import { clearPrivileges } from '../store/privilegesSlice'
-import { authApi } from '../api/auth'
+import { ShieldCheck, Package2, ChevronRight, FlaskConical, Atom, FileText } from 'lucide-react'
+import { useAppSelector } from '../store'
+import { selectUser } from '../store/authSlice'
+import UserProfileMenu from '../components/layout/UserProfileMenu'
+
+// The Administration module (Users & Roles, Role Privileges, Settings, Master
+// Data) is only visible to QA/QC department users — mirrors the backend gate
+// in app/shared/privileges.py (ADMIN_MODULE_DEPARTMENT_CODES).
+const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC']
 
 export default function ModuleSelectorPage() {
   const navigate = useNavigate()
-  const dispatch = useAppDispatch()
   const user = useAppSelector(selectUser)
-
-  const handleLogout = async () => {
-    try { await authApi.logout() } catch { /* ignore */ }
-    dispatch(clearAuth())
-    dispatch(clearPrivileges())
-    navigate('/login', { replace: true })
-  }
+  const canSeeAdmin = ADMIN_MODULE_DEPARTMENT_CODES.includes(user?.department_code ?? '')
 
   return (
     <div className="relative min-h-screen flex flex-col overflow-hidden">
@@ -38,24 +35,8 @@ export default function ModuleSelectorPage() {
           </div>
         </div>
 
-        <div className="flex items-center gap-3">
-          <div className="hidden sm:flex items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
-              <span className="text-white text-[10px] font-bold">{user?.username?.slice(0, 2).toUpperCase() ?? 'U'}</span>
-            </div>
-            <div className="leading-tight">
-              <p className="text-sm font-semibold text-slate-700">{user?.username}</p>
-              <p className="text-[10px] text-slate-400">{user?.role_name}</p>
-            </div>
-          </div>
-          <button
-            onClick={handleLogout}
-            className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-red-500 transition-colors px-2.5 py-1.5 rounded-lg hover:bg-red-50/60"
-          >
-            <LogOut size={13} /> <span className="hidden sm:inline">Sign out</span>
-          </button>
-        </div>
       </header>
+      <UserProfileMenu />
 
       {/* Main content */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-10">
@@ -70,36 +51,38 @@ export default function ModuleSelectorPage() {
         {/* Module cards */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-5 w-full max-w-5xl">
 
-          {/* Admin */}
-          {user?.role_code === 'QA' && <button
-            onClick={() => navigate('/admin/users')}
-            className="glass-card rounded-3xl p-7 text-left hover:shadow-2xl hover:shadow-purple-300/40 hover:-translate-y-1 hover:bg-white/65 transition-all duration-200 group cursor-pointer"
-          >
-            <div className="flex items-start justify-between mb-5">
-              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-300 to-purple-400 flex items-center justify-center shadow-lg shadow-purple-300/30">
-                <ShieldCheck size={26} className="text-white" />
-              </div>
-              <ChevronRight size={18} className="text-purple-300 group-hover:text-purple-500 mt-1 transition-colors" />
-            </div>
-
-            <h2 className="text-xl font-bold text-slate-800 mb-1">Administration</h2>
-            <p className="text-slate-500 text-sm mb-5">Manage users, roles, departments, settings and master data</p>
-
-            <div className="space-y-1.5">
-              {['Users & Roles', 'Departments', 'Role Privileges', 'Settings', 'Master Data'].map((item) => (
-                <div key={item} className="flex items-center gap-2 text-slate-500 text-xs">
-                  <div className="w-1 h-1 rounded-full bg-purple-400 shrink-0" />
-                  {item}
+          {/* Admin — QA/QC department only */}
+          {canSeeAdmin && (
+            <button
+              onClick={() => navigate('/admin/users')}
+              className="glass-card rounded-3xl p-7 text-left hover:shadow-2xl hover:shadow-purple-300/40 hover:-translate-y-1 hover:bg-white/65 transition-all duration-200 group cursor-pointer"
+            >
+              <div className="flex items-start justify-between mb-5">
+                <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-purple-300 to-purple-400 flex items-center justify-center shadow-lg shadow-purple-300/30">
+                  <ShieldCheck size={26} className="text-white" />
                 </div>
-              ))}
-            </div>
+                <ChevronRight size={18} className="text-purple-300 group-hover:text-purple-500 mt-1 transition-colors" />
+              </div>
 
-            <div className="mt-6 pt-4 border-t border-white/50">
-              <span className="text-xs font-semibold text-purple-600 flex items-center gap-1 group-hover:gap-2 transition-all">
-                Open Administration <ChevronRight size={12} />
-              </span>
-            </div>
-          </button>}
+              <h2 className="text-xl font-bold text-slate-800 mb-1">Administration</h2>
+              <p className="text-slate-500 text-sm mb-5">Manage users, roles, departments, settings and master data</p>
+
+              <div className="space-y-1.5">
+                {['Users & Roles', 'Departments', 'Role Privileges', 'Settings', 'Master Data'].map((item) => (
+                  <div key={item} className="flex items-center gap-2 text-slate-500 text-xs">
+                    <div className="w-1 h-1 rounded-full bg-purple-400 shrink-0" />
+                    {item}
+                  </div>
+                ))}
+              </div>
+
+              <div className="mt-6 pt-4 border-t border-white/50">
+                <span className="text-xs font-semibold text-purple-600 flex items-center gap-1 group-hover:gap-2 transition-all">
+                  Open Administration <ChevronRight size={12} />
+                </span>
+              </div>
+            </button>
+          )}
 
           {/* Inventory */}
           <button
@@ -134,7 +117,9 @@ export default function ModuleSelectorPage() {
 
           {/* ADC */}
           <button
-            onClick={() => navigate(user?.role_code === 'CHEM' ? '/adc/my-notebooks' : '/adc/projects')}
+            onClick={() => navigate(
+              ['CHEM', 'ANALYST'].includes(user?.role_code ?? '') ? '/adc/my-notebooks' : '/adc/projects'
+            )}
             className="glass-card rounded-3xl p-7 text-left hover:shadow-2xl hover:shadow-indigo-300/40 hover:-translate-y-1 hover:bg-white/65 transition-all duration-200 group cursor-pointer"
           >
             <div className="flex items-start justify-between mb-5">

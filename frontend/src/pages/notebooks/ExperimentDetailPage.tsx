@@ -11,6 +11,14 @@ import { notebookApi, experimentApi, type Experiment } from '../../api/adc'
 import FieldRenderer, { type TemplateField } from '../adc/components/FieldRenderer'
 import ESignatureModal from '../adc/components/ESignatureModal'
 import { glassModalProps } from '../../utils/modalStyles'
+import { BTN_32 } from '../../utils/buttonSize'
+import { useBreadcrumbLabel } from '../../components/layout/AdcShell'
+import { useAppSelector } from '../../store'
+import { selectUser } from '../../store/authSlice'
+
+// Chemists submit for review; leads/HOD approve or reject (HOD already covers
+// the old QA-role admin, now modeled as HOD + QA department).
+const APPROVER_ROLES = new Set(['TL', 'HOD'])
 
 interface TemplateScreen  { key: string; title: string; fields: TemplateField[] }
 interface TemplateSection { key: string; title: string; screens: TemplateScreen[] }
@@ -65,6 +73,9 @@ export default function ExperimentDetailPage() {
     enabled:  !!experimentId && historyOpen,
   })
 
+  useBreadcrumbLabel(notebookId ?? '', nb?.title ?? null)
+  useBreadcrumbLabel(experimentId ?? '', exp?.title ?? exp?.full_code ?? null)
+
   const snapshot = nb?.template_snapshot as TemplateSnapshot | null | undefined
   const sections: TemplateSection[] = snapshot?.sections ?? []
 
@@ -84,6 +95,9 @@ export default function ExperimentDetailPage() {
   }, [sections.length]) // eslint-disable-line react-hooks/exhaustive-deps
 
   const editable = exp ? EDITABLE.has(exp.status) : false
+  const user       = useAppSelector(selectUser)
+  const isChemist  = user?.role_code === 'CHEM'
+  const isApprover = APPROVER_ROLES.has(user?.role_code ?? '')
 
   const _effectiveData: Record<string, Record<string, unknown>> = {
     ...(exp?.data ?? {}),
@@ -133,11 +147,12 @@ export default function ExperimentDetailPage() {
     })(),
     mfg_conjugation: {
       ..._conj,
-      intermediate_input_id: (_conj['intermediate_input_id'] as string) || _redOut,
-      parent_lineage:        (_conj['parent_lineage'] as string) || _redOut,
-      output_id:             _conjOut,
-      parent_sample:         (_conj['parent_sample'] as string) || _redOut,
-      reagent_lots_linked:   (_conj['reagent_lots_linked'] as string) || _asText(_conj['lp_lot']),
+      intermediate_input_id:    (_conj['intermediate_input_id'] as string) || _redOut,
+      parent_lineage:           (_conj['parent_lineage'] as string) || _redOut,
+      conj_available_volume_ul: _conj['conj_available_volume_ul'] ?? _red['red_volume_registered_ul'] ?? '',
+      output_id:                _conjOut,
+      parent_sample:            (_conj['parent_sample'] as string) || _redOut,
+      reagent_lots_linked:      (_conj['reagent_lots_linked'] as string) || _asText(_conj['lp_lot']),
     },
     mfg_quench: {
       ..._qnch,
@@ -179,7 +194,8 @@ export default function ExperimentDetailPage() {
       const ab = effectiveData['mat_antibody'] ?? {}
       const batchRows = (ab['mab_batch_info'] as Record<string, unknown>[] | undefined) ?? []
       if (batchRows.length > 0) {
-        const matId   = ab['mab_mat_id']
+        const matCode = ab['mab_mat_id_code']
+        const matId   = matCode || ab['mab_mat_id']
         const matName = String(ab['mab_name'] ?? '')
         const storage = String(ab['mab_storage_condition'] ?? '')
         lots = batchRows.map(b => ({
@@ -237,7 +253,7 @@ export default function ExperimentDetailPage() {
     const chain: Array<[string, string[]]> = [
       ['mfg_thaw_pool_filter', ['intermediate_output_id']],
       ['mfg_reduction',        ['intermediate_input_id', 'parent_lots', 'red_available_volume_ul', 'output_id', 'parent_sample', 'reagent_lot_linked']],
-      ['mfg_conjugation',      ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'reagent_lots_linked']],
+      ['mfg_conjugation',      ['intermediate_input_id', 'parent_lineage', 'conj_available_volume_ul', 'output_id', 'parent_sample', 'reagent_lots_linked']],
       ['mfg_quench',           ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'reagent_lots_linked']],
       ['pur_purification',     ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'resin_lot_linked']],
       ['pur_ufdf',             ['intermediate_input_id', 'parent_lineage', 'output_id', 'parent_sample', 'membrane_lot_linked']],
@@ -259,6 +275,7 @@ export default function ExperimentDetailPage() {
     effectiveData['mfg_thaw_pool_filter']?.['parent_samples'],
     effectiveData['mfg_thaw_pool_filter']?.['volume_registered_ul'],
     effectiveData['mfg_reduction']?.['tcep_lot'],
+    effectiveData['mfg_reduction']?.['red_volume_registered_ul'],
     effectiveData['mfg_conjugation']?.['lp_lot'],
     effectiveData['mfg_quench']?.['nac_lot'],
     effectiveData['pur_purification']?.['resin_lot'],
@@ -267,10 +284,8 @@ export default function ExperimentDetailPage() {
 
   // Propagate ReactantCalculator results (3.3) → 3.4 and 3.5
   useEffect(() => {
-    const results = effectiveData['mfg_reactant_calc']?.['reactant_calc_sheet'] as Record<string, unknown> | undefined
-    if (!results) return
-    const r = (results['results'] ?? {}) as Record<string, number>
-    if (!r || Object.keys(r).length === 0) return
+    const r = effectiveData['mfg_reactant_calc']?.['reactant_calc_sheet'] as Record<string, unknown> | undefined
+    if (!r) return
 
     const reductionUpdates: Record<string, unknown> = {
       calc_mab_vol_ul:  r['mab_vol_ul']  ?? '',
@@ -284,6 +299,12 @@ export default function ExperimentDetailPage() {
       calc_lp_vol_ul:   r['lp_vol_ul']   ?? '',
       calc_dmso_vol_ul: r['dma_vol_ul']  ?? '',
       calc_buffer2_ul:  r['buffer2_ul']  ?? '',
+    }
+    // Default the actual "LP Volume added" from the calc sheet — only while the
+    // user hasn't entered their own value, since the actual addition can differ.
+    const lpAdded = effectiveData['mfg_conjugation']?.['lp_added_ul']
+    if ((lpAdded === undefined || lpAdded === null || lpAdded === '') && r['lp_vol_ul'] != null) {
+      conjugationUpdates['lp_added_ul'] = r['lp_vol_ul']
     }
 
     handleBulkFieldChange('mfg_reduction',    reductionUpdates)
@@ -532,6 +553,7 @@ export default function ExperimentDetailPage() {
               <>
                 <Button
                   size="small"
+                  style={BTN_32}
                   icon={<Save size={13} />}
                   loading={saving}
                   onClick={handleManualSave}
@@ -539,20 +561,24 @@ export default function ExperimentDetailPage() {
                 >
                   Save
                 </Button>
-                <Button
-                  size="small"
-                  type="primary"
-                  icon={<Send size={13} />}
-                  onClick={() => setSignModal('submit')}
-                >
-                  Submit
-                </Button>
+                {isChemist && (
+                  <Button
+                    size="small"
+                    style={BTN_32}
+                    type="primary"
+                    icon={<Send size={13} />}
+                    onClick={() => setSignModal('submit')}
+                  >
+                    Submit
+                  </Button>
+                )}
               </>
             )}
-            {exp.status === 'SUBMITTED' && (
+            {exp.status === 'SUBMITTED' && isApprover && (
               <>
                 <Button
                   size="small"
+                  style={BTN_32}
                   type="primary"
                   icon={<ThumbsUp size={13} />}
                   onClick={() => setSignModal('approve')}
@@ -561,6 +587,7 @@ export default function ExperimentDetailPage() {
                 </Button>
                 <Button
                   size="small"
+                  style={BTN_32}
                   danger
                   icon={<ThumbsDown size={13} />}
                   onClick={() => setRejectModal(true)}
@@ -572,6 +599,7 @@ export default function ExperimentDetailPage() {
             {(exp.status === 'APPROVED' || exp.status === 'REJECTED') && (
               <Button
                 size="small"
+                style={BTN_32}
                 icon={<Unlock size={13} />}
                 loading={unlockMut.isPending}
                 onClick={() => unlockMut.mutate()}
@@ -582,6 +610,7 @@ export default function ExperimentDetailPage() {
             <Tooltip title="History">
               <Button
                 size="small"
+                style={BTN_32}
                 icon={<History size={13} />}
                 onClick={() => setHistoryOpen(true)}
               />
@@ -605,11 +634,22 @@ export default function ExperimentDetailPage() {
               )}
 
               <div className="grid grid-cols-3 gap-x-5 gap-y-4">
-                {currentScreen.fields.map(field => {
+                {(() => {
+                  const screenData = effectiveData[currentScreen.key] ?? {}
+                  // Fields before a *submitted* "Submit to AD" action button are
+                  // frozen — the action itself always stays interactive so its
+                  // "Submitted" state remains visible.
+                  const lockIdx = currentScreen.fields.findIndex(f =>
+                    f.type === 'action' && f.action_type === 'submit_to_ad' &&
+                    !!(screenData[f.key] as { submitted?: boolean } | undefined)?.submitted
+                  )
+                  return currentScreen.fields.map((field, idx) => {
                   const fullWidth = [
                     'table', 'textarea', 'test_results_tabs', 'time_recorder', 'section_header', 'buffer_group', 'js_sheet',
+                    'done_reviewed_signature',
                   ].includes(field.type)
                   const showLabel = field.type !== 'section_header' && !!field.label
+                  const lockedByAction = lockIdx !== -1 && idx < lockIdx
                   return (
                   <div key={field.key} className={fullWidth ? 'col-span-3' : ''}>
                     {showLabel && (
@@ -623,15 +663,21 @@ export default function ExperimentDetailPage() {
                     )}
                     <FieldRenderer
                       field={field}
-                      value={effectiveData[currentScreen.key]?.[field.key]}
+                      value={screenData[field.key]}
                       onChange={v => handleFieldChange(currentScreen.key, field.key, v)}
                       onBulkChange={updates => handleBulkFieldChange(currentScreen.key, updates)}
-                      disabled={!editable}
-                      contextData={{ ...(effectiveData[currentScreen.key] ?? {}), __full_data__: effectiveData }}
+                      disabled={!editable || lockedByAction}
+                      contextData={{ ...screenData, __full_data__: effectiveData }}
+                      screenFields={currentScreen.fields}
+                      screenKey={currentScreen.key}
+                      experimentId={exp?.id}
+                      onActionComplete={() => qc.invalidateQueries({ queryKey: ['experiment', experimentId] })}
+                      experimentCode={exp?.full_code}
                     />
                   </div>
                   )
-                })}
+                  })
+                })()}
               </div>
 
               {/* Next screen navigation */}

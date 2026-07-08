@@ -5,6 +5,7 @@ data = {screen_key: {field_key: value}} — full section state stored as JSON.
 Status: DRAFT → SUBMITTED → APPROVED / REJECTED → (unlock) → DRAFT
 """
 from typing import Any, Optional
+from decimal import Decimal, InvalidOperation
 import uuid, datetime, os, shutil
 
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
@@ -15,9 +16,12 @@ import io
 
 from app.dependencies import get_current_user, get_db
 from app.models.experiment import Experiment, ExperimentFile, ExperimentHistory, ExperimentReview
-from app.models.notebook import Notebook
+from app.models.notebook import Notebook, NotebookPermission
 from app.models.project import Project, ProjectUser
 from app.models.admin import User
+from app.models.inventory import InvBatch, InvBatchPack
+from app.modules.inventory._qty_ledger import deduct_qty, deduct_pack_qty
+from app.shared.privileges import require_creator_role, assert_notebook_access, ASSIGNMENT_RESTRICTED_ROLES
 
 router = APIRouter(tags=["experiments"])
 exp_router = APIRouter(prefix="/experiments", tags=["experiments"])
@@ -36,15 +40,32 @@ UPLOAD_DIR = os.environ.get("UPLOAD_DIR", os.path.join(os.path.dirname(__file__)
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
+def _user_ref(user) -> str:
+    return user.username if hasattr(user, "username") else str(user.id)
+
+
 def _get_or_404(db: Session, exp_id: str) -> Experiment:
-    e = db.query(Experiment).filter(Experiment.id == exp_id).first()
+    # exp_id may be a UUID (Experiment.id) or a human code (Experiment.full_code).
+    # Experiment.id is a UUID column, so comparing it to a non-UUID string makes
+    # Postgres raise "invalid input syntax for type uuid" — pick the right column.
+    cond = Experiment.id == exp_id if _is_uuid(exp_id) else Experiment.full_code == exp_id
+    e = db.query(Experiment).filter(cond).first()
     if not e:
         raise HTTPException(404, "Experiment not found")
     return e
 
 
 def _nb_or_404(db: Session, nb_id: str) -> Notebook:
-    nb = db.query(Notebook).filter(Notebook.id == nb_id).first()
+    cond = Notebook.id == nb_id if _is_uuid(nb_id) else Notebook.code == nb_id
+    nb = db.query(Notebook).filter(cond).first()
     if not nb:
         raise HTTPException(404, "Notebook not found")
     return nb
@@ -130,6 +151,12 @@ def list_all_experiments(
             ProjectUser.user_id == current_user.id
         ).subquery()
         q = q.filter(Experiment.project_id.in_(assigned_project_ids))
+    if current_user.role.code in ASSIGNMENT_RESTRICTED_ROLES:
+        assigned_notebook_ids = db.query(NotebookPermission.notebook_id).filter(
+            NotebookPermission.user_id == current_user.id,
+            NotebookPermission.can_view.is_(True),
+        ).subquery()
+        q = q.filter(Experiment.notebook_id.in_(assigned_notebook_ids))
     if search:
         like = f"%{search}%"
         q = q.filter(
@@ -170,11 +197,12 @@ def list_experiments(
     notebook_id: str,
     section_key: Optional[str] = Query(None),
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
-    _nb_or_404(db, notebook_id)
+    nb = _nb_or_404(db, notebook_id)
+    assert_notebook_access(db, current_user, nb)
     q = db.query(Experiment).filter(
-        Experiment.notebook_id == notebook_id,
+        Experiment.notebook_id == nb.id,
         Experiment.is_latest_version == True,
     )
     if section_key:
@@ -187,7 +215,7 @@ def create_experiment(
     notebook_id: str,
     body: dict,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_creator_role(),
 ):
     nb = _nb_or_404(db, notebook_id)
     section_key = body.get("section_key")  # optional — null means full-notebook experiment
@@ -195,7 +223,7 @@ def create_experiment(
     # Legacy: enforce one active experiment per section when section_key is provided
     if section_key:
         existing = db.query(Experiment).filter(
-            Experiment.notebook_id == notebook_id,
+            Experiment.notebook_id == nb.id,
             Experiment.section_key == section_key,
             Experiment.is_latest_version == True,
         ).first()
@@ -235,9 +263,13 @@ def create_experiment(
 def get_experiment(
     exp_id: str,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
-    return _exp_dict(_get_or_404(db, exp_id))
+    e = _get_or_404(db, exp_id)
+    nb = db.query(Notebook).filter(Notebook.id == e.notebook_id).first()
+    if nb:
+        assert_notebook_access(db, current_user, nb)
+    return _exp_dict(e)
 
 
 @exp_router.patch("/{exp_id}")
@@ -248,6 +280,9 @@ def update_experiment(
     current_user: Any = Depends(get_current_user),
 ):
     e = _get_or_404(db, exp_id)
+    nb = db.query(Notebook).filter(Notebook.id == e.notebook_id).first()
+    if nb:
+        assert_notebook_access(db, current_user, nb)
     if e.status in ("APPROVED", "LOCKED", "VOID"):
         raise HTTPException(400, f"Cannot edit experiment in status '{e.status}'")
 
@@ -266,6 +301,99 @@ def update_experiment(
             setattr(e, field, body[field])
 
     e.updated_at = _now()
+    db.commit()
+    db.refresh(e)
+    return _exp_dict(e)
+
+
+@exp_router.post("/{exp_id}/submit-to-ad")
+def submit_to_ad(
+    exp_id: str,
+    body: dict,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    """Submit-to-AD workflow action (e.g. 1.1 Antibody Info).
+
+    Atomically: (1) deducts the consumed sample quantity from the selected
+    SKU/Pack ID's parent batch, (2) marks the action field as submitted in
+    the experiment's data so the fields above it render locked from then on.
+    """
+    e = _get_or_404(db, exp_id)
+    if e.status in ("APPROVED", "LOCKED", "VOID"):
+        raise HTTPException(400, f"Cannot edit experiment in status '{e.status}'")
+
+    screen_key   = body.get("screen_key")
+    field_key    = body.get("field_key")
+    sku_pack_id  = body.get("sku_pack_id")
+    sample_qty   = body.get("sample_qty")
+
+    if not screen_key or not field_key:
+        raise HTTPException(422, "screen_key and field_key are required.")
+    if not sku_pack_id:
+        raise HTTPException(422, "Select a valid SKU/Pack ID before submitting.")
+
+    existing = ((e.data or {}).get(screen_key) or {}).get(field_key)
+    if isinstance(existing, dict) and existing.get("submitted"):
+        raise HTTPException(400, "This section has already been submitted to AD.")
+
+    try:
+        qty = Decimal(str(sample_qty))
+    except (InvalidOperation, TypeError, ValueError):
+        raise HTTPException(422, "Enter a valid sample quantity.")
+    if qty <= 0:
+        raise HTTPException(422, "Sample quantity must be greater than zero.")
+
+    # Resolve the SKU/Pack ID string. If it names a specific pack, deduct from
+    # that pack's own qty_available (packs each track their own stock) so
+    # sibling packs of the same batch are left untouched. Only fall back to
+    # deducting from the batch directly when the batch itself has no packs.
+    pack = (
+        db.query(InvBatchPack)
+        .filter(InvBatchPack.inhouse_batch_no == sku_pack_id)
+        .with_for_update()
+        .first()
+    )
+    if pack:
+        pack_available = pack.qty_available if pack.qty_available is not None else Decimal("0")
+        if qty > pack_available:
+            raise HTTPException(400, f"Insufficient stock for '{sku_pack_id}'. Available: {pack_available}, requested: {qty}.")
+        deduct_pack_qty(
+            db, pack.id, qty,
+            event_type="ISSUED",
+            performed_by=_user_ref(current_user),
+            module="ADC",
+            ref_no=e.full_code,
+            purpose="Sample submitted to AD for analysis",
+        )
+    else:
+        batch = db.query(InvBatch).filter(InvBatch.inhouse_batch_no == sku_pack_id).with_for_update().first()
+        if not batch:
+            raise HTTPException(404, f"SKU/Pack ID '{sku_pack_id}' was not found in inventory.")
+        if qty > (batch.qty_available or Decimal("0")):
+            raise HTTPException(400, f"Insufficient stock for '{sku_pack_id}'. Available: {batch.qty_available}, requested: {qty}.")
+        deduct_qty(
+            db, batch.id, qty,
+            event_type="ISSUED",
+            performed_by=_user_ref(current_user),
+            module="ADC",
+            ref_no=e.full_code,
+            purpose="Sample submitted to AD for analysis",
+        )
+
+    data = dict(e.data or {})
+    screen_data = dict(data.get(screen_key) or {})
+    screen_data[field_key] = {
+        "submitted":    True,
+        "submitted_at": _now().isoformat(),
+        "submitted_by": _user_ref(current_user),
+        "sku_pack_id":  sku_pack_id,
+        "sample_qty":   str(qty),
+    }
+    data[screen_key] = screen_data
+    e.data = data
+    e.updated_at = _now()
+
     db.commit()
     db.refresh(e)
     return _exp_dict(e)

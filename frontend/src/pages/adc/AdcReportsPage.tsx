@@ -4,6 +4,7 @@ import { Input, Table, Tag, Select, Tooltip, message } from 'antd'
 import { Search, Download, FileText, CheckCircle2 } from 'lucide-react'
 import dayjs from 'dayjs'
 import { experimentApi, type ExperimentListItem } from '../../api/adc'
+import { BTN_32 } from '../../utils/buttonSize'
 
 export default function AdcReportsPage() {
   const [search, setSearch]   = useState('')
@@ -111,7 +112,8 @@ export default function AdcReportsPage() {
           <button
             onClick={() => handleDownload(row)}
             disabled={downloading === row.id}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all
+            style={BTN_32}
+            className={`flex items-center gap-1.5 px-3 rounded-lg text-xs font-semibold transition-all
               ${downloading === row.id
                 ? 'bg-slate-100 text-slate-400 cursor-wait'
                 : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100 hover:text-indigo-700'

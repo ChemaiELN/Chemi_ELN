@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
-from app.models.inventory import InvBatch, InvBatchEvent, InvBatchPack, InvBatchNoCounter
+from app.models.inventory import InvBatch, InvBatchEvent, InvBatchPack, InvBatchNoCounter, InvBatchNumberCounter
 from app.schemas.inventory import (
     BatchAllocateRequest,
     BatchCreate,
@@ -32,6 +32,42 @@ def _user_ref(user) -> str:
 def _make_prefix(material_type: str) -> str:
     import re
     return re.sub(r'\s+', '', material_type)[:5].upper()
+
+
+BATCH_NO_PREFIX = "MCE"
+
+
+def _seed_max_batch_no_seq(db: Session, year: str) -> int:
+    """Seed from the highest existing sequence in any MCE/{year}/{seq} batch_no."""
+    pattern = f"{BATCH_NO_PREFIX}/{year}/%"
+    rows = db.query(InvBatch.batch_no).filter(InvBatch.batch_no.like(pattern)).all()
+    max_seq = 0
+    for (no,) in rows:
+        if no:
+            try:
+                s = int(no.split('/')[-1])
+                if s > max_seq:
+                    max_seq = s
+            except (ValueError, IndexError):
+                pass
+    return max_seq
+
+
+def _claim_next_batch_no_seq(db: Session, year: str) -> int:
+    """Atomically increment and return the next batch_no sequence for the year.
+    SELECT FOR UPDATE prevents two concurrent requests getting the same number."""
+    counter = (
+        db.query(InvBatchNumberCounter)
+        .filter_by(year=year)
+        .with_for_update()
+        .first()
+    )
+    if counter is None:
+        counter = InvBatchNumberCounter(year=year, last_seq=_seed_max_batch_no_seq(db, year))
+        db.add(counter)
+        db.flush()
+    counter.last_seq += 1
+    return counter.last_seq
 
 
 def _claim_next_seq(db: Session, year: str) -> int:
@@ -63,6 +99,18 @@ def _claim_next_seq(db: Session, year: str) -> int:
         db.add(counter)
     counter.last_seq += 1
     return counter.last_seq
+
+
+@router.get("/next-batch-no")
+def next_batch_no(
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    """Preview-only: returns the likely next batch no without claiming it."""
+    year = datetime.datetime.utcnow().strftime('%y')
+    counter = db.query(InvBatchNumberCounter).filter_by(year=year).first()
+    next_seq = (counter.last_seq if counter else _seed_max_batch_no_seq(db, year)) + 1
+    return {"batch_no": f"{BATCH_NO_PREFIX}/{year}/{next_seq:03d}"}
 
 
 @router.get("/next-pack-seq")
@@ -139,23 +187,21 @@ def create_batch(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
-    if db.query(InvBatch).filter_by(batch_no=body.batch_no).first():
-        raise HTTPException(409, f"Batch number '{body.batch_no}' already exists.")
-
-    data = body.model_dump()
+    data = body.model_dump(exclude={"batch_no"})
     data["qty_available"] = data["qty_received"]
     include_pack = data.pop("include_pack")
     pack_number = data.get("pack_number")
 
-    # Always generate inhouse_batch_no server-side so the counter stays accurate
+    # Always generate batch_no and inhouse_batch_no server-side so the counters stay accurate
     data.pop("inhouse_batch_no", None)
-    batch = InvBatch(**data, include_pack=include_pack)
+    year = datetime.datetime.utcnow().strftime('%y')
+    batch_seq = _claim_next_batch_no_seq(db, year)
+    batch = InvBatch(batch_no=f"{BATCH_NO_PREFIX}/{year}/{batch_seq:03d}", **data, include_pack=include_pack)
     db.add(batch)
     db.flush()
 
     mat = db.query(__import__("app.models.inventory", fromlist=["InvMaterial"]).InvMaterial).get(batch.material_id)
     mat_prefix = _make_prefix(mat.material_type or "MAT") if mat else "MAT"
-    year = datetime.datetime.utcnow().strftime('%y')
     seq = _claim_next_seq(db, year)          # global counter — shared across all prefixes
     batch.inhouse_batch_no = f"{mat_prefix}/{year}/{seq}"
 
@@ -170,6 +216,7 @@ def create_batch(
                 seq_no=i,
                 pack_no=sku,
                 qty_per_pack=qty_per_pack,
+                qty_available=qty_per_pack,
                 inhouse_batch_no=sku,
             ))
 

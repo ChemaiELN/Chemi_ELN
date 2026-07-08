@@ -1,6 +1,6 @@
 import type { ModalProps } from 'antd'
 
-export const glassModalStyles: ModalProps['styles'] = {
+export const glassModalStyles = {
   mask: {
     backdropFilter: 'blur(6px)',
     WebkitBackdropFilter: 'blur(6px)',

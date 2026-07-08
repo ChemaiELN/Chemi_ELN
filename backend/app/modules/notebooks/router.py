@@ -16,6 +16,7 @@ from app.models.notebook import Notebook, NotebookPermission
 from app.models.project import Project, ProjectUser
 from app.models.workflow_template import WorkflowTemplate
 from app.models.admin import User
+from app.shared.privileges import require_creator_role, assert_notebook_access, ASSIGNMENT_RESTRICTED_ROLES
 
 router = APIRouter(prefix="/notebooks", tags=["notebooks"])
 nb_sub_router = APIRouter(prefix="/projects", tags=["notebooks"])  # /projects/{id}/notebooks
@@ -31,8 +32,20 @@ def _now():
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+def _is_uuid(value: str) -> bool:
+    try:
+        uuid.UUID(str(value))
+        return True
+    except (ValueError, TypeError, AttributeError):
+        return False
+
+
 def _get_or_404(db: Session, notebook_id: str) -> Notebook:
-    nb = db.query(Notebook).filter(Notebook.id == notebook_id).first()
+    # notebook_id may be a UUID (Notebook.id) or a human code (Notebook.code).
+    # Notebook.id is a UUID column, so comparing it to a non-UUID string makes
+    # Postgres raise "invalid input syntax for type uuid" — pick the right column.
+    cond = Notebook.id == notebook_id if _is_uuid(notebook_id) else Notebook.code == notebook_id
+    nb = db.query(Notebook).filter(cond).first()
     if not nb:
         raise HTTPException(404, "Notebook not found")
     return nb
@@ -96,6 +109,11 @@ def list_project_notebooks(
         joinedload(Notebook.creator),
         joinedload(Notebook.template),
     ).filter(Notebook.project_id == project_id)
+    if current_user.role.code in ASSIGNMENT_RESTRICTED_ROLES:
+        q = q.join(NotebookPermission, NotebookPermission.notebook_id == Notebook.id).filter(
+            NotebookPermission.user_id == current_user.id,
+            NotebookPermission.can_view.is_(True),
+        )
     if type:
         q = q.filter(Notebook.type == type)
     if status:
@@ -109,7 +127,7 @@ def create_notebook(
     project_id: str,
     body: dict,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_creator_role(),
 ):
     project = db.query(Project).filter(Project.id == project_id).first()
     if not project:
@@ -164,11 +182,15 @@ def create_notebook(
 # ── Top-level notebook endpoints ──────────────────────────────────────────────
 
 def _load_nb(db: Session, notebook_id: str) -> Notebook:
+    # `notebook_id` may be a UUID (Notebook.id) or a human code (Notebook.code).
+    # Notebook.id is a UUID column, so comparing it to a non-UUID string makes
+    # Postgres raise "invalid input syntax for type uuid" — pick the right column.
+    cond = Notebook.id == notebook_id if _is_uuid(notebook_id) else Notebook.code == notebook_id
     nb = db.query(Notebook).options(
         joinedload(Notebook.project),
         joinedload(Notebook.creator),
         joinedload(Notebook.template),
-    ).filter(Notebook.id == notebook_id).first()
+    ).filter(cond).first()
     if not nb:
         raise HTTPException(404, "Notebook not found")
     return nb
@@ -195,9 +217,12 @@ def list_all_notebooks(
             ProjectUser.user_id == current_user.id
         ).subquery()
         q = q.filter(Notebook.project_id.in_(assigned_project_ids))
-    if assigned_to_me:
+    # Chemists/Analysts only ever see notebooks explicitly assigned to them —
+    # this overrides the `assigned_to_me` query param, it's not optional for them.
+    if assigned_to_me or current_user.role.code in ASSIGNMENT_RESTRICTED_ROLES:
         q = q.join(NotebookPermission, NotebookPermission.notebook_id == Notebook.id).filter(
-            NotebookPermission.user_id == current_user.id
+            NotebookPermission.user_id == current_user.id,
+            NotebookPermission.can_view.is_(True),
         )
     if search:
         q = q.filter(
@@ -216,9 +241,11 @@ def list_all_notebooks(
 def get_notebook(
     notebook_id: str,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
-    return _notebook_dict(_load_nb(db, notebook_id), include_snapshot=True)
+    nb = _load_nb(db, notebook_id)
+    assert_notebook_access(db, current_user, nb)
+    return _notebook_dict(nb, include_snapshot=True)
 
 
 @router.patch("/{notebook_id}")
@@ -226,9 +253,10 @@ def update_notebook(
     notebook_id: str,
     body: dict,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     nb = _load_nb(db, notebook_id)
+    assert_notebook_access(db, current_user, nb)
     for field in ("title", "description", "route_id", "stage_id", "linked_notebook_id", "status"):
         if field in body:
             setattr(nb, field, body[field])
@@ -242,9 +270,10 @@ def update_notebook(
 def get_template_snapshot(
     notebook_id: str,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     nb = _get_or_404(db, notebook_id)
+    assert_notebook_access(db, current_user, nb)
     return {"template_snapshot": nb.template_snapshot, "template_id": str(nb.template_id) if nb.template_id else None}
 
 
@@ -256,9 +285,9 @@ def get_assigned_users(
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
-    _get_or_404(db, notebook_id)
+    nb = _get_or_404(db, notebook_id)
     perms = db.query(NotebookPermission).filter(
-        NotebookPermission.notebook_id == notebook_id,
+        NotebookPermission.notebook_id == nb.id,
         NotebookPermission.can_edit == True,
     ).all()
     result = []
@@ -278,15 +307,15 @@ def assign_user(
     notebook_id: str,
     body: dict,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_creator_role(),
 ):
-    _get_or_404(db, notebook_id)
+    nb = _get_or_404(db, notebook_id)
     user_id = body.get("user_id")
     if not user_id:
         raise HTTPException(422, "user_id is required")
 
     existing = db.query(NotebookPermission).filter(
-        NotebookPermission.notebook_id == notebook_id,
+        NotebookPermission.notebook_id == nb.id,
         NotebookPermission.user_id == user_id,
     ).first()
 
@@ -296,7 +325,7 @@ def assign_user(
         existing.can_submit = True
     else:
         db.add(NotebookPermission(
-            id=_uuid(), notebook_id=notebook_id, user_id=user_id,
+            id=_uuid(), notebook_id=nb.id, user_id=user_id,
             can_view=True, can_edit=True, can_submit=True,
             granted_by=current_user.id, granted_at=_now(),
         ))
@@ -309,11 +338,11 @@ def unassign_user(
     notebook_id: str,
     user_id: str,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    _: Any = require_creator_role(),
 ):
-    _get_or_404(db, notebook_id)
+    nb = _get_or_404(db, notebook_id)
     perm = db.query(NotebookPermission).filter(
-        NotebookPermission.notebook_id == notebook_id,
+        NotebookPermission.notebook_id == nb.id,
         NotebookPermission.user_id == user_id,
     ).first()
     if perm:

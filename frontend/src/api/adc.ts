@@ -76,13 +76,14 @@ export interface Project {
 // ── Departments (for dropdowns) ───────────────────────────────────────────────
 export interface Department {
   id: string
-  code: string
   name: string
-  is_active: boolean
 }
 
 export const departmentApi = {
-  list: () => apiGet<Department[]>('/api/departments'),
+  // Unprivileged {id, name} lookup — any authenticated user can call this,
+  // unlike the admin-only GET /api/departments (which requires departments.manage
+  // and would 403 for HOD/TL users outside the QA/QC department).
+  list: () => apiGet<Department[]>('/api/departments/lookup'),
 }
 
 export interface ProjectListResponse {
@@ -91,6 +92,7 @@ export interface ProjectListResponse {
 }
 
 export const projectApi = {
+  nextCode:      () => apiGet<{ code: string }>('/api/projects/next-code'),
   list:          (params?: Record<string, unknown>) => apiGet<ProjectListResponse>('/api/projects', params),
   get:           (id: string) => apiGet<Project>(`/api/projects/${id}`),
   create:        (body: unknown) => apiPost<Project>('/api/projects', body),
@@ -110,6 +112,7 @@ export interface UserSummary {
   username: string
   emp_no: string
   role_name?: string
+  role_code?: string
 }
 
 export const userApi = {
@@ -245,6 +248,8 @@ export const experimentApi = {
   get:     (id: string) => apiGet<Experiment>(`/api/experiments/${id}`),
   update:  (id: string, body: { data?: Record<string, unknown>; observations?: string; conclusion?: string; disposition?: string }) =>
     apiPatch<Experiment>(`/api/experiments/${id}`, body),
+  submitToAd: (id: string, body: { screen_key: string; field_key: string; sku_pack_id: string; sample_qty: number | string }) =>
+    apiPost<Experiment>(`/api/experiments/${id}/submit-to-ad`, body),
   submit:  (id: string, body?: { sign_reason?: string }) =>
     apiPost<Experiment>(`/api/experiments/${id}/submit`, body ?? {}),
   approve: (id: string, body?: { sign_reason?: string }) =>
@@ -254,6 +259,12 @@ export const experimentApi = {
   unlock:  (id: string) =>
     apiPost<Experiment>(`/api/experiments/${id}/unlock`, {}),
   listFiles: (id: string) => apiGet<ExperimentFile[]>(`/api/experiments/${id}/files`),
+  uploadFile: (id: string, file: File, sectionKey?: string) => {
+    const fd = new FormData()
+    fd.append('file', file)
+    const qs = sectionKey ? `?section_key=${encodeURIComponent(sectionKey)}` : ''
+    return apiUpload<{ id: string; filename: string; file_size: number }>(`/api/experiments/${id}/files${qs}`, fd)
+  },
   history:   (id: string) => apiGet<ExperimentHistory[]>(`/api/experiments/${id}/history`),
   downloadReport: (id: string) => apiDownloadBlob(`/api/experiments/${id}/report/docx`),
 }
@@ -334,6 +345,8 @@ export interface Material {
 }
 
 export const materialApi = {
+  // GET /api/inventory/materials returns { items, total } (server-side pagination) — unwrap to the array this module's callers expect.
   list: (params?: { search?: string; material_type?: string; limit?: number }) =>
-    apiGet<Material[]>('/api/inventory/materials', { active_only: true, limit: 100, ...params }),
+    apiGet<{ items: Material[]; total: number }>('/api/inventory/materials', { active_only: true, limit: 100, ...params })
+      .then(r => r.items),
 }

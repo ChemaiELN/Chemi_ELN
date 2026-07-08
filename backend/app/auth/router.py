@@ -69,6 +69,24 @@ def logout(current_user: User = Depends(get_current_user)):
     return None
 
 
+@router.post("/verify-password")
+def verify_current_password(
+    payload: dict,
+    current_user: User = Depends(get_current_user),
+):
+    """Re-authenticate the already-logged-in caller for an electronic signature
+    (Done By / Reviewed By) — checks their password without issuing new tokens."""
+    password = payload.get("password")
+    if not password or not verify_password(password, current_user.password_hash):
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Incorrect password.")
+    return {
+        "verified":   True,
+        "user_id":    str(current_user.id),
+        "username":   current_user.username,
+        "role_code":  current_user.role.code,
+    }
+
+
 @router.get("/me")
 def get_me(current_user: User = Depends(get_current_user)):
     return {
@@ -80,6 +98,8 @@ def get_me(current_user: User = Depends(get_current_user)):
         "role_code": current_user.role.code,
         "role_name": current_user.role.name,
         "department_id": str(current_user.department_id) if current_user.department_id else None,
+        "department_code": current_user.department.code if current_user.department else None,
+        "department_name": current_user.department.name if current_user.department else None,
         "is_active": current_user.is_active,
         "must_reset_password": current_user.must_reset_password,
         "site": current_user.site,

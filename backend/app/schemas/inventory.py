@@ -55,7 +55,7 @@ class ConsumableTypeOut(_OrmBase):
 
 # ── Materials ─────────────────────────────────────────────────────────────────
 class MaterialCreate(BaseModel):
-    code: str
+    code: Optional[str] = None  # ignored — backend always auto-generates the code
     name: str
     material_type: Optional[str] = None
     cas_no: Optional[str] = None
@@ -139,6 +139,11 @@ class MaterialOut(_OrmBase):
     updated_at: datetime.datetime
     chemical_props: Optional[ChemicalPropsOut] = None
     formulation_props: Optional[FormulationPropsOut] = None
+
+
+class MaterialListOut(BaseModel):
+    items: list[MaterialOut]
+    total: int
 
 
 # ── Manufacturers ─────────────────────────────────────────────────────────────
@@ -393,12 +398,13 @@ class BatchPackOut(_OrmBase):
     seq_no: int
     pack_no: str
     qty_per_pack: Decimal
+    qty_available: Decimal
     inhouse_batch_no: str
 
 
 # ── Batches ───────────────────────────────────────────────────────────────────
 class BatchCreate(BaseModel):
-    batch_no: str
+    batch_no: Optional[str] = None  # ignored — backend always auto-generates the batch number
     material_id: int
     manufacturer_id: Optional[int] = None
     qty_received: Decimal

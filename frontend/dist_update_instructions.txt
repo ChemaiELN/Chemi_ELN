@@ -1,0 +1,24 @@
+Laurus ELN — Frontend Update Instructions
+==========================================
+What's in this package:
+  dist\  - rebuilt frontend (fixes the Material search dropdown in New Batch)
+
+STEPS
+-----
+1. Stop the running frontend (close its console window / Ctrl+C).
+2. Copy the contents of this package's dist\ folder over the existing
+   frontend install's dist\ folder (the one next to serve.bat / serve.py),
+   overwriting all files.
+3. Open dist\config.js and confirm it reads:
+     API_URL: "http://10.10.51.90:8000"
+   (This build already has it set correctly — just double-check nothing
+   reset it back to localhost:8000.)
+4. Start the frontend again: frontend\serve.bat  (port 9091, unchanged)
+
+No backend restart needed. No database changes. No firewall changes.
+
+VERIFY
+------
+Open http://10.10.51.90:9091, log in, go to Inventory > Batches > New Batch,
+and type a partial material name (e.g. "Sodium") in the Material field —
+it should now show only matching materials instead of the full list.

@@ -9,10 +9,13 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
-from app.models.project import Project, ProjectUser, Route, Stage
+from app.models.project import Project, ProjectCodeCounter, ProjectUser, Route, Stage
 from app.models.admin import User, Department
+from app.shared.privileges import require_creator_role
 
 router = APIRouter(prefix="/projects", tags=["projects"])
+
+PROJECT_CODE_PREFIX = "ADC"
 
 
 def _uuid():
@@ -21,6 +24,39 @@ def _uuid():
 
 def _now():
     return datetime.datetime.utcnow()
+
+
+def _seed_max_project_code_seq(db: Session, year: str) -> int:
+    """Seed from the highest existing sequence in any ADC/{year}/{seq} project code."""
+    pattern = f"{PROJECT_CODE_PREFIX}/{year}/%"
+    rows = db.query(Project.code).filter(Project.code.like(pattern)).all()
+    max_seq = 30000
+    for (code,) in rows:
+        if code:
+            try:
+                s = int(code.split('/')[-1])
+                if s > max_seq:
+                    max_seq = s
+            except (ValueError, IndexError):
+                pass
+    return max_seq
+
+
+def _claim_next_project_code_seq(db: Session, year: str) -> int:
+    """Atomically increment and return the next project code sequence for the year.
+    SELECT FOR UPDATE prevents two concurrent requests getting the same number."""
+    counter = (
+        db.query(ProjectCodeCounter)
+        .filter_by(year=year)
+        .with_for_update()
+        .first()
+    )
+    if counter is None:
+        counter = ProjectCodeCounter(year=year, last_seq=_seed_max_project_code_seq(db, year))
+        db.add(counter)
+        db.flush()
+    counter.last_seq += 1
+    return counter.last_seq
 
 
 # ── Serialisers ───────────────────────────────────────────────────────────────
@@ -82,6 +118,18 @@ def _get_or_404(db: Session, project_id: str) -> Project:
 
 # ── Endpoints ─────────────────────────────────────────────────────────────────
 
+@router.get("/next-code")
+def next_project_code(
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    """Preview-only: returns the likely next project code without claiming it."""
+    year = datetime.datetime.utcnow().strftime('%y')
+    counter = db.query(ProjectCodeCounter).filter_by(year=year).first()
+    next_seq = (counter.last_seq if counter else _seed_max_project_code_seq(db, year)) + 1
+    return {"code": f"{PROJECT_CODE_PREFIX}/{year}/{next_seq}"}
+
+
 @router.get("")
 def list_projects(
     status:        Optional[str] = Query(None),
@@ -135,19 +183,17 @@ def get_project(
 def create_project(
     body: dict,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_creator_role(),
 ):
     if not body.get("name"):
         raise HTTPException(422, "name is required")
-    if not body.get("code"):
-        raise HTTPException(422, "code is required")
-    if db.query(Project).filter(Project.code == body["code"]).first():
-        raise HTTPException(409, f"Project code '{body['code']}' already exists")
 
     now = _now()
+    year = now.strftime('%y')
+    seq = _claim_next_project_code_seq(db, year)
     p = Project(
         id=_uuid(),
-        code=body["code"],
+        code=f"{PROJECT_CODE_PREFIX}/{year}/{seq}",
         name=body["name"],
         product_name=         body.get("product_name"),
         in_house_project_id=  body.get("in_house_project_id"),

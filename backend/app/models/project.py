@@ -74,6 +74,13 @@ class Project(Base):
     notebooks       = relationship("Notebook", back_populates="project")
 
 
+# ── Project Code Counter — global per year (ADC/{YY}/{SEQ}) ───────────────────
+class ProjectCodeCounter(Base):
+    __tablename__ = "project_code_counter"
+    year     = Column(String(2), primary_key=True)
+    last_seq = Column(Integer, nullable=False, default=30000)
+
+
 class ProjectUser(Base):
     __tablename__ = "project_users"
 

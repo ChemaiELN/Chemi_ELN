@@ -5,10 +5,44 @@ from sqlalchemy.orm import Session
 
 from app.dependencies import get_db, get_current_user
 from app.shared.privileges import require_privilege
-from app.models.admin import Department, User
-from app.schemas.admin import DepartmentCreate, DepartmentUpdate, DepartmentOut
+from app.models.admin import Department, DepartmentRoleMapping, User
+from app.schemas.admin import (
+    DepartmentCreate,
+    DepartmentUpdate,
+    DepartmentOut,
+    DepartmentLookupOut,
+    DepartmentRoleMappingOut,
+)
 
 router = APIRouter()
+
+
+@router.get("/lookup", response_model=List[DepartmentLookupOut])
+def list_departments_lookup(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Unprivileged {id, name} list for dropdowns/pickers (e.g. New Project modal) —
+    any authenticated user can call this, unlike the admin-only `GET /` below."""
+    depts = db.query(Department).filter_by(is_active=True).order_by(Department.name).all()
+    return depts
+
+
+@router.get("/role-mapping", response_model=List[DepartmentRoleMappingOut])
+def list_department_role_mapping(
+    db: Session = Depends(get_db),
+    _: User = Depends(get_current_user),
+):
+    """Which roles are selectable for each department — drives the Users form's
+    dependent Role dropdown. Read-only for now; edit rows directly via seed/DB."""
+    rows = db.query(DepartmentRoleMapping).all()
+    by_dept: dict = {}
+    for r in rows:
+        by_dept.setdefault(r.department_id, []).append(r.role_id)
+    return [
+        DepartmentRoleMappingOut(department_id=dept_id, role_ids=role_ids)
+        for dept_id, role_ids in by_dept.items()
+    ]
 
 
 def _out(d: Department, db: Session) -> dict:

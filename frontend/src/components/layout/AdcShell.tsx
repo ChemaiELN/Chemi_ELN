@@ -17,11 +17,22 @@ export function useBreadcrumbLabel(segment: string, label: string | null | undef
   }, [segment, label, setLabel])
 }
 
+const STATIC_LABELS: Record<string, string> = {
+  adc: 'ADC',
+  projects: 'Projects',
+  notebooks: 'Notebooks',
+  experiments: 'Experiments',
+  sections: 'Sections',
+  overview: 'Overview',
+  reports: 'Reports',
+  'my-notebooks': 'My Notebooks',
+}
+
 function useBreadcrumbs(overrides: Record<string, string>) {
   const { pathname } = useLocation()
   const segments = pathname.split('/').filter(Boolean)
   return segments.map((seg, i) => ({
-    label: overrides[seg] ?? (seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' ')),
+    label: overrides[seg] ?? STATIC_LABELS[seg] ?? (seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' ')),
     href: '/' + segments.slice(0, i + 1).join('/'),
   }))
 }

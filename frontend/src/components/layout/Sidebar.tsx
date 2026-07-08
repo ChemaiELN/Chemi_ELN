@@ -4,13 +4,9 @@ import type { MenuProps } from 'antd'
 import {
   LayoutDashboard,
   FlaskConical, Package2, ClipboardList, Wrench, BarChart3,
-  LogOut, LayoutGrid, Factory, Cpu, Database, Link2,
+  LayoutGrid, Factory, Cpu, Database, Link2,
   FileBarChart2, History,
 } from 'lucide-react'
-import { useAppDispatch, useAppSelector } from '../../store'
-import { clearAuth, selectUser } from '../../store/authSlice'
-import { clearPrivileges } from '../../store/privilegesSlice'
-import { authApi } from '../../api/auth'
 
 type MenuItem = Required<MenuProps>['items'][number]
 
@@ -37,17 +33,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ collapsed, onItemClick }: SidebarProps) {
-  const dispatch  = useAppDispatch()
   const navigate  = useNavigate()
   const location  = useLocation()
-  const user      = useAppSelector(selectUser)
-
-  const handleLogout = async () => {
-    try { await authApi.logout() } catch { /* ignore */ }
-    dispatch(clearAuth())
-    dispatch(clearPrivileges())
-    navigate('/login', { replace: true })
-  }
 
   const handleSelect: MenuProps['onClick'] = ({ key }) => {
     navigate(key)
@@ -100,41 +87,6 @@ export default function Sidebar({ collapsed, onItemClick }: SidebarProps) {
           style={{ background: 'transparent', border: 'none', fontSize: 13, width: '100%' }}
           inlineIndent={12}
         />
-      </div>
-
-      {/* User footer */}
-      <div className="border-t border-white/40 px-3 py-2.5 shrink-0">
-        {collapsed ? (
-          <div className="flex flex-col items-center gap-2">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-violet-400 to-purple-500 flex items-center justify-center">
-              <span className="text-white text-[10px] font-bold">{user?.username?.slice(0, 2).toUpperCase() ?? 'U'}</span>
-            </div>
-            <button
-              onClick={handleLogout}
-              className="text-slate-400 hover:text-red-500 transition-colors p-1 rounded"
-              title="Sign out"
-            >
-              <LogOut size={13} />
-            </button>
-          </div>
-        ) : (
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-7 h-7 rounded-full bg-gradient-to-br from-teal-400 to-teal-500 flex items-center justify-center shrink-0">
-              <span className="text-white text-[10px] font-bold">{user?.username?.slice(0, 2).toUpperCase() ?? 'U'}</span>
-            </div>
-            <div className="min-w-0 flex-1">
-              <p className="text-slate-700 text-xs font-semibold truncate leading-tight">{user?.username}</p>
-              <p className="text-slate-400 text-[10px] truncate">{user?.role_name}</p>
-            </div>
-            <button
-              onClick={handleLogout}
-              title="Sign out"
-              className="text-slate-400 hover:text-red-500 transition-colors p-1.5 rounded-lg hover:bg-red-50/50 shrink-0"
-            >
-              <LogOut size={13} />
-            </button>
-          </div>
-        )}
       </div>
     </aside>
   )

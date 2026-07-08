@@ -13,7 +13,18 @@ function formatValue(val: unknown, type: string): string {
   if (val === null || val === undefined || val === '') return '—'
   if (type === 'boolean') return val ? 'Yes' : 'No'
   if (type === 'table' && Array.isArray(val)) return `${val.length} row(s)`
-  if (typeof val === 'object') return JSON.stringify(val)
+
+  if (type === 'action' && typeof val === 'object') {
+    const v = val as Record<string, unknown>
+    if (!v.submitted) return 'Not submitted'
+    const when = v.submitted_at ? new Date(String(v.submitted_at)).toLocaleString() : ''
+    const parts = [`Submitted by ${v.submitted_by ?? '—'}`, when].filter(Boolean)
+    if (v.sku_pack_id) parts.push(`SKU: ${v.sku_pack_id}`)
+    if (v.sample_qty) parts.push(`Qty: ${v.sample_qty}`)
+    return parts.join(' · ')
+  }
+
+  if (typeof val === 'object') return '' // js_sheet and other object fields render as a sub-table below
   return String(val)
 }
 
@@ -134,6 +145,9 @@ export default function AdcNotebookPrintPage() {
                         if (f.type === 'table' && Array.isArray(val) && val.length > 0) {
                           return null // tables rendered separately below
                         }
+                        if (f.type === 'js_sheet' && val && typeof val === 'object') {
+                          return null // worksheet rendered separately below
+                        }
 
                         return (
                           <tr key={f.key} className="border-b border-gray-100">
@@ -174,6 +188,34 @@ export default function AdcNotebookPrintPage() {
                                     {row[c] !== null && row[c] !== undefined ? String(row[c]) : '—'}
                                   </td>
                                 ))}
+                              </tr>
+                            ))}
+                          </tbody>
+                        </table>
+                      </div>
+                    )
+                  })}
+
+                  {/* Inline calculation worksheets */}
+                  {nonHeaderFields.filter(f => f.type === 'js_sheet').map(f => {
+                    const raw = (screenData as Record<string, unknown>)[f.key]
+                    if (!raw || typeof raw !== 'object') return null
+                    const bag = (raw as Record<string, unknown>).inputs && typeof (raw as Record<string, unknown>).inputs === 'object'
+                      ? (raw as Record<string, unknown>).inputs as Record<string, unknown>
+                      : raw as Record<string, unknown>
+                    const entries = Object.entries(bag).filter(([, v]) => typeof v !== 'object')
+                    if (entries.length === 0) return null
+                    return (
+                      <div key={f.key} className="mt-3">
+                        <p className="text-xs font-semibold text-gray-600 mb-1">{f.label}</p>
+                        <table className="w-full border-collapse border border-gray-200 text-xs">
+                          <tbody>
+                            {entries.map(([k, v]) => (
+                              <tr key={k}>
+                                <td className="border border-gray-200 px-2 py-1 w-56 text-gray-500 font-medium">{k}</td>
+                                <td className="border border-gray-200 px-2 py-1 text-gray-900">
+                                  {typeof v === 'number' ? Number(v.toFixed(4)) : String(v)}
+                                </td>
                               </tr>
                             ))}
                           </tbody>

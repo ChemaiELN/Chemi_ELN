@@ -87,7 +87,7 @@ export default function StockRequestsPage() {
     finally { setSaving(false) }
   }
 
-  const startAction = (id: number, action: typeof remarkAction!['action']) => {
+  const startAction = (id: number, action: 'approve' | 'reject' | 'fulfill' | 'cancel') => {
     setRemarkAction({ id, action })
     setRemarkOpen(true)
   }

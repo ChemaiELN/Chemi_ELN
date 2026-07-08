@@ -1,17 +1,20 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Input, Table, Tag, Modal, Form, Select, message, Grid } from 'antd'
+import { Button, Table, Tag, Modal, Form, Input, Select, message, Grid } from 'antd'
 
 const { useBreakpoint } = Grid
-import { Plus, Search, Eye, Download } from 'lucide-react'
+import { Plus, Search, BookOpen, ChevronRight } from 'lucide-react'
 import dayjs from 'dayjs'
 import { notebookApi, projectApi, workflowTemplateApi, type Notebook } from '../../api/adc'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 
-const CHEMIST_ROLE = 'CHEM'
+// Chemists/Analysts only ever see notebooks assigned to them — the backend
+// enforces this regardless, but request the filtered view directly so the
+// UI never shows (then hides) notebooks the user can't actually open.
+const ASSIGNMENT_RESTRICTED_ROLES = ['CHEM', 'ANALYST']
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: 'green', INACTIVE: 'default', CLOSED: 'purple',
@@ -23,23 +26,28 @@ export default function NotebooksPage() {
 
   const screens   = useBreakpoint()
   const user      = useAppSelector(selectUser)
-  const isChemist = user?.role_code === CHEMIST_ROLE
+  const isAssignmentRestricted = ASSIGNMENT_RESTRICTED_ROLES.includes(user?.role_code ?? '')
 
-  const [search, setSearch]   = useState('')
-  const [page, setPage]       = useState(1)
-  const [modal, setModal]     = useState(false)
+  const [search, setSearch] = useState('')
+  const [modal, setModal]   = useState(false)
   const [form] = Form.useForm()
-  const [selectedProject, setSelectedProject] = useState<string | null>(null)
 
   const { data, isLoading } = useQuery({
-    queryKey: ['notebooks-all', search, page, isChemist],
+    queryKey: ['notebooks-all', isAssignmentRestricted],
     queryFn:  () => notebookApi.listAll({
-      search:         search || undefined,
-      assigned_to_me: isChemist || undefined,
-      page,
-      limit: 10,
+      assigned_to_me: isAssignmentRestricted || undefined,
+      limit: 200,
     }),
   })
+
+  const allNotebooks = data?.items ?? []
+  const q = search.trim().toLowerCase()
+  const notebooks = q
+    ? allNotebooks.filter(nb =>
+        [nb.code, nb.title, nb.project_code, nb.created_by_name, nb.status]
+          .some(v => v && String(v).toLowerCase().includes(q))
+      )
+    : allNotebooks
 
   const { data: projectsData } = useQuery({
     queryKey: ['projects-list-modal'],
@@ -55,6 +63,12 @@ export default function NotebooksPage() {
     enabled: modal,
   })
   const templates = Array.isArray(templatesData) ? templatesData : []
+  const synthesisV2Template = templates.find(t => t.slug === 'adc-synthesis-v2')
+
+  // Every notebook follows the ADC Synthesis v2 workflow — auto-select it and lock the field.
+  useEffect(() => {
+    if (synthesisV2Template) form.setFieldValue('template_id', synthesisV2Template.id)
+  }, [synthesisV2Template, form])
 
   const createNb = useMutation({
     mutationFn: (vals: Record<string, unknown>) => {
@@ -65,7 +79,6 @@ export default function NotebooksPage() {
       qc.invalidateQueries({ queryKey: ['notebooks-all'] })
       setModal(false)
       form.resetFields()
-      setSelectedProject(null)
       message.success('Notebook created')
       navigate(`/notebooks/${nb.id}/overview`)
     },
@@ -89,7 +102,7 @@ export default function NotebooksPage() {
       render: (v: string, row: Notebook) => (
         <button
           onClick={() => navigate(`/notebooks/${row.id}/overview`)}
-          className="text-[13px] font-medium text-teal-600 hover:underline text-left"
+          className="text-[13px] font-medium text-slate-700 hover:text-slate-900 hover:underline text-left"
         >
           {v}
         </button>
@@ -101,7 +114,7 @@ export default function NotebooksPage() {
       key: 'project',
       width: 120,
       render: (v: string) => v
-        ? <span className="text-[13px] font-medium text-teal-600">{v}</span>
+        ? <span className="text-[13px] text-slate-600">{v}</span>
         : <span className="text-slate-300 text-[13px]">—</span>,
     },
     {
@@ -126,7 +139,7 @@ export default function NotebooksPage() {
       key: 'status',
       width: 100,
       render: (v: string) => (
-        <Tag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</Tag>
+        <Tag color={STATUS_COLOR[v] ?? 'default'}>{v}</Tag>
       ),
     },
     {
@@ -136,9 +149,9 @@ export default function NotebooksPage() {
       render: (_: unknown, row: Notebook) => (
         <button
           onClick={() => navigate(`/notebooks/${row.id}/overview`)}
-          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-violet-50 text-slate-400 hover:text-violet-600 transition-colors"
         >
-          <Eye size={15} />
+          <ChevronRight size={15} />
         </button>
       ),
     },
@@ -146,50 +159,55 @@ export default function NotebooksPage() {
 
   return (
     <div className="p-6">
-      {/* Header */}
-      <div className="flex items-center justify-between mb-5">
-        <div className="flex items-center gap-2">
-          <h1 className="text-base font-bold text-slate-800">Notebooks</h1>
-          <span className="text-xs bg-slate-100 text-slate-500 font-semibold px-2 py-0.5 rounded-full">
-            {data?.total ?? 0}
-          </span>
+      {/* Page header */}
+      {/* <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
+            <BookOpen size={18} className="text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-800">Notebooks</h1>
+            <p className="text-xs text-slate-400">{notebooks.length} notebook{notebooks.length !== 1 ? 's' : ''}</p>
+          </div>
         </div>
-        <div className="flex items-center gap-2">
-          <Input
-            prefix={<Search size={13} className="text-slate-400" />}
-            placeholder="Search notebooks..."
+      </div> */}
+
+      {/* Filters */}
+      <div className="flex items-center gap-3 mb-4">
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
             value={search}
-            onChange={e => { setSearch(e.target.value); setPage(1) }}
-            className="w-52"
-            allowClear
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search..."
+            className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white/80 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-transparent w-64"
           />
+        </div>
+        {!isAssignmentRestricted && (
           <Button
-            type="primary"
             icon={<Plus size={14} />}
             onClick={() => setModal(true)}
+            style={{ backgroundColor: '#6366f1cc', border: 'none', color: '#fff' }}
+            className="font-semibold rounded-md"
           >
             New Notebook
           </Button>
-          <Button icon={<Download size={14} />}>Export</Button>
-        </div>
+        )}
       </div>
 
       {/* Table */}
       <div className="glass-card rounded-lg overflow-hidden">
         <Table
-          dataSource={data?.items ?? []}
+          dataSource={notebooks}
           columns={columns}
           rowKey="id"
           loading={isLoading}
           size={screens.md ? 'middle' : 'small'}
           scroll={{ x: 'max-content' }}
           pagination={{
-            current: page,
-            pageSize: 10,
-            total: data?.total ?? 0,
-            onChange: setPage,
-            showTotal: (t) => `${t} notebooks`,
+            pageSize: 20,
             showSizeChanger: false,
+            showTotal: (t) => `${t} notebooks`,
             size: 'small',
           }}
           locale={{ emptyText: 'No notebooks found.' }}
@@ -200,7 +218,7 @@ export default function NotebooksPage() {
       <Modal
         title="New Notebook"
         open={modal}
-        onCancel={() => { setModal(false); form.resetFields(); setSelectedProject(null) }}
+        onCancel={() => { setModal(false); form.resetFields() }}
         onOk={() => form.submit()}
         okText="Create"
         confirmLoading={createNb.isPending}
@@ -221,7 +239,6 @@ export default function NotebooksPage() {
               filterOption={(input, opt) =>
                 String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
               }
-              onChange={v => setSelectedProject(v)}
               options={projects.map(p => ({ value: p.id, label: `${p.code} — ${p.name}` }))}
             />
           </Form.Item>
@@ -233,22 +250,14 @@ export default function NotebooksPage() {
           <Form.Item
             label="Experiment Template"
             name="template_id"
-            extra={selectedProject
-              ? 'Scientists will follow this template\'s screens when recording experiments.'
-              : undefined}
+            extra="Scientists will follow this template's screens when recording experiments."
           >
             <Select
-              placeholder={selectedProject ? 'Select a workflow template' : 'Select a project first'}
-              disabled={!selectedProject}
-              showSearch
-              allowClear
-              filterOption={(input, opt) =>
-                String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
-              }
-              options={templates.map(t => ({
-                value: t.id,
-                label: `${t.name} (v${t.version})`,
-              }))}
+              disabled
+              options={synthesisV2Template ? [{
+                value: synthesisV2Template.id,
+                label: `${synthesisV2Template.name} (v${synthesisV2Template.version})`,
+              }] : []}
             />
           </Form.Item>
 

@@ -1,36 +1,64 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Space, Tooltip, Popconfirm, Collapse } from 'antd'
+import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Space, Tooltip, Popconfirm, Collapse, Switch } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType } from 'antd/es/table'
 import { Plus, Pencil, PowerOff, Search, ChevronDown } from 'lucide-react'
-import { materialApi, consumableTypeApi, type Material, type ConsumableType } from '../../api/inventory'
+import { materialApi, consumableTypeApi, lookupApi, storageConditionApi, type Material, type ConsumableType } from '../../api/inventory'
 import { glassModalProps } from '../../utils/modalStyles'
 
-const MATERIAL_TYPES = ['Chemical', 'Reagent', 'Solvent', 'Standard', 'Buffer', 'Media', 'Biological', 'Consumable', 'Other']
+// Material Type options are sourced from the Lookup master (inv_general_lookup)
+// where lookup_type = 'Material Type'. Manage them under Inventory Master Data.
+const MATERIAL_TYPE_LOOKUP = 'Material Type'
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
   const [ctypes, setCtypes] = useState<ConsumableType[]>([])
+  const [materialTypes, setMaterialTypes] = useState<string[]>([])
+  const [storageConditions, setStorageConditions] = useState<string[]>([])
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
+  const [total, setTotal] = useState(0)
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Material | null>(null)
   const [saving, setSaving] = useState(false)
+  const [nextCode, setNextCode] = useState('')
+  const [showConsumablesType, setShowConsumablesType] = useState(false)
   const [form] = Form.useForm()
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const params: Record<string, unknown> = {}
+      const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize }
       if (search) params.search = search
-      setMaterials(await materialApi.list(params))
+      const { items, total } = await materialApi.listPaged(params)
+      setMaterials(items)
+      setTotal(total)
     } finally { setLoading(false) }
-  }, [search])
+  }, [search, page, pageSize])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [search])
   useEffect(() => { consumableTypeApi.list().then(setCtypes) }, [])
+  useEffect(() => {
+    lookupApi.list({ lookup_type: MATERIAL_TYPE_LOOKUP, active_only: true })
+      .then(rows => setMaterialTypes(rows.map(r => r.lookup_value)))
+      .catch(() => setMaterialTypes([]))
+  }, [])
+  useEffect(() => {
+    storageConditionApi.list()
+      .then(rows => setStorageConditions(rows.filter(r => r.is_active).map(r => r.label)))
+      .catch(() => setStorageConditions([]))
+  }, [])
 
-  const openCreate = () => { setEditing(null); form.resetFields(); setModalOpen(true) }
+  const openCreate = () => {
+    setEditing(null)
+    form.resetFields()
+    setModalOpen(true)
+    setNextCode('')
+    materialApi.nextCode().then(r => setNextCode(r.code)).catch(() => setNextCode(''))
+  }
   const openEdit = (m: Material) => {
     setEditing(m)
     form.setFieldsValue({
@@ -103,13 +131,24 @@ export default function MaterialsPage() {
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
-      title: 'Type',
+      title: 'Material Type',
       dataIndex: 'material_type',
       width: 130,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-700">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
+    ...(showConsumablesType ? [{
+      title: 'Consumables Type',
+      dataIndex: 'consumable_type_id',
+      width: 150,
+      render: (v: number | null) => {
+        const name = ctypes.find(c => c.id === v)?.name
+        return name
+          ? <span className="text-[13px] text-slate-700">{name}</span>
+          : <span className="text-[13px] text-slate-300">—</span>
+      },
+    } as ColumnsType<Material>[number]] : []),
     {
       title: 'CAS No',
       dataIndex: 'cas_no',
@@ -195,6 +234,10 @@ export default function MaterialsPage() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">
           New Material
         </Button>
+        <div className="flex items-center gap-2">
+          <span className="text-[13px] text-slate-600">Show Consumables Type</span>
+          <Switch size="small" checked={showConsumablesType} onChange={setShowConsumablesType} />
+        </div>
       </div>
 
       <div className="glass-card rounded-lg overflow-hidden">
@@ -205,7 +248,15 @@ export default function MaterialsPage() {
           size="middle"
           loading={loading}
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} materials` }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: [20, 50, 100],
+            showTotal: t => `${t} materials`,
+            onChange: (p, ps) => { setPage(p); setPageSize(ps) },
+          }}
         />
       </div>
 
@@ -224,8 +275,8 @@ export default function MaterialsPage() {
           {/* Core fields */}
           <div className="grid grid-cols-2 gap-x-3">
             {!editing && (
-              <Form.Item name="code" label="Code" rules={[{ required: true }]}>
-                <Input />
+              <Form.Item label="Code (auto-generated)">
+                <Input value={nextCode || 'Generating…'} disabled />
               </Form.Item>
             )}
             <Form.Item name="name" label="Name" rules={[{ required: true }]}>
@@ -235,7 +286,7 @@ export default function MaterialsPage() {
               <Select
                 allowClear
                 showSearch
-                options={MATERIAL_TYPES.map(t => ({ value: t, label: t }))}
+                options={materialTypes.map(t => ({ value: t, label: t }))}
                 placeholder="Select or type"
               />
             </Form.Item>
@@ -249,7 +300,12 @@ export default function MaterialsPage() {
               <InputNumber style={{ width: '100%' }} min={0} />
             </Form.Item>
             <Form.Item name="storage_condition" label="Storage Condition">
-              <Input />
+              <Select
+                allowClear
+                showSearch
+                options={storageConditions.map(s => ({ value: s, label: s }))}
+                placeholder="Select storage condition"
+              />
             </Form.Item>
             <Form.Item name="hazard_class" label="Hazard Class">
               <Input placeholder="e.g. Flammable, Corrosive" />

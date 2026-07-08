@@ -6,17 +6,9 @@ import { useAppSelector, useAppDispatch } from '../../store'
 import { selectIsAuthenticated, setAuth } from '../../store/authSlice'
 import { setPrivileges } from '../../store/privilegesSlice'
 import { authApi } from '../../api/auth'
-import type { PrivilegeKey } from '../../store/privilegesSlice'
+import { isSuperAdmin, resolveGrants } from '../../utils/privileges'
 import AdminSidebar from './AdminSidebar'
 import Header from './Header'
-
-const DEFAULT_GRANTS: Record<string, PrivilegeKey[]> = {
-  QA: [
-    'admin.settings', 'admin.excel_templates', 'admin.notifications',
-    'admin.role_privileges', 'users.manage', 'departments.manage', 'master_data.manage',
-  ],
-  HOD: ['master_data.manage'],
-}
 
 function useBreadcrumbs() {
   const { pathname } = useLocation()
@@ -55,7 +47,7 @@ export default function AppShell() {
     if (!token || !isAuthenticated) return
     authApi.me().then((me) => {
       dispatch(setAuth({ user: me, accessToken: token }))
-      dispatch(setPrivileges({ keys: DEFAULT_GRANTS[me.role_code] ?? [], isQA: me.role_code === 'QA' }))
+      dispatch(setPrivileges({ keys: resolveGrants(me), isQA: isSuperAdmin(me) }))
     }).catch(() => {})
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])

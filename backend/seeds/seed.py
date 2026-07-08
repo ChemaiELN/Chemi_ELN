@@ -1,3 +1,7 @@
+# Superseded by seeds/migrate_department_roles.py, which seeds the final
+# Role/Department set (HOD/TL/Chemist/Analyst/Store Incharge; QA/ADC PD/AD/QC/
+# CGT/Inventory) and the 19 default department/role users. Kept only for
+# historical reference — no longer run by seed_all.py.
 import sys
 import os
 

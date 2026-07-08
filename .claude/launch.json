@@ -6,7 +6,15 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["run", "dev"],
       "cwd": "C:\\Laurus-ELN\\frontend",
-      "port": 5174
+      "port": 5174,
+      "autoPort": true
+    },
+    {
+      "name": "backend",
+      "runtimeExecutable": "python",
+      "runtimeArgs": ["-m", "uvicorn", "app.main:app", "--reload", "--port", "8000"],
+      "cwd": "C:\\Laurus-ELN\\backend",
+      "port": 8000
     }
   ]
 }

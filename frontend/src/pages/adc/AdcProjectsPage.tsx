@@ -11,14 +11,10 @@ import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import dayjs from 'dayjs'
 
-// Role codes — update if your DB uses different codes
-const CAN_CREATE_PROJECT = ['HOD', 'QA']
+// HOD already covers the old QA-role admin (now modeled as HOD + QA department).
+// Team Lead can also create Projects/Notebooks/Experiments — Chemist/Analyst cannot.
+const CAN_CREATE_PROJECT = ['HOD', 'TL']
 const TL_ROLE = 'TL'
-
-const TYPE_COLOR: Record<string, string> = {
-  External: 'red',
-  Internal: 'cyan',
-}
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: 'green', Active: 'green',
@@ -33,24 +29,39 @@ export default function AdcProjectsPage() {
   const qc       = useQueryClient()
   const user     = useAppSelector(selectUser)
 
-  const screens         = useBreakpoint()
-  const canCreate       = CAN_CREATE_PROJECT.includes(user?.role_code ?? '')
-  const isTL            = user?.role_code === TL_ROLE
+  const screens   = useBreakpoint()
+  const canCreate = CAN_CREATE_PROJECT.includes(user?.role_code ?? '')
+  const isTL      = user?.role_code === TL_ROLE
 
   const [search,    setSearch]  = useState('')
-  const [typeFilter, setType]   = useState<string | undefined>()
   const [modalOpen, setModal]   = useState(false)
+  const [nextCode,  setNextCode] = useState('')
   const [form] = Form.useForm()
 
+  const openCreate = () => {
+    form.resetFields()
+    setModal(true)
+    setNextCode('')
+    projectApi.nextCode().then(r => setNextCode(r.code)).catch(() => setNextCode(''))
+  }
+
   const { data, isLoading } = useQuery({
-    queryKey: ['adc-projects', search, typeFilter, isTL],
+    queryKey: ['adc-projects', isTL],
     queryFn:  () => projectApi.list({
-      search:        search     || undefined,
-      project_type:  typeFilter || undefined,
       assigned_only: isTL ? true : undefined,
       limit: 200,
     }),
   })
+
+  const allProjects = data?.items ?? []
+
+  const q = search.trim().toLowerCase()
+  const projects = q
+    ? allProjects.filter(p =>
+        [p.code, p.name, p.project_type, p.market, p.customer, p.created_by_name, p.status]
+          .some(v => v && String(v).toLowerCase().includes(q))
+      )
+    : allProjects
 
   const { data: departments = [] } = useQuery({
     queryKey: ['departments'],
@@ -67,8 +78,7 @@ export default function AdcProjectsPage() {
     },
   })
 
-  const projects = data?.items ?? []
-  const total    = data?.total ?? 0
+  const total = projects.length
 
   const columns = [
     {
@@ -82,7 +92,7 @@ export default function AdcProjectsPage() {
       render: (v: string, row: Project) => (
         <button
           onClick={() => navigate(`/adc/projects/${row.id}`)}
-          className="text-[13px] font-medium text-indigo-600 hover:text-indigo-800 hover:underline text-left"
+          className="text-[13px] font-medium text-violet-600 hover:text-violet-800 hover:underline text-left"
         >
           {v}
         </button>
@@ -91,7 +101,7 @@ export default function AdcProjectsPage() {
     {
       title: 'Type', dataIndex: 'project_type', key: 'project_type', width: 110,
       render: (v: string) => v
-        ? <Tag color={TYPE_COLOR[v] ?? 'default'}>{v}</Tag>
+        ? <span className="text-[13px] text-slate-600">{v}</span>
         : <span className="text-slate-300 text-[13px]">—</span>,
     },
     {
@@ -127,7 +137,7 @@ export default function AdcProjectsPage() {
         <Tooltip title="View project">
           <button
             onClick={() => navigate(`/adc/projects/${row.id}`)}
-            className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+            className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-violet-50 text-slate-400 hover:text-violet-600 transition-colors"
           >
             <ChevronRight size={15} />
           </button>
@@ -139,9 +149,9 @@ export default function AdcProjectsPage() {
   return (
     <div className="p-6">
       {/* Page header */}
-      <div className="flex items-center justify-between mb-5">
+      {/* <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-indigo-500/30">
+          <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-violet-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
             <FolderOpen size={18} className="text-white" />
           </div>
           <div>
@@ -149,36 +159,25 @@ export default function AdcProjectsPage() {
             <p className="text-xs text-slate-400">{total} project{total !== 1 ? 's' : ''}</p>
           </div>
         </div>
-      </div>
+      </div> */}
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <Select
-          value={typeFilter}
-          onChange={v => setType(v)}
-          placeholder="All types"
-          allowClear
-          style={{ width: 140 }}
-          options={[
-            { value: 'External', label: 'External' },
-            { value: 'Internal', label: 'Internal' },
-          ]}
-        />
         <div className="relative">
           <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
           <input
             value={search}
             onChange={e => setSearch(e.target.value)}
-            placeholder="Search Project name..."
-            className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white/80 focus:outline-none focus:ring-2 focus:ring-indigo-300 focus:border-transparent w-64"
+            placeholder="Search..."
+            className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white/80 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-transparent w-64"
           />
         </div>
         {canCreate && (
           <Button
-            type="primary"
             icon={<Plus size={15} />}
-            onClick={() => setModal(true)}
-            className="text-white font-bold rounded-md"
+            onClick={openCreate}
+            style={{ backgroundColor: '#6366f1cc', border: 'none', color: '#fff' }}
+            className="font-bold rounded-md"
           >
             New Project
           </Button>
@@ -208,7 +207,7 @@ export default function AdcProjectsPage() {
       <Modal
         title="New Project"
         open={modalOpen}
-        onCancel={() => { setModal(false); form.resetFields() }}
+        onCancel={() => { setModal(false); form.resetFields(); setNextCode('') }}
         onOk={() => form.submit()}
         okText="Create Project"
         confirmLoading={createMut.isPending}
@@ -232,12 +231,8 @@ export default function AdcProjectsPage() {
         >
           {/* Row 1: Code + Name */}
           <div className="grid grid-cols-2 gap-x-4">
-            <Form.Item
-              label="Project Code"
-              name="code"
-              rules={[{ required: true, message: 'Required' }]}
-            >
-              <Input placeholder="e.g. OQ-001" />
+            <Form.Item label="Project Code (auto-generated)">
+              <Input value={nextCode || 'Generating…'} disabled />
             </Form.Item>
             <Form.Item
               label="Project Name"

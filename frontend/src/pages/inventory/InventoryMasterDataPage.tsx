@@ -467,7 +467,7 @@ function UomTab() {
                 <StatusTag color="violet" className="font-mono text-[13px]">{d.dimension_key}</StatusTag>
                 <span className="text-[13px] text-slate-800 font-medium">{d.display_name}</span>
                 <span className="text-[11px] text-slate-400 ml-1">base: {d.base_unit}</span>
-                <Switch size="small" checked={d.is_active} onChange={() => uomApi.toggle(d.id).then(load)} onClick={e => e.stopPropagation()} className="ml-auto" />
+                <span onClick={e => e.stopPropagation()} className="ml-auto"><Switch size="small" checked={d.is_active} onChange={() => uomApi.toggle(d.id).then(load)} /></span>
               </div>
             ),
             children: (

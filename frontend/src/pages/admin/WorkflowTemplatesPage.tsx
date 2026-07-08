@@ -22,6 +22,14 @@ import { workflowTemplateApi } from '../../api/adc'
 import type { WorkflowTemplate } from '../../api/adc'
 import { glassModalProps } from '../../utils/modalStyles'
 
+function moveItem<T>(arr: T[], idx: number, dir: -1 | 1): T[] {
+  const next = [...arr]
+  const target = idx + dir
+  if (target < 0 || target >= next.length) return next
+  ;[next[idx], next[target]] = [next[target], next[idx]]
+  return next
+}
+
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface TemplateTableColumn {
   key: string

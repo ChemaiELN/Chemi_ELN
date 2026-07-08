@@ -1,9 +1,10 @@
 import { useState, useEffect, useRef } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Form, Input, Select, InputNumber, Popconfirm, Spin, Table, Tag, message } from 'antd'
-import { Plus, Save, Trash2, AlertTriangle, Pencil, X } from 'lucide-react'
+import { Plus, Save, Trash2, AlertTriangle, Pencil } from 'lucide-react'
 import { riskAssessmentApi, type RiskAssessment, type RiskRow } from '../../../api/adc'
 import RichEditor, { RichDisplay } from '../../../components/RichEditor'
+import { BTN_32 } from '../../../utils/buttonSize'
 import dayjs from 'dayjs'
 
 interface Props { projectId: string }
@@ -180,13 +181,8 @@ export default function RiskAssessmentTab({ projectId }: Props) {
             <AlertTriangle size={16} className="text-amber-500" />
             <h2 className="text-sm font-bold text-slate-700">Risk Assessment Summary</h2>
           </div>
-          {editing ? (
-            <div className="flex gap-2">
-              <Button size="small" icon={<X size={13} />} onClick={() => setEditing(false)} disabled={!hasHeaderData(ra)}>Cancel</Button>
-              <Button type="primary" size="small" icon={<Save size={13} />} loading={upsertMut.isPending} onClick={() => headerForm.submit()}>Save</Button>
-            </div>
-          ) : (
-            <Button size="small" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
+          {!editing && (
+            <Button size="small" style={BTN_32} icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
           )}
         </div>
 
@@ -241,6 +237,10 @@ export default function RiskAssessmentTab({ projectId }: Props) {
             <Form.Item label="Observations" name="observations">
               <RichEditor placeholder="Observations…" minHeight={100} />
             </Form.Item>
+            <div className="flex gap-2 mt-2">
+              <Button size="small" style={BTN_32} onClick={() => headerForm.resetFields()}>Clear</Button>
+              <Button type="primary" size="small" style={BTN_32} icon={<Save size={13} />} loading={upsertMut.isPending} onClick={() => headerForm.submit()}>Save</Button>
+            </div>
           </Form>
         ) : (
           <div className="space-y-5">
@@ -288,6 +288,7 @@ export default function RiskAssessmentTab({ projectId }: Props) {
           </div>
           <Button
             size="small"
+            style={BTN_32}
             type="primary"
             icon={<Plus size={12} />}
             onClick={handleAddRow}
@@ -337,10 +338,10 @@ export default function RiskAssessmentTab({ projectId }: Props) {
                 </Form.Item>
               </div>
               <div className="flex gap-2 justify-end">
-                <Button size="small" onClick={() => { setAddingRow(false); rowForm.resetFields() }}>
+                <Button size="small" style={BTN_32} onClick={() => { setAddingRow(false); rowForm.resetFields() }}>
                   Cancel
                 </Button>
-                <Button size="small" type="primary" htmlType="submit" loading={addRowMut.isPending}>
+                <Button size="small" style={BTN_32} type="primary" htmlType="submit" loading={addRowMut.isPending}>
                   Add
                 </Button>
               </div>

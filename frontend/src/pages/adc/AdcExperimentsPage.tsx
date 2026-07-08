@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Input, Table, Tag, Select, Grid } from 'antd'
+import { Table, Tag, Grid } from 'antd'
 
 const { useBreakpoint } = Grid
 import { Search, Eye } from 'lucide-react'
@@ -15,25 +15,22 @@ const STATUS_COLOR: Record<string, string> = {
 
 export default function AdcExperimentsPage() {
   const navigate = useNavigate()
-
   const screens = useBreakpoint()
-
-  const [search, setSearch]       = useState('')
-  const [statusFilter, setStatus] = useState<string | undefined>(undefined)
-  const [page, setPage]           = useState(1)
+  const [search, setSearch] = useState('')
 
   const { data, isLoading } = useQuery({
-    queryKey: ['experiments-all', search, statusFilter, page],
-    queryFn:  () => experimentApi.listAll({
-      search: search || undefined,
-      status: statusFilter || undefined,
-      page,
-      limit: 10,
-    }),
+    queryKey: ['experiments-all'],
+    queryFn:  () => experimentApi.listAll({ limit: 200 }),
   })
 
-  const experiments = data?.items ?? []
-  const total       = data?.total ?? 0
+  const allExperiments = data?.items ?? []
+  const q = search.trim().toLowerCase()
+  const experiments = q
+    ? allExperiments.filter(e =>
+        [e.full_code, e.title, e.notebook_code, e.notebook_title, e.project_code, e.project_name, e.created_by_name, e.status]
+          .some(v => v && String(v).toLowerCase().includes(q))
+      )
+    : allExperiments
 
   const columns = [
     {
@@ -105,9 +102,7 @@ export default function AdcExperimentsPage() {
       key: 'status',
       width: 110,
       render: (v: string) => (
-        <Tag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">
-          {v}
-        </Tag>
+        <Tag color={STATUS_COLOR[v] ?? 'default'}>{v}</Tag>
       ),
     },
     {
@@ -118,7 +113,7 @@ export default function AdcExperimentsPage() {
         <button
           title="View experiment"
           onClick={() => navigate(`/notebooks/${row.notebook_id}/experiments/${row.id}`)}
-          className="w-7 h-7 flex items-center justify-center rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
+          className="w-8 h-8 flex items-center justify-center rounded-lg hover:bg-indigo-50 text-slate-400 hover:text-indigo-600 transition-colors"
         >
           <Eye size={14} />
         </button>
@@ -129,7 +124,7 @@ export default function AdcExperimentsPage() {
   return (
     <div className="p-6">
       {/* Header */}
-      <div className="flex items-center justify-between mb-6">
+      {/* <div className="flex items-center justify-between mb-6">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-indigo-500 to-indigo-600 flex items-center justify-center shadow-md shadow-indigo-500/20">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -138,35 +133,22 @@ export default function AdcExperimentsPage() {
           </div>
           <div>
             <h1 className="text-xl font-bold text-slate-800">Experiments</h1>
-            <p className="text-xs text-slate-400">{total} experiment{total !== 1 ? 's' : ''}</p>
+            <p className="text-xs text-slate-400">{experiments.length} experiment{experiments.length !== 1 ? 's' : ''}</p>
           </div>
         </div>
-      </div>
+      </div> */}
 
-      {/* Filters */}
+      {/* Search */}
       <div className="flex items-center gap-3 mb-4">
-        <Select
-          placeholder="All statuses"
-          allowClear
-          style={{ width: 150 }}
-          value={statusFilter}
-          onChange={v => { setStatus(v); setPage(1) }}
-          options={[
-            { value: 'DRAFT',     label: 'Draft' },
-            { value: 'SUBMITTED', label: 'Submitted' },
-            { value: 'APPROVED',  label: 'Approved' },
-            { value: 'REJECTED',  label: 'Rejected' },
-            { value: 'LOCKED',    label: 'Locked' },
-          ]}
-        />
-        <Input
-          prefix={<Search size={14} className="text-slate-400" />}
-          placeholder="Search experiment code, title, notebook…"
-          value={search}
-          onChange={e => { setSearch(e.target.value); setPage(1) }}
-          style={{ width: 320 }}
-          allowClear
-        />
+        <div className="relative">
+          <Search size={13} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+          <input
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            placeholder="Search..."
+            className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white/80 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-transparent w-64"
+          />
+        </div>
       </div>
 
       {/* Table */}
@@ -179,12 +161,9 @@ export default function AdcExperimentsPage() {
           size={screens.md ? 'middle' : 'small'}
           scroll={{ x: 'max-content' }}
           pagination={{
-            current: page,
-            pageSize: 10,
-            total,
-            onChange: p => setPage(p),
-            showTotal: (t) => `${t} experiments`,
+            pageSize: 20,
             showSizeChanger: false,
+            showTotal: (t) => `${t} experiments`,
             size: 'small',
           }}
           locale={{ emptyText: 'No experiments found.' }}

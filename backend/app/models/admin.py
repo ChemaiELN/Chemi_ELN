@@ -2,7 +2,7 @@ import uuid
 import datetime
 from sqlalchemy import (
     Column, String, Boolean, Integer, Text,
-    DateTime, ForeignKey,
+    DateTime, ForeignKey, UniqueConstraint,
 )
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship
@@ -74,6 +74,20 @@ class User(Base):
 
     role = relationship("Role", back_populates="users")
     department = relationship("Department", back_populates="users", foreign_keys=[department_id])
+
+
+class DepartmentRoleMapping(Base):
+    """Which roles are selectable for a given department in the Users admin UI."""
+    __tablename__ = "department_role_mapping"
+    __table_args__ = (UniqueConstraint("department_id", "role_id", name="uq_dept_role_mapping"),)
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    department_id = Column(UUID(as_uuid=True), ForeignKey("departments.id", ondelete="CASCADE"), nullable=False)
+    role_id = Column(UUID(as_uuid=True), ForeignKey("roles.id", ondelete="CASCADE"), nullable=False)
+    created_at = Column(DateTime, nullable=False, default=_now)
+
+    department = relationship("Department")
+    role = relationship("Role")
 
 
 class RolePrivilege(Base):

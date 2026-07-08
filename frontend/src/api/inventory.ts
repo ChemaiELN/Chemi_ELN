@@ -9,7 +9,7 @@ export interface Manufacturer { id: number; code: string; name: string; country:
 export interface Mapping { id: number; material_id: number; manufacturer_id: number; catalogue_no: string | null; technical_grade: string | null; lead_time_days: number | null; min_order_qty: number | null; dsd_file_path: string | null; created_at: string; updated_at: string }
 
 // B3 types
-export interface BatchPack { id: number; batch_id: number; seq_no: number; pack_no: string; qty_per_pack: number; inhouse_batch_no: string }
+export interface BatchPack { id: number; batch_id: number; seq_no: number; pack_no: string; qty_per_pack: number; qty_available: number; inhouse_batch_no: string }
 export interface Batch {
   id: number; batch_no: string; material_id: number; manufacturer_id: number | null
   qty_received: number; qty_available: number; unit: string; status: string; category: string
@@ -57,6 +57,7 @@ export const storageConditionApi = {
 
 // ── Batches ───────────────────────────────────────────────────────────────────
 export const batchApi = {
+  nextBatchNo: () => apiGet<{ batch_no: string }>('/api/inventory/batches/next-batch-no'),
   nextInhouseNo: (materialType: string) => apiGet<{ inhouse_batch_no: string }>('/api/inventory/batches/next-inhouse-no', { material_type: materialType }),
   list: (params?: Record<string, unknown>) => apiGet<Batch[]>('/api/inventory/batches', params),
   get: (id: number) => apiGet<Batch>(`/api/inventory/batches/${id}`),
@@ -193,7 +194,14 @@ export const reportsApi = {
 
 // ── Materials (re-exported for convenience) ───────────────────────────────────
 export const materialApi = {
-  list: (params?: Record<string, unknown>) => apiGet<Material[]>('/api/inventory/materials', params),
+  nextCode: () => apiGet<{ code: string }>('/api/inventory/materials/next-code'),
+  // Back-compat: unwraps the paginated response and returns just the page of items
+  // (used by pickers/dropdowns elsewhere that don't need a total count).
+  list: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Material[]; total: number }>('/api/inventory/materials', params).then(r => r.items),
+  // Server-side pagination: returns { items, total } so the caller can size a Table's pagination.
+  listPaged: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Material[]; total: number }>('/api/inventory/materials', params),
   get: (id: number) => apiGet<Material>(`/api/inventory/materials/${id}`),
   create: (body: unknown) => apiPost<Material>('/api/inventory/materials', body),
   update: (id: number, body: unknown) => apiPatch<Material>(`/api/inventory/materials/${id}`, body),

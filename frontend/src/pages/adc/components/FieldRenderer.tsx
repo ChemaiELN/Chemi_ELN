@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
-import { Input, InputNumber, DatePicker, Select, Switch, Upload, Button, TimePicker } from 'antd'
-import { UploadCloud } from 'lucide-react'
+import { Input, InputNumber, DatePicker, Select, Switch, Upload, Button, TimePicker, message, Modal } from 'antd'
+import { UploadCloud, Send, PenLine, UserCheck, CheckCircle2 } from 'lucide-react'
 import type { UploadFile } from 'antd'
 import dayjs from 'dayjs'
 import {
@@ -9,8 +9,15 @@ import {
   type Material, type EquipmentCatalogue, type InstrumentCatalogue,
   type ConsumableType, type UomDimension,
 } from '../../../api/inventory'
+import { experimentApi } from '../../../api/adc'
+import { authApi } from '../../../api/auth'
+import { ApiError } from '../../../api/client'
 import TableField, { type TableColumn } from './TableField'
-import UniverCalculatorField from './UniverCalculator'
+import ReactantCalculatorField from './ReactantCalculator'
+import { BTN_32 } from '../../../utils/buttonSize'
+import RichEditor from '../../../components/RichEditor'
+import { useAppSelector } from '../../../store'
+import { selectUser } from '../../../store/authSlice'
 
 // ── Public interfaces ─────────────────────────────────────────────────────────
 
@@ -32,6 +39,7 @@ export interface TemplateField {
   material_types?: string | string[]     // material_select: inventory type filter(s)
   test_type_key?: string                 // (table col) test_master_select: test type key
   add_row_label?: string                 // table: custom "Add row" button label
+  fixed_rows?: boolean                   // table: hide Add/Delete row (row count is fixed)
   source_field?: string                  // carried_id: source field key
   read_only?: boolean                    // render as disabled input (auto-filled by another field)
   // autofill_map: override which field keys get the auto-filled values
@@ -39,6 +47,8 @@ export interface TemplateField {
   autofill_map?: Record<string, string>
   // batch_table_field: key of a sibling table field to auto-populate with batches on selection
   batch_table_field?: string
+  // action: action_type identifies which workflow action a button field triggers
+  action_type?: string
 }
 
 export interface FieldRendererProps {
@@ -49,6 +59,14 @@ export interface FieldRendererProps {
   disabled?: boolean
   contextData?: Record<string, unknown>  // current screen's full field values
   onFileUpload?: (file: File) => Promise<void>
+  // Only needed by 'action' fields (e.g. Submit to AD) to validate sibling
+  // required fields and to call the workflow API against the right experiment.
+  screenFields?: TemplateField[]
+  screenKey?: string
+  experimentId?: string
+  onActionComplete?: () => void
+  // experimentCode: used to auto-generate the 'sample_id' column in table fields
+  experimentCode?: string
 }
 
 // ── Material Select ───────────────────────────────────────────────────────────
@@ -92,7 +110,7 @@ function MaterialSelectField({
       const t = (k: string) => field.autofill_map?.[k] ?? `${field.key}_${k}`
       const cleared: Record<string, unknown> = {
         [field.key]: null,
-        [t('name')]: '', [t('lot')]: '', [t('concentration')]: '',
+        [t('code')]: '', [t('name')]: '', [t('lot')]: '', [t('concentration')]: '',
         [t('storage_condition')]: '', [t('expiry_date')]: '', [t('cas_no')]: '', [t('iso_type')]: '',
       }
       if (field.batch_table_field) cleared[field.batch_table_field] = []
@@ -113,13 +131,14 @@ function MaterialSelectField({
       const t = (k: string) => field.autofill_map?.[k] ?? `${field.key}_${k}`
       const bulk: Record<string, unknown> = {
         [field.key]:              matId,
+        [t('code')]:              mat.code ?? '',
         [t('name')]:              mat.name,
         [t('lot')]:               inhouseNo,
         [t('concentration')]:     first?.measuring_unit_value ?? '',
         [t('storage_condition')]: mat.storage_condition ?? '',
         [t('expiry_date')]:       first?.expiry_date ?? '',
         [t('cas_no')]:            mat.cas_no ?? '',
-        [t('iso_type')]:          (mat as Record<string, unknown>)['iso_type'] as string ?? '',
+        [t('iso_type')]:          first?.iso_type ?? '',
       }
 
       // Auto-populate the sibling batch table if configured
@@ -134,9 +153,9 @@ function MaterialSelectField({
                 in_house_lot_batch_no: b.inhouse_batch_no ?? '',
                 pack_type:            pack.inhouse_batch_no ?? pack.pack_no ?? '',
                 mfg_lot_no:           b.batch_no ?? '',
-                manufacturer:         (b as Record<string, unknown>).manufacturer_name as string ?? '',
+                manufacturer:         (b as unknown as Record<string, unknown>).manufacturer_name as string ?? '',
                 exp_date:             b.expiry_date ?? null,
-                qty:                  String(pack.qty_per_pack ?? ''),
+                qty:                  String(pack.qty_available ?? ''),
               })
             }
           } else {
@@ -145,7 +164,7 @@ function MaterialSelectField({
               in_house_lot_batch_no: b.inhouse_batch_no ?? '',
               pack_type:            b.pack_type ?? '',
               mfg_lot_no:           b.batch_no ?? '',
-              manufacturer:         (b as Record<string, unknown>).manufacturer_name as string ?? '',
+              manufacturer:         (b as unknown as Record<string, unknown>).manufacturer_name as string ?? '',
               exp_date:             b.expiry_date ?? null,
               qty:                  String(b.qty_available ?? ''),
             })
@@ -286,7 +305,7 @@ function ConsumableTypeSelectField({
   const [types, setTypes] = useState<ConsumableType[]>([])
 
   useEffect(() => {
-    consumableTypeApi.list({ is_active: true })
+    consumableTypeApi.list()
       .then(r => setTypes(Array.isArray(r) ? r : []))
       .catch(() => {})
   }, [])
@@ -387,7 +406,7 @@ function ReducingAgentLotSelectField({
         const mats = await Promise.all(ids.map(id => materialApi.get(id).catch(() => null)))
         const matchedIds: number[] = []
         for (let i = 0; i < ids.length; i++) {
-          if (mats[i]?.name && selectedAgents.includes(mats[i].name)) {
+          if (mats[i]?.name && selectedAgents.includes(mats[i]!.name)) {
             matchedIds.push(ids[i])
           }
         }
@@ -480,6 +499,145 @@ function LpLotSelectField({
       options={options}
       onChange={handleChange}
     />
+  )
+}
+
+// ── Done By / Reviewed By electronic signature ──────────────────────────────────
+// Replaces the old username+password+reason+timestamp field block. The performer
+// (Chemist/Analyst) signs "Done By" with their password; once done, the reviewer
+// (Team Lead/HOD) can sign "Reviewed By" the same way. Both are re-authentications
+// of the CURRENT session's user (no arbitrary username entry) and are timestamped.
+
+interface SignatureEntry { username: string; user_id: string; role_code: string; signed_at: string }
+interface DoneReviewedValue { done_by?: SignatureEntry | null; reviewed_by?: SignatureEntry | null }
+
+const SIGN_PERFORMER_ROLES = new Set(['CHEM', 'ANALYST'])
+const SIGN_REVIEWER_ROLES  = new Set(['TL', 'HOD'])
+
+function DoneReviewedSignatureField({
+  value, onChange, disabled,
+}: Pick<FieldRendererProps, 'value' | 'onChange' | 'disabled'>) {
+  const user = useAppSelector(selectUser)
+  const v = (value as DoneReviewedValue) ?? {}
+  const doneBy     = v.done_by ?? null
+  const reviewedBy = v.reviewed_by ?? null
+
+  const [modalFor, setModalFor]   = useState<'done' | 'reviewed' | null>(null)
+  const [password, setPassword]   = useState('')
+  const [verifying, setVerifying] = useState(false)
+
+  const canSignDone     = !disabled && !doneBy && SIGN_PERFORMER_ROLES.has(user?.role_code ?? '')
+  const canSignReviewed = !disabled && !!doneBy && !reviewedBy && SIGN_REVIEWER_ROLES.has(user?.role_code ?? '')
+
+  const openModal  = (which: 'done' | 'reviewed') => { setPassword(''); setModalFor(which) }
+  const closeModal = () => { setModalFor(null); setPassword('') }
+
+  const handleConfirm = async () => {
+    if (!password) { message.error('Enter your password.'); return }
+    setVerifying(true)
+    try {
+      const res = await authApi.verifyPassword(password)
+      const entry: SignatureEntry = {
+        username: res.username, user_id: res.user_id, role_code: res.role_code,
+        signed_at: new Date().toISOString(),
+      }
+      onChange(modalFor === 'done' ? { ...v, done_by: entry } : { ...v, reviewed_by: entry })
+      message.success(modalFor === 'done' ? 'Signed as Done By.' : 'Signed as Reviewed By.')
+      closeModal()
+    } catch (e) {
+      message.error(e instanceof ApiError ? e.detail : 'Incorrect password.')
+    } finally {
+      setVerifying(false)
+    }
+  }
+
+  const fmt = (iso?: string) => (iso ? dayjs(iso).format('DD MMM YYYY, HH:mm') : '')
+
+  return (
+    <div className="flex flex-wrap gap-3">
+      {/* Done By */}
+      <div className="flex-1 min-w-[220px] border border-slate-200 rounded-lg p-3">
+        {doneBy ? (
+          <div>
+            <div className="flex items-center gap-1.5 text-emerald-600 text-xs font-semibold mb-1">
+              <CheckCircle2 size={14} /> Done By
+            </div>
+            <p className="text-sm text-slate-700 font-medium">{doneBy.username}</p>
+            <p className="text-xs text-slate-400">{fmt(doneBy.signed_at)}</p>
+          </div>
+        ) : (
+          <>
+            <Button icon={<PenLine size={13} />} disabled={!canSignDone} onClick={() => openModal('done')} style={BTN_32}>
+              Done By
+            </Button>
+            {!disabled && !canSignDone && (
+              <p className="text-[11px] text-slate-400 mt-1.5">Only the Chemist/Analyst performing this experiment can sign here.</p>
+            )}
+          </>
+        )}
+      </div>
+
+      {/* Reviewed By */}
+      <div className="flex-1 min-w-[220px] border border-slate-200 rounded-lg p-3">
+        {reviewedBy ? (
+          <div>
+            <div className="flex items-center gap-1.5 text-emerald-600 text-xs font-semibold mb-1">
+              <CheckCircle2 size={14} /> Reviewed By
+            </div>
+            <p className="text-sm text-slate-700 font-medium">{reviewedBy.username}</p>
+            <p className="text-xs text-slate-400">{fmt(reviewedBy.signed_at)}</p>
+          </div>
+        ) : (
+          <>
+            <Button icon={<UserCheck size={13} />} disabled={!canSignReviewed} onClick={() => openModal('reviewed')} style={BTN_32}>
+              Reviewed By
+            </Button>
+            {!disabled && !doneBy && (
+              <p className="text-[11px] text-slate-400 mt-1.5">Available once "Done By" is signed.</p>
+            )}
+            {!disabled && !!doneBy && !SIGN_REVIEWER_ROLES.has(user?.role_code ?? '') && (
+              <p className="text-[11px] text-slate-400 mt-1.5">Only Team Lead/HOD can review.</p>
+            )}
+          </>
+        )}
+      </div>
+
+      <Modal
+        open={modalFor !== null}
+        title={modalFor === 'done' ? 'Confirm — Done By' : 'Confirm — Reviewed By'}
+        onOk={handleConfirm}
+        onCancel={closeModal}
+        okText="Confirm"
+        confirmLoading={verifying}
+        destroyOnHidden
+        width={380}
+        centered
+      >
+        <p className="text-xs text-slate-500 mb-3">
+          Enter your password to confirm this electronic signature as <b>{user?.username}</b>.
+        </p>
+        {/* Hidden username field so the browser's autofill has a correct target to
+            associate with the password field below, instead of guessing and
+            injecting the saved username into some unrelated visible input on the
+            page behind this modal (e.g. a nearby Select's search box). */}
+        <input
+          type="text"
+          name="username"
+          autoComplete="username"
+          value={user?.username ?? ''}
+          readOnly
+          hidden
+        />
+        <Input.Password
+          value={password}
+          onChange={e => setPassword(e.target.value)}
+          placeholder="Enter your password"
+          onPressEnter={handleConfirm}
+          autoComplete="new-password"
+          autoFocus
+        />
+      </Modal>
+    </div>
   )
 }
 
@@ -583,7 +741,7 @@ function BufferGroupField({ value, onChange, disabled, contextData }: { value: u
         if (b.include_pack && b.packs?.length) {
           for (const p of b.packs) {
             const sku = p.inhouse_batch_no ?? p.pack_no ?? ''
-            if (sku) rows.push({ pack_type: sku, qty: String(p.qty_per_pack ?? '') })
+            if (sku) rows.push({ pack_type: sku, qty: String(p.qty_available ?? '') })
           }
         } else {
           const sku = b.inhouse_batch_no ?? ''
@@ -804,7 +962,7 @@ function BufferGroupField({ value, onChange, disabled, contextData }: { value: u
                   </table>
                 </div>
                 {!disabled && (
-                  <Button size="small" type="dashed" className="mt-1.5 text-xs" onClick={() => addComponent(ei)}>
+                  <Button size="small" style={BTN_32} type="dashed" className="mt-1.5 text-xs" onClick={() => addComponent(ei)}>
                     + Add component
                   </Button>
                 )}
@@ -917,7 +1075,7 @@ function BufferGroupField({ value, onChange, disabled, contextData }: { value: u
                       {!disabled && (
                         <Button
                           size="small" type="primary"
-                          style={{ background: '#1e293b', borderColor: '#1e293b' }}
+                          style={{ background: '#1e293b', borderColor: '#1e293b', ...BTN_32 }}
                           onClick={() => generateId(ei)}
                         >Generate</Button>
                       )}
@@ -931,10 +1089,12 @@ function BufferGroupField({ value, onChange, disabled, contextData }: { value: u
           {/* ── Procedure (full width) ── */}
           <div className="px-4 pb-4 border-t border-slate-100 pt-3">
             <div className={sectionCls}>Procedure</div>
-            <Input.TextArea
-              rows={3} value={buf.procedure} disabled={disabled}
+            <RichEditor
+              value={buf.procedure}
+              readOnly={disabled}
+              minHeight={90}
               placeholder="Describe the preparation procedure for this buffer…"
-              onChange={e => update(ei, { procedure: e.target.value })}
+              onChange={v => update(ei, { procedure: v })}
             />
           </div>
         </div>
@@ -1022,7 +1182,7 @@ function TestResultsTabsField({
           </div>
         ))}
         {!disabled && !addingTest && (
-          <Button size="small" type="dashed" className="h-7 ml-1 text-xs" onClick={() => setAddingTest(true)}>
+          <Button size="small" style={BTN_32} type="dashed" className="ml-1 text-xs" onClick={() => setAddingTest(true)}>
             + Add test
           </Button>
         )}
@@ -1035,8 +1195,8 @@ function TestResultsTabsField({
               onChange={v => setNewTestName(v ?? '')}
               onSearch={v => setNewTestName(v)}
             />
-            <Button size="small" type="primary" disabled={!newTestName.trim()} onClick={() => addTab(newTestName.trim())}>Add</Button>
-            <Button size="small" onClick={() => { setAddingTest(false); setNewTestName('') }}>Cancel</Button>
+            <Button size="small" style={BTN_32} type="primary" disabled={!newTestName.trim()} onClick={() => addTab(newTestName.trim())}>Add</Button>
+            <Button size="small" style={BTN_32} onClick={() => { setAddingTest(false); setNewTestName('') }}>Cancel</Button>
           </div>
         )}
       </div>
@@ -1079,7 +1239,7 @@ function TestResultsTabsField({
             </table>
           </div>
           {!disabled && (
-            <Button size="small" type="dashed" className="text-xs mb-3" onClick={() => addRow(safeIdx)}>
+            <Button size="small" style={BTN_32} type="dashed" className="text-xs mb-3" onClick={() => addRow(safeIdx)}>
               + Add row
             </Button>
           )}
@@ -1101,6 +1261,7 @@ function TestResultsTabsField({
 
 export default function FieldRenderer({
   field, value, onChange, onBulkChange, disabled, contextData, onFileUpload,
+  screenFields, screenKey, experimentId, onActionComplete, experimentCode,
 }: FieldRendererProps) {
   const { type, placeholder, unit, options, columns, min, max, decimal_places } = field
   const isReadOnly = field.read_only
@@ -1112,6 +1273,94 @@ export default function FieldRenderer({
         <div className="border-b border-slate-200 pb-1">
           <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">{field.label}</p>
         </div>
+      </div>
+    )
+  }
+
+  // Workflow action button (e.g. "Submit to AD") — validates required sibling
+  // fields + SKU/Pack ID + sample quantity, then deducts inventory and locks
+  // every field above it in this screen.
+  if (type === 'done_reviewed_signature') {
+    return <DoneReviewedSignatureField value={value} onChange={onChange} disabled={disabled} />
+  }
+
+  if (type === 'action' && field.action_type === 'submit_to_ad') {
+    const submission = value as { submitted?: boolean; submitted_at?: string; sample_qty?: string; sku_pack_id?: string } | undefined
+    const submitted = !!submission?.submitted
+
+    const handleSubmitToAd = async () => {
+      if (submitted || disabled) return
+      if (!experimentId) { message.error('Cannot submit — experiment not loaded.'); return }
+
+      const ownIdx = (screenFields ?? []).findIndex(f => f.key === field.key)
+      const fieldsAbove = ownIdx === -1 ? (screenFields ?? []) : (screenFields ?? []).slice(0, ownIdx)
+      const missing = fieldsAbove
+        .filter(f => f.required)
+        .filter(f => {
+          const v = contextData?.[f.key]
+          return v === undefined || v === null || v === '' || (Array.isArray(v) && v.length === 0)
+        })
+      if (missing.length > 0) {
+        message.error(`Please complete required field(s): ${missing.map(f => f.label).join(', ')}`)
+        return
+      }
+
+      // Batch Information table + Sample Qty field are identified structurally
+      // (SKU/Pack ID column key, and a number field key ending in _sample_qty)
+      // rather than by a hardcoded field key, so this works for any screen that
+      // follows the same pattern (e.g. 1.1 Antibody Info, 1.2 Linker-Payload Info).
+      const batchTableKey = (screenFields ?? []).find(f =>
+        f.type === 'table' && f.columns?.some(c => c.key === 'pack_type')
+      )?.key
+      const batchRows = (batchTableKey ? contextData?.[batchTableKey] : undefined) as Record<string, unknown>[] | undefined ?? []
+      const skuPackId = (batchRows[0]?.['pack_type'] as string) || ''
+      if (!skuPackId) {
+        message.error('Select a SKU/Pack ID in Batch Information before submitting.')
+        return
+      }
+      const sampleQtyKey = (screenFields ?? []).find(f => f.type === 'number' && f.key.endsWith('_sample_qty'))?.key
+      const sampleQty = sampleQtyKey ? contextData?.[sampleQtyKey] : undefined
+      const qtyNum = Number(sampleQty)
+      if (!sampleQty || !Number.isFinite(qtyNum) || qtyNum <= 0) {
+        message.error('Enter a Sample Qty greater than zero before submitting.')
+        return
+      }
+
+      try {
+        if (!screenKey) { message.error('Cannot submit — screen not identified.'); return }
+        await experimentApi.submitToAd(experimentId, {
+          screen_key:  screenKey,
+          field_key:   field.key,
+          sku_pack_id: skuPackId,
+          sample_qty:  qtyNum,
+        })
+        message.success('Submitted to AD — sample quantity deducted from inventory.')
+        // Refresh from the server (source of truth) rather than setting local
+        // state directly — this avoids re-triggering the generic dirty/autosave
+        // path for a change that's already persisted.
+        onActionComplete?.()
+      } catch (e) {
+        message.error(e instanceof ApiError ? e.detail : 'Failed to submit to AD.')
+      }
+    }
+
+    return (
+      <div className="col-span-3">
+        <Button
+          type="primary"
+          style={BTN_32}
+          icon={<Send size={13} />}
+          disabled={submitted || disabled}
+          onClick={handleSubmitToAd}
+        >
+          {submitted ? 'Submitted to AD' : field.label || 'Submit to AD'}
+        </Button>
+        {submitted && submission?.submitted_at && (
+          <p className="text-xs text-slate-400 mt-1.5">
+            Submitted {dayjs(submission.submitted_at).format('DD MMM YYYY, HH:mm')}
+            {submission.sample_qty ? ` — Qty ${submission.sample_qty} deducted from ${submission.sku_pack_id}` : ''}
+          </p>
+        )}
       </div>
     )
   }
@@ -1192,13 +1441,13 @@ export default function FieldRenderer({
             <Input size="small" value={formatted} readOnly
               style={{ width: 210, background: '#f0fdf4', borderColor: '#86efac', fontSize: 12 }} />
             {!disabled && (
-              <Button size="small" type="text" danger onClick={() => onChange('')}>Clear</Button>
+              <Button size="small" style={BTN_32} type="text" danger onClick={() => onChange('')}>Clear</Button>
             )}
           </>
         ) : (
           <>
             {!disabled && (
-              <Button size="small" onClick={() => onChange(new Date().toISOString())}>Record now</Button>
+              <Button size="small" style={BTN_32} onClick={() => onChange(new Date().toISOString())}>Record now</Button>
             )}
             <span className="text-xs text-slate-400">click to stamp current time</span>
           </>
@@ -1333,21 +1582,37 @@ export default function FieldRenderer({
         }
         maxCount={1}
       >
-        {!disabled && <Button icon={<UploadCloud size={14} />} size="small">Upload</Button>}
+        {!disabled && <Button icon={<UploadCloud size={14} />} size="small" style={BTN_32}>Upload</Button>}
       </Upload>
     )
   }
 
   if (type === 'table') {
+    // Batch Information tables (1.1 Antibody Info, 1.2 Linker-Payload Info, ...)
+    // are entirely auto-filled from the selected material's batches/packs —
+    // identified by their SKU/Pack ID ('pack_type') column, not a hardcoded
+    // field key, so this applies to any screen following the same pattern.
+    // Cell values must never be hand-edited, but users still need to be able
+    // to remove/restore rows.
+    const isBatchInfoTable = (columns ?? []).some(c => c.key === 'pack_type')
+    // Sample IDs must stay unique across the whole experiment, not just within
+    // one table — screens share the same experiment code, so tag the prefix
+    // with a short tag derived from this table's own field key (e.g.
+    // 'mab_analysis_results' → 'MAB', 'lp_analysis_results' → 'LP').
+    const sampleIdTag = field.key.split('_')[0].toUpperCase()
+    const autoIdPrefix = experimentCode ? `${experimentCode}-${sampleIdTag}` : undefined
     return (
       <TableField
         columns={columns ?? []}
         value={value as Record<string, unknown>[] ?? []}
         onChange={rows => onChange(rows)}
-        disabled={disabled}
+        disabled={disabled || isReadOnly || isBatchInfoTable}
+        allowRowOps={isBatchInfoTable && !disabled}
+        hideRowOps={field.fixed_rows}
         layout={(field as { layout?: string }).layout}
         contextData={contextData}
         dynamicColPrefix={(field as { dynamic_col_prefix?: string }).dynamic_col_prefix}
+        autoIdPrefix={autoIdPrefix}
       />
     )
   }
@@ -1361,7 +1626,7 @@ export default function FieldRenderer({
   }
 
   if (type === 'js_sheet') {
-    return <UniverCalculatorField value={value} onChange={onChange} disabled={disabled} contextData={contextData} />
+    return <ReactantCalculatorField value={value} onChange={onChange} disabled={disabled} contextData={contextData} />
   }
 
   // Default: plain text input (also used for read_only auto-filled fields)

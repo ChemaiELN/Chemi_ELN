@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Form, Input, Select, Switch, Tag, message } from 'antd'
-import { Save, Pencil, X } from 'lucide-react'
+import { Save, Pencil } from 'lucide-react'
 import { projectApi, materialApi, type Project } from '../../../api/adc'
 import RichEditor, { RichDisplay } from '../../../components/RichEditor'
+import { BTN_32 } from '../../../utils/buttonSize'
 
 interface Props { project: Project; projectId: string }
 
@@ -68,13 +69,8 @@ export default function ProjectMasterTab({ project, projectId }: Props) {
       <div className="bg-white rounded-xl border border-slate-200 p-6">
         <div className="flex items-center justify-between mb-5">
           <h2 className="text-sm font-bold text-slate-700">ADC Project Details</h2>
-          {editing ? (
-            <div className="flex gap-2">
-              <Button size="small" icon={<X size={13} />} onClick={() => setEditing(false)}>Cancel</Button>
-              <Button type="primary" size="small" icon={<Save size={13} />} loading={saveMut.isPending} onClick={() => form.submit()}>Save</Button>
-            </div>
-          ) : (
-            <Button size="small" icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
+          {!editing && (
+            <Button size="small" style={BTN_32} icon={<Pencil size={13} />} onClick={() => setEditing(true)}>Edit</Button>
           )}
         </div>
 
@@ -153,6 +149,10 @@ export default function ProjectMasterTab({ project, projectId }: Props) {
             <Form.Item label="Remarks" name="remarks">
               <RichEditor placeholder="Any additional remarks…" minHeight={140} />
             </Form.Item>
+            <div className="flex gap-2 mt-2">
+              <Button size="small" style={BTN_32} onClick={() => form.resetFields()}>Clear</Button>
+              <Button type="primary" size="small" style={BTN_32} icon={<Save size={13} />} loading={saveMut.isPending} onClick={() => form.submit()}>Save</Button>
+            </div>
           </Form>
         ) : (
           <div className="space-y-5">

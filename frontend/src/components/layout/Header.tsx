@@ -1,4 +1,6 @@
+import { Link } from 'react-router-dom'
 import { Menu as MenuIcon, ChevronRight } from 'lucide-react'
+import UserProfileMenu from './UserProfileMenu'
 
 interface BreadcrumbItem {
   label: string
@@ -25,24 +27,31 @@ export default function Header({ onToggle, isMobile = false, breadcrumbs = [] }:
 
       {breadcrumbs.length > 0 && (
         <nav className="flex items-center gap-1 text-sm min-w-0 flex-1">
-          {breadcrumbs.map((bc, i) => (
-            <span key={i} className="flex items-center gap-1 min-w-0">
-              {i > 0 && <ChevronRight size={12} className="text-slate-300 shrink-0" />}
-              <span
-                className={
-                  i === breadcrumbs.length - 1
-                    ? 'text-violet-700 font-semibold truncate'
-                    : 'text-slate-400 truncate hidden sm:block'
-                }
-              >
-                {bc.label}
+          {breadcrumbs.map((bc, i) => {
+            const isLast = i === breadcrumbs.length - 1
+            return (
+              <span key={i} className="flex items-center gap-1 min-w-0">
+                {i > 0 && <ChevronRight size={12} className="text-slate-300 shrink-0" />}
+                {isLast || !bc.href ? (
+                  <span className={isLast ? 'text-violet-700 font-semibold truncate' : 'text-slate-400 truncate hidden sm:block'}>
+                    {bc.label}
+                  </span>
+                ) : (
+                  <Link
+                    to={bc.href}
+                    className="text-slate-400 truncate hidden sm:block hover:text-violet-600 transition-colors"
+                  >
+                    {bc.label}
+                  </Link>
+                )}
               </span>
-            </span>
-          ))}
+            )
+          })}
         </nav>
       )}
 
       <div className="ml-auto" />
+      <UserProfileMenu />
     </header>
   )
 }

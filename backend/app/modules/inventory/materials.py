@@ -1,4 +1,5 @@
 """Inventory – Materials, ChemicalProps, FormulationProps endpoints."""
+import datetime
 from typing import Any, Optional
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from app.models.inventory import (
     InvMaterialChemicalProps,
     InvMaterialFormulationProps,
     InvMaterial,
+    InvMaterialCodeCounter,
 )
 from app.schemas.inventory import (
     ChemicalPropsOut,
@@ -17,14 +19,62 @@ from app.schemas.inventory import (
     FormulationPropsOut,
     FormulationPropsUpsert,
     MaterialCreate,
+    MaterialListOut,
     MaterialOut,
     MaterialUpdate,
 )
 
 router = APIRouter(prefix="/inventory/materials", tags=["inventory-materials"])
 
+CODE_PREFIX = "MAT"
 
-@router.get("", response_model=list[MaterialOut])
+
+def _seed_max_seq(db: Session, year: str) -> int:
+    """Seed from the highest existing sequence in any material code for the year."""
+    pattern = f"{CODE_PREFIX}/{year}/%"
+    rows = db.query(InvMaterial.code).filter(InvMaterial.code.like(pattern)).all()
+    max_seq = 10000
+    for (code,) in rows:
+        if code:
+            try:
+                s = int(code.split('/')[-1])
+                if s > max_seq:
+                    max_seq = s
+            except (ValueError, IndexError):
+                pass
+    return max_seq
+
+
+def _claim_next_seq(db: Session, year: str) -> int:
+    """Atomically increment and return the next sequence for the year.
+    SELECT FOR UPDATE prevents two concurrent requests getting the same number."""
+    counter = (
+        db.query(InvMaterialCodeCounter)
+        .filter_by(year=year)
+        .with_for_update()
+        .first()
+    )
+    if counter is None:
+        counter = InvMaterialCodeCounter(year=year, last_seq=_seed_max_seq(db, year))
+        db.add(counter)
+        db.flush()
+    counter.last_seq += 1
+    return counter.last_seq
+
+
+@router.get("/next-code")
+def next_code(
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    """Preview-only: returns the likely next material code without claiming it."""
+    year = datetime.datetime.utcnow().strftime('%y')
+    counter = db.query(InvMaterialCodeCounter).filter_by(year=year).first()
+    next_seq = (counter.last_seq if counter else _seed_max_seq(db, year)) + 1
+    return {"code": f"{CODE_PREFIX}/{year}/{next_seq}"}
+
+
+@router.get("", response_model=MaterialListOut)
 def list_materials(
     search: Optional[str] = Query(None),
     material_type: Optional[str] = Query(None),
@@ -57,7 +107,7 @@ def list_materials(
         )
     total = q.count()
     items = q.order_by(InvMaterial.code).offset(skip).limit(limit).all()
-    return items
+    return {"items": items, "total": total}
 
 
 @router.post("", response_model=MaterialOut, status_code=201)
@@ -66,9 +116,10 @@ def create_material(
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
-    if db.query(InvMaterial).filter_by(code=body.code).first():
-        raise HTTPException(409, f"Material code '{body.code}' already exists.")
-    row = InvMaterial(**body.model_dump())
+    data = body.model_dump(exclude={"code"})
+    year = datetime.datetime.utcnow().strftime('%y')
+    seq = _claim_next_seq(db, year)
+    row = InvMaterial(code=f"{CODE_PREFIX}/{year}/{seq}", **data)
     db.add(row)
     db.commit()
     db.refresh(row)

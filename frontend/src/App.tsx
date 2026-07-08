@@ -1,6 +1,7 @@
 import { BrowserRouter } from 'react-router-dom'
 import { ConfigProvider } from 'antd'
 import { AppRouter } from './router'
+import AuthInitializer from './components/AuthInitializer'
 
 const antdTheme = {
   token: {
@@ -77,7 +78,9 @@ export default function App() {
   return (
     <ConfigProvider theme={antdTheme}>
       <BrowserRouter>
-        <AppRouter />
+        <AuthInitializer>
+          <AppRouter />
+        </AuthInitializer>
       </BrowserRouter>
     </ConfigProvider>
   )

@@ -56,20 +56,23 @@ export default function ManufacturersPage() {
   }
 
   const columns: ColumnsType<Manufacturer> = [
-    {
-      title: 'Code',
-      dataIndex: 'code',
-      width: 110,
-      render: (v) => <StatusTag color="purple" className="font-mono text-[13px]">{v}</StatusTag>,
-    },
+    // {
+    //   title: 'Code',
+    //   dataIndex: 'code',
+    //   width: 110,
+    //   render: (v) => <StatusTag color="purple" className="font-mono text-[13px]">{v}</StatusTag>,
+    // },
     {
       title: 'Name',
       dataIndex: 'name',
+      ellipsis: true,
+      width:200,
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Country',
       dataIndex: 'country',
+      ellipsis: true,
       width: 120,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -78,6 +81,7 @@ export default function ManufacturersPage() {
     {
       title: 'Contact Person',
       dataIndex: 'contact_person',
+      ellipsis: true,
       width: 150,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -86,6 +90,7 @@ export default function ManufacturersPage() {
     {
       title: 'Email',
       dataIndex: 'email',
+      ellipsis: true,
       width: 200,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -94,6 +99,7 @@ export default function ManufacturersPage() {
     {
       title: 'Phone',
       dataIndex: 'phone',
+      ellipsis: true,
       width: 140,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -102,6 +108,7 @@ export default function ManufacturersPage() {
     {
       title: 'Status',
       dataIndex: 'is_active',
+      ellipsis: true,
       width: 90,
       render: (v: boolean) => (
         <StatusTag color={v ? 'success' : 'default'} className="text-[13px]">{v ? 'Active' : 'Inactive'}</StatusTag>
@@ -176,6 +183,7 @@ export default function ManufacturersPage() {
         confirmLoading={saving}
         width={560}
         centered
+         closable={false}
         destroyOnHidden
         {...glassModalProps}
       >

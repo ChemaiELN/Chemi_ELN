@@ -1,9 +1,10 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Menu, ConfigProvider } from 'antd'
 import type { MenuProps } from 'antd'
-import { Atom, FolderOpen, LayoutGrid, BookOpen, FlaskConical, FileText } from 'lucide-react'
+import { FolderOpen, LayoutGrid, BookOpen, FlaskConical, FileText } from 'lucide-react'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
+import logo from '../../assets/logo.svg'
 
 // Chemists/Analysts only work within notebooks assigned to them — they get
 // the restricted "My Notebooks" view instead of the full Projects/Notebooks
@@ -64,16 +65,8 @@ export default function AdcSidebar({ collapsed, onItemClick }: AdcSidebarProps) 
       style={{ position: 'relative' }}
     >
       {/* Brand */}
-      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-4'} py-4 border-b border-white/40 shrink-0`}>
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-indigo-400 to-indigo-500 shadow-md shadow-indigo-500/30 shrink-0">
-          <Atom size={15} className="text-white" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <p className="text-slate-800 font-bold text-sm leading-none truncate">ADC Module</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Laurus ELN</p>
-          </div>
-        )}
+      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} py-4 border-b border-white/40 shrink-0`}>
+        <img src={logo} alt="Logo" className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'} />
       </div>
 
       {/* Back to modules */}

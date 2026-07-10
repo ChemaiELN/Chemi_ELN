@@ -2,12 +2,12 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Table, Button, Input, Select, Modal, Form,
   InputNumber, DatePicker, message, Space, Tooltip,
-  Drawer, Timeline, Divider, Upload, Progress,
+  Drawer, Divider, Upload, Progress,
 } from 'antd'
 import type { UploadFile } from 'antd/es/upload'
 import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType } from 'antd/es/table'
-import { Plus, Eye, Zap, Search, Pencil, Upload as UploadIcon, FileCheck } from 'lucide-react'
+import { Plus, Eye, Zap, Search, Pencil, Upload as UploadIcon, FileCheck, History, MessageSquare } from 'lucide-react'
 import dayjs from 'dayjs'
 import { batchApi, materialApi, manufacturerApi, uomApi, type Batch, type BatchEvent, type Material, type Manufacturer, type UomUnit } from '../../api/inventory'
 import { glassModalProps } from '../../utils/modalStyles'
@@ -66,6 +66,26 @@ function flattenBatches(batches: Batch[]): FlatRow[] {
   return result
 }
 
+const EVENT_STYLES: Record<string, { background: string; color: string }> = {
+  RECEIVED: { background: '#d1fae5', color: '#065f46' },
+  BATCH_CREATED: { background: '#d1fae5', color: '#065f46' },
+  ISSUED: { background: '#fef3c7', color: '#92400e' },
+  BATCH_ISSUED: { background: '#fef3c7', color: '#92400e' },
+  STOCK_ALLOCATION: { background: '#D9E5FF', color: '#2563EB' },
+  BATCH_ALLOCATED: { background: '#D9E5FF', color: '#2563EB' },
+  BATCH_UPDATED: { background: '#FFF5E9', color: '#F59E0B' },
+  BATCH_TOGGLED: { background: '#f3f4f6', color: '#4b5563' },
+  ADJUSTMENT: { background: '#FFDAF4', color: '#B13588' },
+}
+
+function getEventStyle(eventType: string) {
+  return EVENT_STYLES[eventType] ?? { background: '#E5E7EB', color: '#374151' }
+}
+
+function formatEventLabel(eventType: string) {
+  return eventType.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+}
+
 export default function BatchesPage() {
   const [batches, setBatches] = useState<Batch[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
@@ -77,8 +97,12 @@ export default function BatchesPage() {
   const [issueOpen, setIssueOpen] = useState(false)
   const [detailOpen, setDetailOpen] = useState(false)
   const [selectedBatch, setSelectedBatch] = useState<Batch | null>(null)
-  const [events, setEvents] = useState<BatchEvent[]>([])
   const [saving, setSaving] = useState(false)
+
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [historyBatch, setHistoryBatch] = useState<Batch | null>(null)
+  const [historyEvents, setHistoryEvents] = useState<BatchEvent[]>([])
+  const [historyLoading, setHistoryLoading] = useState(false)
 
   const [inhouseLoading, setInhouseLoading] = useState(false)
   const [nextBatchNo, setNextBatchNo] = useState('')
@@ -101,8 +125,8 @@ export default function BatchesPage() {
       if (search) {
         const term = search.toLowerCase()
         setBatches(data.filter(b => {
-          const matName = materials.find(m => m.id === b.material_id)?.name ?? ''
-          const mfrName = manufacturers.find(m => m.id === b.manufacturer_id)?.name ?? ''
+          const matName = b.material_name ?? ''
+          const mfrName = b.manufacturer_name ?? ''
           return (
             b.batch_no.toLowerCase().includes(term) ||
             (b.inhouse_batch_no ?? '').toLowerCase().includes(term) ||
@@ -117,7 +141,7 @@ export default function BatchesPage() {
         setBatches(data)
       }
     } finally { setLoading(false) }
-  }, [search, materials, manufacturers])
+  }, [search])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { materialApi.list({ active_only: true }).then(setMaterials) }, [])
@@ -172,11 +196,19 @@ export default function BatchesPage() {
     finally { setInhouseLoading(false) }
   }
 
-  const openDetail = async (batch: Batch) => {
+  const openDetail = (batch: Batch) => {
     setSelectedBatch(batch)
-    const evts = await batchApi.events(batch.id)
-    setEvents(evts)
     setDetailOpen(true)
+  }
+
+  const openHistory = async (batch: Batch) => {
+    setHistoryBatch(batch)
+    setHistoryOpen(true)
+    setHistoryLoading(true)
+    try {
+      const evts = await batchApi.events(batch.id)
+      setHistoryEvents(evts)
+    } finally { setHistoryLoading(false) }
   }
 
   const handleCreate = async (values: Record<string, unknown>) => {
@@ -256,43 +288,46 @@ export default function BatchesPage() {
     {
       title: 'Batch No',
       dataIndex: 'batch_no',
+      ellipsis: true,
       width: 140,
-      render: (v) => <span className="font-mono text-[13px] text-slate-700">{v}</span>,
+      render: (v) => <span className=" text-[13px] text-slate-700">{v}</span>,
     },
     {
       title: 'Inhouse Batch',
       dataIndex: 'inhouse_batch_no',
+      ellipsis: true,
       width: 160,
       render: (v) => v
-        ? <span className="font-mono text-[13px] text-slate-600">{v}</span>
+        ? <span className=" text-[13px] text-slate-600">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'SKU / Pack ID',
       key: 'sku',
+      ellipsis: true,
       width: 200,
       render: (_, r) => r._packSku
-        ? <span className="font-mono text-[12px] text-violet-700">{r._packSku}</span>
+        ? <span className=" text-[12px] text-slate-600">{r._packSku}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Material',
       key: 'material',
-      render: (_, r) => {
-        const name = materials.find(m => m.id === r.material_id)?.name
-        return <span className="text-[13px] text-slate-800">{name ?? r.material_id}</span>
-      },
+      ellipsis: true,
+      render: (_, r) => (
+        <span className="text-[13px] text-slate-800">{r.material_name ?? r.material_id}</span>
+      ),
     },
     {
       title: 'Manufacturer',
       key: 'manufacturer',
+      ellipsis: true,
       width: 160,
-      render: (_: unknown, r: FlatRow) => {
-        const name = manufacturers.find(m => m.id === r.manufacturer_id)?.name
-        return name
-          ? <span className="text-[13px] text-slate-600">{name}</span>
+      render: (_: unknown, r: FlatRow) => (
+        r.manufacturer_name
+          ? <span className="text-[13px] text-slate-600">{r.manufacturer_name}</span>
           : <span className="text-[13px] text-slate-300">—</span>
-      },
+      ),
     },
     {
       title: 'Qty Available',
@@ -335,6 +370,7 @@ export default function BatchesPage() {
     {
       title: 'Expiry',
       dataIndex: 'expiry_date',
+      ellipsis: true,
       width: 110,
       render: (v) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -343,6 +379,7 @@ export default function BatchesPage() {
     {
       title: 'Mfg Date',
       dataIndex: 'mfg_date',
+      ellipsis: true,
       width: 110,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -351,6 +388,7 @@ export default function BatchesPage() {
     {
       title: 'GR Date',
       dataIndex: 'gr_date',
+      ellipsis: true,
       width: 110,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -359,6 +397,7 @@ export default function BatchesPage() {
     {
       title: 'Status',
       dataIndex: 'status',
+      ellipsis: true,
       width: 150,
       render: (v: string) => (
         <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag>
@@ -367,15 +406,18 @@ export default function BatchesPage() {
     {
       title: '',
       key: 'actions',
-      width: 90,
+      width: 120,
       align: 'right',
       render: (_, r) => (
         <Space size={4}>
           <Tooltip title="Edit">
             <Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} />
           </Tooltip>
-          <Tooltip title="Detail / Events">
+          <Tooltip title="Detail">
             <Button type="text" size="small" icon={<Eye size={13} />} onClick={() => openDetail(r)} />
+          </Tooltip>
+          <Tooltip title="Event History">
+            <Button type="text" size="small" icon={<History size={13} />} onClick={() => openHistory(r)} />
           </Tooltip>
           {/* <Tooltip title="Issue">
             <Button
@@ -426,13 +468,14 @@ export default function BatchesPage() {
         onCancel={() => { setCreateOpen(false); form.resetFields(); setCoaFile(null); setInhouseLoading(false); setNextBatchNo('') }}
         onOk={() => form.submit()}
         confirmLoading={saving}
-        width={640}
+        width={740}
         centered
         destroyOnHidden
+         closable={false}
         {...glassModalProps}
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
-          <div className="grid grid-cols-2 gap-x-3">
+          <div className="grid grid-cols-3 gap-x-3">
             <Form.Item label="Batch No (auto-generated)">
               <Input value={nextBatchNo || 'Generating…'} disabled />
             </Form.Item>
@@ -547,6 +590,7 @@ export default function BatchesPage() {
       <Modal
         title={`Edit Batch — ${editBatch?.batch_no}`}
         open={editOpen}
+        closable={false}
         onCancel={() => { setEditOpen(false); editForm.resetFields(); setEditCoaFile(null) }}
         onOk={() => editForm.submit()}
         confirmLoading={editSaving}
@@ -616,6 +660,7 @@ export default function BatchesPage() {
       <Modal
         title={`Issue from ${selectedBatch?.batch_no}`}
         open={issueOpen}
+        closable={false}
         onCancel={() => { setIssueOpen(false); issueForm.resetFields() }}
         onOk={() => issueForm.submit()}
         confirmLoading={saving}
@@ -670,29 +715,104 @@ export default function BatchesPage() {
                 </div>
               ))}
             </div>
-
-            {/* Event History */}
-            <div className="bg-white rounded-xl border border-slate-200 p-4">
-              <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider mb-3">Event History</p>
-              {events.length === 0 ? (
-                <p className="text-[13px] text-slate-400 text-center py-4">No events recorded</p>
-              ) : (
-                <Timeline
-                  items={events.map(e => ({
-                    children: (
-                      <div className="pb-1">
-                        <p className="text-[13px] font-semibold text-slate-700">{e.event_type}{e.qty != null ? ` — ${e.qty} ${selectedBatch.unit}` : ''}</p>
-                        <p className="text-[11px] text-slate-400 mt-0.5">{e.performed_by} · {new Date(e.performed_at).toLocaleString()}</p>
-                        {e.remarks && <p className="text-[11px] text-slate-500 italic mt-0.5">{e.remarks}</p>}
-                      </div>
-                    ),
-                  }))}
-                />
-              )}
-            </div>
           </div>
         )}
       </Drawer>
+
+      {/* Event History Modal */}
+      <Modal
+        title={
+          <div className="flex items-center gap-2">
+            <span>Event History</span>
+            {historyBatch && (
+              <span className="text-[10px] text-violet-600 bg-violet-50 border border-violet-200 rounded px-1.5 py-0.5">{historyBatch.batch_no}</span>
+            )}
+          </div>
+        }
+        open={historyOpen}
+        closable={false}
+        onCancel={() => setHistoryOpen(false)}
+        footer={<Button onClick={() => setHistoryOpen(false)}>Close</Button>}
+        width={480}
+        centered
+        destroyOnHidden
+        {...glassModalProps}
+      >
+        {historyLoading ? (
+          <p className="text-[13px] text-slate-400 text-center py-6">Loading…</p>
+        ) : historyEvents.length === 0 ? (
+          <p className="text-[13px] text-slate-400 text-center py-6">No events recorded</p>
+        ) : (
+          <div className="space-y-8 py-2 max-h-[320px] overflow-y-auto pr-2">
+            {historyEvents.slice().reverse().map((e, idx, arr) => {
+              const eventStyle = getEventStyle(e.event_type)
+              const label = formatEventLabel(e.event_type) + (e.qty != null ? ` — ${e.qty} ${historyBatch?.unit ?? ''}` : '')
+              const comment = e.remarks
+              const isLast = idx === arr.length - 1
+              return (
+                <div key={e.id} className="relative">
+                  <div className="flex items-start gap-4">
+                    {/* Circle with dashed connector */}
+                    <div className="relative flex flex-col items-center">
+                      <div
+                        className="w-4 h-4 rounded-full shrink-0 mt-1 relative z-20"
+                        style={{ backgroundColor: 'white', border: '2px solid #F0F0F0' }}
+                      />
+                      {!isLast && (
+                        <div
+                          className={`absolute top-5 w-0.5 ${comment ? 'h-28' : 'h-20'} z-10`}
+                          style={{ borderLeft: '1px dashed #D4D4D4', left: '50%', transform: 'translateX(-50%)' }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <div className="flex-1 mt-0 mb-3">
+                      <div className="font-semibold -mb-1 flex justify-between" style={{ color: '#344054', fontSize: 12 }}>
+                        {e.performed_by}
+                        <span
+                          className="font-normal ml-[20px] rounded-[4px] pt-[2px] pb-[3px] pr-[7px] pl-[7px]"
+                          style={{ color: eventStyle.color, backgroundColor: eventStyle.background, fontSize: 9, border: `1px solid ${eventStyle.color}` }}
+                        >
+                          {label}
+                        </span>
+                      </div>
+
+                      <div className="font-normal leading-3 text-left mt-[4px]" style={{ color: '#344054', fontSize: 8 }}>
+                        {new Date(e.performed_at).toLocaleString()}
+                      </div>
+
+                      {comment && (
+                        <div className="flex items-start gap-0 mt-1">
+                          <MessageSquare size={10} className="mt-0.5 shrink-0 mr-1" style={{ color: '#667085' }} />
+                          {comment.split(' ').length > 3 ? (
+                            <Tooltip title={comment} placement="bottom">
+                              <span className="leading-relaxed cursor-pointer" style={{ color: '#667085', fontSize: 10 }}>
+                                {comment.split(' ').slice(0, 3).join(' ') + '...'}
+                              </span>
+                            </Tooltip>
+                          ) : (
+                            <span className="leading-relaxed" style={{ color: '#667085', fontSize: 10 }}>
+                              {comment}
+                            </span>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {!isLast && (
+                    <div
+                      className="absolute left-0 right-0 h-0.5 z-0 mt-4"
+                      // style={{ borderTop: '1px dashed #D4D4D4', bottom: comment ? '-16px' : '-8px' }}
+                    />
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        )}
+      </Modal>
     </div>
   )
 }

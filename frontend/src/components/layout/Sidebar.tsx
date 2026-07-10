@@ -3,27 +3,56 @@ import { Menu } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   LayoutDashboard,
-  FlaskConical, Package2, ClipboardList, Wrench, BarChart3,
-  LayoutGrid, Factory, Cpu, Database, Link2,
-  FileBarChart2, History,
+  FlaskConical, Package2, ClipboardList,
+  LayoutGrid, Factory, Cpu, Link2,
+  FileBarChart2, History, ListChecks, CalendarClock, CalendarCheck2,
+  ClipboardCheck, Wrench, Clock, Boxes, HandCoins,
 } from 'lucide-react'
+import logo from '../../assets/logo.svg'
 
 type MenuItem = Required<MenuProps>['items'][number]
 
+const INVENTORY_GROUP_KEYS = ['group-stock', 'group-vendors', 'group-maintenance', 'group-reporting']
+
 function makeInventoryItems(): MenuItem[] {
   return [
-    { key: '/inventory',                icon: <LayoutDashboard size={15} />, label: 'Dashboard' },
-    { key: '/inventory/materials',      icon: <FlaskConical size={15} />,    label: 'Materials' },
-    { key: '/inventory/batches',        icon: <Package2 size={15} />,        label: 'Batches' },
-    { key: '/inventory/stock-requests', icon: <ClipboardList size={15} />,   label: 'Stock Requests' },
-    { key: '/inventory/verifications',  icon: <BarChart3 size={15} />,       label: 'Verifications' },
-    { key: '/inventory/schedules',      icon: <Wrench size={15} />,          label: 'Schedules' },
-    { key: '/inventory/manufacturers', icon: <Factory size={15} />,         label: 'Manufacturers' },
-    { key: '/inventory/mappings',      icon: <Link2 size={15} />,           label: 'Mfr Mappings' },
-    { key: '/inventory/equipment',     icon: <Cpu size={15} />,             label: 'Equipment' },
-    { key: '/inventory/master-data',   icon: <Database size={15} />,        label: 'Master Data' },
-    { key: '/inventory/reports',       icon: <FileBarChart2 size={15} />,   label: 'Reports' },
-    { key: '/inventory/audit-trail',   icon: <History size={15} />,         label: 'Audit Trail' },
+    { key: '/inventory', icon: <LayoutDashboard size={15} />, label: 'Dashboard' },
+    {
+      key: 'group-stock', icon: <Boxes size={15} />, label: 'Stock & Materials',
+      children: [
+        { key: '/inventory/materials',      icon: <FlaskConical size={15} />,  label: 'Materials' },
+        { key: '/inventory/batches',        icon: <Package2 size={15} />,      label: 'Batches' },
+        { key: '/inventory/stock-requests', icon: <ClipboardList size={15} />, label: 'Stock Requests' },
+      ],
+    },
+    {
+      key: 'group-vendors', icon: <HandCoins size={15} />, label: 'Vendors',
+      children: [
+        { key: '/inventory/manufacturers', icon: <Factory size={15} />, label: 'Manufacturers' },
+        { key: '/inventory/mappings',      icon: <Link2 size={15} />,   label: 'Mfr Mappings' },
+      ],
+    },
+    {
+      key: 'group-maintenance', icon: <Wrench size={15} />, label: 'Maintenance & Calibration',
+      children: [
+        { key: '/inventory/equipment',              icon: <Cpu size={15} />,            label: 'Equipment / Instruments' },
+        { key: '/inventory/checklists',              icon: <ListChecks size={15} />,     label: 'Checklists' },
+        { key: '/inventory/maintenance-planner',     icon: <CalendarClock size={15} />,  label: 'Maintenance Planner' },
+        { key: '/inventory/calibration-planner',     icon: <CalendarCheck2 size={15} />, label: 'Calibration Planner' },
+        { key: '/inventory/maintenance-requests',    icon: <ClipboardCheck size={15} />, label: 'Maintenance Requests' },
+        { key: '/inventory/calibration-requests',    icon: <ClipboardCheck size={15} />, label: 'Calibration Requests' },
+        { key: '/inventory/work-orders',             icon: <Wrench size={15} />,         label: 'Work Orders' },
+        { key: '/inventory/equipment-usage-logs',    icon: <Clock size={15} />,          label: 'Equipment Usage Logs' },
+        { key: '/inventory/instrument-usage-logs',   icon: <Clock size={15} />,          label: 'Instrument Usage Logs' },
+      ],
+    },
+    {
+      key: 'group-reporting', icon: <FileBarChart2 size={15} />, label: 'Reporting',
+      children: [
+        { key: '/inventory/reports',     icon: <FileBarChart2 size={15} />, label: 'Reports' },
+        { key: '/inventory/audit-trail', icon: <History size={15} />,       label: 'Audit Trail' },
+      ],
+    },
   ]
 }
 
@@ -49,16 +78,8 @@ export default function Sidebar({ collapsed, onItemClick }: SidebarProps) {
       style={{ position: 'relative' }}
     >
       {/* Brand */}
-      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-4'} py-4 border-b border-white/40 shrink-0`}>
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-md shadow-violet-400/30 shrink-0">
-          <FlaskConical size={15} className="text-white" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <p className="text-slate-800 font-bold text-sm leading-none truncate">Laurus ELN</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Chemia ELN v2</p>
-          </div>
-        )}
+      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} py-4 border-b border-white/40 shrink-0`}>
+        <img src={logo} alt="Logo" className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'} />
       </div>
 
       {/* Back to modules */}
@@ -82,6 +103,7 @@ export default function Sidebar({ collapsed, onItemClick }: SidebarProps) {
           mode="inline"
           inlineCollapsed={collapsed}
           selectedKeys={[location.pathname]}
+          defaultOpenKeys={INVENTORY_GROUP_KEYS}
           items={makeInventoryItems()}
           onClick={handleSelect}
           style={{ background: 'transparent', border: 'none', fontSize: 13, width: '100%' }}

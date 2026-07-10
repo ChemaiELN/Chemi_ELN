@@ -57,12 +57,16 @@ from app.modules.inventory import (
     column_router,
     # B3
     batches_router,
-    batch_verif_router,
     stock_requests_router,
-    maintenance_router,
-    calibration_router,
-    equip_verif_router,
-    instr_verif_router,
+    checklists_router,
+    measurement_master_router,
+    log_mapping_router,
+    instrument_spec_router,
+    schedules_router,
+    master_templates_router,
+    spare_parts_router,
+    work_orders_router,
+    usage_logs_router,
     lookup_router,
     uom_router,
     test_master_router,
@@ -83,12 +87,16 @@ app.include_router(instrument_router, prefix="/api")
 app.include_router(column_router, prefix="/api")
 # B3
 app.include_router(batches_router, prefix="/api")
-app.include_router(batch_verif_router, prefix="/api")
 app.include_router(stock_requests_router, prefix="/api")
-app.include_router(maintenance_router, prefix="/api")
-app.include_router(calibration_router, prefix="/api")
-app.include_router(equip_verif_router, prefix="/api")
-app.include_router(instr_verif_router, prefix="/api")
+app.include_router(checklists_router, prefix="/api")
+app.include_router(measurement_master_router, prefix="/api")
+app.include_router(log_mapping_router, prefix="/api")
+app.include_router(instrument_spec_router, prefix="/api")
+app.include_router(schedules_router, prefix="/api")
+app.include_router(master_templates_router, prefix="/api")
+app.include_router(spare_parts_router, prefix="/api")
+app.include_router(work_orders_router, prefix="/api")
+app.include_router(usage_logs_router, prefix="/api")
 app.include_router(lookup_router, prefix="/api")
 app.include_router(uom_router, prefix="/api")
 app.include_router(test_master_router, prefix="/api")
@@ -117,3 +125,7 @@ app.include_router(notebooks_sub_router,      prefix="/api")
 from app.modules.experiments.router import router as experiments_nb_router, exp_router as experiments_router
 app.include_router(experiments_nb_router, prefix="/api")
 app.include_router(experiments_router,    prefix="/api")
+
+# CGT module
+from app.modules.cgt import cgt_projects_router
+app.include_router(cgt_projects_router, prefix="/api")

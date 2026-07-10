@@ -11,6 +11,7 @@ from app.models.inventory import (
     InvInstrumentCatalogue,
 )
 from app.schemas.inventory import (
+    CatalogueStatusChange,
     ColumnCatalogueCreate,
     ColumnCatalogueOut,
     ColumnCatalogueUpdate,
@@ -21,6 +22,11 @@ from app.schemas.inventory import (
     InstrumentCatalogueOut,
     InstrumentCatalogueUpdate,
 )
+from app.shared.inv_audit import write_inv_audit
+
+
+def _user_ref(user) -> str:
+    return user.username if hasattr(user, "username") else str(user.id)
 
 # ── Equipment Catalogue ────────────────────────────────────────────────────────
 equipment_router = APIRouter(
@@ -59,12 +65,22 @@ def list_equipment(
 def create_equipment(
     body: EquipmentCatalogueCreate,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     if db.query(InvEquipmentCatalogue).filter_by(asset_id=body.asset_id).first():
         raise HTTPException(409, f"Asset ID '{body.asset_id}' already exists.")
     row = InvEquipmentCatalogue(**body.model_dump())
     db.add(row)
+    db.flush()
+    write_inv_audit(
+        db,
+        event_type="EQUIPMENT_CREATED",
+        entity_type="inv_equipment_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+        new_value=row.status,
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -87,13 +103,49 @@ def update_equipment(
     item_id: int,
     body: EquipmentCatalogueUpdate,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     row = db.get(InvEquipmentCatalogue, item_id)
     if not row:
         raise HTTPException(404, "Equipment not found.")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(row, k, v)
+    write_inv_audit(
+        db,
+        event_type="EQUIPMENT_UPDATED",
+        entity_type="inv_equipment_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+    )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@equipment_router.patch("/{item_id}/status", response_model=EquipmentCatalogueOut)
+def change_equipment_status(
+    item_id: int,
+    body: CatalogueStatusChange,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    row = db.get(InvEquipmentCatalogue, item_id)
+    if not row:
+        raise HTTPException(404, "Equipment not found.")
+    old = row.status
+    row.status = body.status
+    write_inv_audit(
+        db,
+        event_type="EQUIPMENT_STATUS_CHANGED",
+        entity_type="inv_equipment_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+        old_value=old,
+        new_value=body.status,
+        details=body.remarks,
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -103,12 +155,20 @@ def update_equipment(
 def deactivate_equipment(
     item_id: int,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     row = db.get(InvEquipmentCatalogue, item_id)
     if not row:
         raise HTTPException(404, "Equipment not found.")
     row.is_active = False
+    write_inv_audit(
+        db,
+        event_type="EQUIPMENT_DEACTIVATED",
+        entity_type="inv_equipment_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -151,12 +211,22 @@ def list_instruments(
 def create_instrument(
     body: InstrumentCatalogueCreate,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     if db.query(InvInstrumentCatalogue).filter_by(asset_id=body.asset_id).first():
         raise HTTPException(409, f"Asset ID '{body.asset_id}' already exists.")
     row = InvInstrumentCatalogue(**body.model_dump())
     db.add(row)
+    db.flush()
+    write_inv_audit(
+        db,
+        event_type="INSTRUMENT_CREATED",
+        entity_type="inv_instrument_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+        new_value=row.status,
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -179,13 +249,49 @@ def update_instrument(
     item_id: int,
     body: InstrumentCatalogueUpdate,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     row = db.get(InvInstrumentCatalogue, item_id)
     if not row:
         raise HTTPException(404, "Instrument not found.")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(row, k, v)
+    write_inv_audit(
+        db,
+        event_type="INSTRUMENT_UPDATED",
+        entity_type="inv_instrument_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+    )
+    db.commit()
+    db.refresh(row)
+    return row
+
+
+@instrument_router.patch("/{item_id}/status", response_model=InstrumentCatalogueOut)
+def change_instrument_status(
+    item_id: int,
+    body: CatalogueStatusChange,
+    db: Session = Depends(get_db),
+    current_user: Any = Depends(get_current_user),
+):
+    row = db.get(InvInstrumentCatalogue, item_id)
+    if not row:
+        raise HTTPException(404, "Instrument not found.")
+    old = row.status
+    row.status = body.status
+    write_inv_audit(
+        db,
+        event_type="INSTRUMENT_STATUS_CHANGED",
+        entity_type="inv_instrument_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+        old_value=old,
+        new_value=body.status,
+        details=body.remarks,
+    )
     db.commit()
     db.refresh(row)
     return row
@@ -195,12 +301,20 @@ def update_instrument(
 def deactivate_instrument(
     item_id: int,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     row = db.get(InvInstrumentCatalogue, item_id)
     if not row:
         raise HTTPException(404, "Instrument not found.")
     row.is_active = False
+    write_inv_audit(
+        db,
+        event_type="INSTRUMENT_DEACTIVATED",
+        entity_type="inv_instrument_catalogue",
+        entity_id=row.id,
+        entity_ref=row.asset_id,
+        performed_by=_user_ref(current_user),
+    )
     db.commit()
     db.refresh(row)
     return row

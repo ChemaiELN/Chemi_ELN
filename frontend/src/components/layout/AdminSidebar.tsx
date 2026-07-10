@@ -3,8 +3,9 @@ import { Menu } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   Users, Building2, ShieldCheck, Settings,
-  FlaskConical, LayoutGrid, GitBranch,
+  LayoutGrid, GitBranch, Database,
 } from 'lucide-react'
+import logo from '../../assets/logo.svg'
 
 type MenuItem = Required<MenuProps>['items'][number]
 
@@ -29,6 +30,11 @@ function makeItems(): MenuItem[] {
       key: '/admin/workflow-templates',
       icon: <GitBranch size={15} />,
       label: 'Workflow Templates',
+    },
+    {
+      key: '/admin/master-data',
+      icon: <Database size={15} />,
+      label: 'Master Data',
     },
     { type: 'divider' } as MenuItem,
     {
@@ -59,16 +65,8 @@ export default function AdminSidebar({ collapsed, onItemClick }: AdminSidebarPro
     <aside className={`glass-sidebar flex flex-col ${sidebarW} min-h-screen shrink-0 transition-all duration-200 overflow-hidden`}>
 
       {/* Brand */}
-      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2.5 px-4'} py-4 border-b border-white/40 shrink-0`}>
-        <div className="flex items-center justify-center w-8 h-8 rounded-xl bg-gradient-to-br from-purple-400 to-purple-500 shadow-md shadow-purple-400/30 shrink-0">
-          <FlaskConical size={15} className="text-white" />
-        </div>
-        {!collapsed && (
-          <div className="min-w-0">
-            <p className="text-slate-800 font-bold text-sm leading-none truncate">Administration</p>
-            <p className="text-[10px] text-slate-400 mt-0.5">Laurus ELN</p>
-          </div>
-        )}
+      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} py-4 border-b border-white/40 shrink-0`}>
+        <img src={logo} alt="Logo" className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'} />
       </div>
 
       {/* Back to modules */}

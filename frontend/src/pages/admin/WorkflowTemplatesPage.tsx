@@ -1,11 +1,12 @@
 import { useState, useCallback, type CSSProperties } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Tag, Button, Modal, Form, Input, Select, Switch, Popconfirm, Tooltip, message,
 } from 'antd'
 import {
   ChevronRight, ChevronLeft, Settings2, Layers, Hash, FileText,
-  FlaskConical, Beaker, TestTube2, Microscope, Package, Waves,
+  FlaskConical, Beaker, TestTube2, Microscope, Package, Waves, Dna,
   Plus, Trash2, Edit2, Save, CheckCircle2, Circle, GripVertical,
   ArrowUp, ArrowDown,
 } from 'lucide-react'
@@ -916,7 +917,73 @@ function SectionCardsView({
 }
 
 // ── Level 0: Process cards ────────────────────────────────────────────────────
+
+// Accent classes per card variant, kept as literal strings (not interpolated)
+// so Tailwind's static analysis can find and generate them.
+const CARD_ACCENTS = {
+  blue: {
+    hoverShadow: 'hover:shadow-blue-300/40',
+    iconBg: 'bg-gradient-to-br from-blue-500 to-indigo-600',
+    iconShadow: 'shadow-blue-500/30',
+    chevron: 'text-blue-300 group-hover:text-blue-500',
+    bullet: 'bg-blue-400',
+    footer: 'text-blue-600',
+  },
+  teal: {
+    hoverShadow: 'hover:shadow-teal-300/40',
+    iconBg: 'bg-gradient-to-br from-teal-500 to-cyan-600',
+    iconShadow: 'shadow-teal-500/30',
+    chevron: 'text-teal-300 group-hover:text-teal-500',
+    bullet: 'bg-teal-400',
+    footer: 'text-teal-600',
+  },
+} as const
+
+interface WorkflowProcessCardProps {
+  icon: React.ElementType
+  title: string
+  description: string
+  items: string[]
+  accent: keyof typeof CARD_ACCENTS
+  onClick: () => void
+  disabled?: boolean
+}
+
+function WorkflowProcessCard({ icon: Icon, title, description, items, accent, onClick, disabled }: WorkflowProcessCardProps) {
+  const c = CARD_ACCENTS[accent]
+  return (
+    <button
+      onClick={onClick}
+      disabled={disabled}
+      className={`glass-card rounded-3xl p-7 text-left hover:shadow-2xl ${c.hoverShadow} hover:-translate-y-1 hover:bg-white/65 transition-all duration-200 group cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed`}
+    >
+      <div className="flex items-start justify-between mb-5">
+        <div className={`w-14 h-14 rounded-2xl ${c.iconBg} flex items-center justify-center shadow-lg ${c.iconShadow}`}>
+          <Icon size={26} className="text-white" />
+        </div>
+        <ChevronRight size={18} className={`${c.chevron} mt-1 transition-colors`} />
+      </div>
+      <h2 className="text-xl font-bold text-slate-800 mb-1">{title}</h2>
+      <p className="text-slate-500 text-sm mb-5">{description}</p>
+      <div className="space-y-1.5 mb-5">
+        {items.map(item => (
+          <div key={item} className="flex items-center gap-2 text-slate-500 text-xs">
+            <div className={`w-1 h-1 rounded-full ${c.bullet} shrink-0`} />
+            {item}
+          </div>
+        ))}
+      </div>
+      <div className="mt-2 pt-4 border-t border-white/50">
+        <span className={`text-xs font-semibold ${c.footer} flex items-center gap-1 group-hover:gap-2 transition-all`}>
+          Open Process <ChevronRight size={12} />
+        </span>
+      </div>
+    </button>
+  )
+}
+
 export default function WorkflowTemplatesPage() {
+  const navigate = useNavigate()
   const qc = useQueryClient()
   const [view, setView] = useState<View>('processes')
   const [activeTemplate, setActiveTemplate] = useState<WorkflowTemplate | null>(null)
@@ -991,33 +1058,24 @@ export default function WorkflowTemplatesPage() {
       </div>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5 max-w-4xl">
-        <button
+        <WorkflowProcessCard
+          icon={FlaskConical}
+          title="ADC Process"
+          description="Antibody-drug conjugation workflow — synthesis sections & templates"
+          items={['Materials & Consumables', 'Buffer Preparation', 'Bioconjugation', 'Purification & Analysis', 'Analytical Characterization DS', 'Formulation & Lyo Studies', 'Analytical Characterization DP']}
+          accent="blue"
           onClick={openProcess}
           disabled={!adcTemplate || isLoading}
-          className="glass-card rounded-3xl p-7 text-left hover:shadow-2xl hover:shadow-blue-300/40 hover:-translate-y-1 hover:bg-white/65 transition-all duration-200 group cursor-pointer disabled:opacity-60 disabled:cursor-not-allowed"
-        >
-          <div className="flex items-start justify-between mb-5">
-            <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-500 to-indigo-600 flex items-center justify-center shadow-lg shadow-blue-500/30">
-              <FlaskConical size={26} className="text-white" />
-            </div>
-            <ChevronRight size={18} className="text-blue-300 group-hover:text-blue-500 mt-1 transition-colors" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-800 mb-1">ADC Process</h2>
-          <p className="text-slate-500 text-sm mb-5">Antibody-drug conjugation workflow — synthesis sections &amp; templates</p>
-          <div className="space-y-1.5 mb-5">
-            {['Materials & Consumables','Buffer Preparation','Bioconjugation','Purification & Analysis','Analytical Characterization DS','Formulation & Lyo Studies','Analytical Characterization DP'].map(item => (
-              <div key={item} className="flex items-center gap-2 text-slate-500 text-xs">
-                <div className="w-1 h-1 rounded-full bg-blue-400 shrink-0" />
-                {item}
-              </div>
-            ))}
-          </div>
-          <div className="mt-2 pt-4 border-t border-white/50">
-            <span className="text-xs font-semibold text-blue-600 flex items-center gap-1 group-hover:gap-2 transition-all">
-              Open Process <ChevronRight size={12} />
-            </span>
-          </div>
-        </button>
+        />
+
+        <WorkflowProcessCard
+          icon={Dna}
+          title="CGT Plasmid Process"
+          description="Cell and Gene Therapy plasmid workflow — production sections & templates"
+          items={['Plasmid Design', 'Fermentation', 'Purification', 'Quality Control']}
+          accent="teal"
+          onClick={() => navigate('/admin/workflow-templates/cgt-plasmid')}
+        />
 
         <div className="glass-card rounded-3xl p-7 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center opacity-40 min-h-[280px]">
           <div className="w-12 h-12 rounded-2xl bg-slate-100 flex items-center justify-center mb-3">

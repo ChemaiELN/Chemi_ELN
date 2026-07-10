@@ -122,17 +122,21 @@ export default function MaterialsPage() {
     {
       title: 'Code',
       dataIndex: 'code',
+      ellipsis: true,
       width: 110,
-      render: (v) => <span className="font-mono text-[13px] text-slate-600">{v}</span>,
+      render: (v) => <span className="text-[13px] text-slate-600">{v}</span>,
     },
     {
       title: 'Name',
       dataIndex: 'name',
+      ellipsis: true,
+      width:200,
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Material Type',
       dataIndex: 'material_type',
+      ellipsis: true,
       width: 130,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-700">{v}</span>
@@ -141,6 +145,7 @@ export default function MaterialsPage() {
     ...(showConsumablesType ? [{
       title: 'Consumables Type',
       dataIndex: 'consumable_type_id',
+      ellipsis: true,
       width: 150,
       render: (v: number | null) => {
         const name = ctypes.find(c => c.id === v)?.name
@@ -152,22 +157,25 @@ export default function MaterialsPage() {
     {
       title: 'CAS No',
       dataIndex: 'cas_no',
+      ellipsis: true,
       width: 130,
       render: (v: string | null) => v
-        ? <span className="font-mono text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-600">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Formula',
       dataIndex: 'molecular_formula',
+      ellipsis: true,
       width: 120,
       render: (v: string | null) => v
-        ? <span className="font-mono text-[13px] text-slate-600">{v}</span>
+        ? <span className=" text-[13px] text-slate-600">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Mol. Wt',
       dataIndex: 'mol_weight',
+      ellipsis: true,
       width: 90,
       align: 'right',
       render: (v: number | null) => v != null
@@ -177,6 +185,7 @@ export default function MaterialsPage() {
     {
       title: 'Storage',
       dataIndex: 'storage_condition',
+      ellipsis: true,
       width: 130,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -185,6 +194,7 @@ export default function MaterialsPage() {
     {
       title: 'Hazard Class',
       dataIndex: 'hazard_class',
+      ellipsis: true,
       width: 120,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-700">{v}</span>
@@ -193,6 +203,7 @@ export default function MaterialsPage() {
     {
       title: 'Status',
       dataIndex: 'is_active',
+      ellipsis: true,
       width: 90,
       render: (v: boolean) => (
         <StatusTag color={v ? 'success' : 'default'} className="text-[13px]">{v ? 'Active' : 'Inactive'}</StatusTag>
@@ -268,6 +279,7 @@ export default function MaterialsPage() {
         confirmLoading={saving}
         width={620}
         centered
+         closable={false}
         destroyOnHidden
         {...glassModalProps}
       >

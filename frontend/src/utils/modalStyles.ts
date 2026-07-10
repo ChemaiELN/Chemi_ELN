@@ -18,8 +18,8 @@ export const glassModalStyles = {
   },
   header: {
     background: 'transparent',
-    borderBottom: '1px solid rgba(196,181,253,0.35)',
-    padding: '16px 24px 14px',
+    // borderBottom: '1px solid rgba(196,181,253,0.35)',
+    padding: '16px 24px 0px',
     margin: 0,
   },
   body: {
@@ -27,8 +27,8 @@ export const glassModalStyles = {
     padding: '14px 22px 8px',
   },
   footer: {
-    background: 'rgba(245,243,255,0.6)',
-    borderTop: '1px solid rgba(196,181,253,0.3)',
+    // background: 'rgba(245,243,255,0.6)',
+    // borderTop: '1px solid rgba(196,181,253,0.3)',
     padding: '12px 22px 16px',
     margin: 0,
   },

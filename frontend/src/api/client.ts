@@ -1,6 +1,6 @@
 const BASE_URL =
   (typeof window !== 'undefined' && (window as { __APP_CONFIG__?: { API_URL?: string } }).__APP_CONFIG__?.API_URL) ||
-  import.meta.env.VITE_API_URL ||
+  import.meta.env.VITE_API_URL || 
   'http://localhost:8000'
 
 export class ApiError extends Error {

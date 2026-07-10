@@ -9,13 +9,12 @@ from sqlalchemy.orm import Session
 from app.dependencies import get_current_user, get_db
 from app.models.inventory import (
     InvBatch,
-    InvBatchVerification,
-    InvCalibrationSchedule,
-    InvEquipmentVerification,
-    InvInstrumentVerification,
-    InvMaintenanceSchedule,
+    InvChecklist,
+    InvEquipmentCatalogue,
+    InvInstrumentCatalogue,
     InvMaterial,
     InvStockRequest,
+    InvWorkOrder,
 )
 from app.schemas.inventory import DashboardKPIs
 
@@ -62,18 +61,37 @@ def get_kpis(
         InvStockRequest.criticality == "CRITICAL",
     ).count()
 
-    maintenance_due = db.query(InvMaintenanceSchedule).filter(
-        InvMaintenanceSchedule.status.in_(["DUE"])
+    in_stock_material_ids = (
+        db.query(InvBatch.material_id)
+        .filter(InvBatch.status.in_(["AVAILABLE", "PARTIALLY_CONSUMED"]), InvBatch.qty_available > 0)
+        .distinct()
+        .subquery()
+    )
+    out_of_stock = db.query(InvMaterial).filter(
+        InvMaterial.is_active.is_(True),
+        InvMaterial.id.notin_(db.query(in_stock_material_ids.c.material_id)),
     ).count()
 
-    calibration_due = db.query(InvCalibrationSchedule).filter(
-        InvCalibrationSchedule.status.in_(["DUE"])
+    pending_work_orders = db.query(InvWorkOrder).filter(
+        InvWorkOrder.status.in_(["PENDING_VERIFICATION", "PENDING_APPROVAL"])
     ).count()
+    pending_checklists = db.query(InvChecklist).filter(
+        InvChecklist.status.in_(["PENDING_VERIFICATION", "PENDING_APPROVAL"])
+    ).count()
+    pending_approvals_total = pending_sr + pending_work_orders + pending_checklists
 
-    pending_bv = db.query(InvBatchVerification).filter(InvBatchVerification.status == "PENDING").count()
-    pending_ev = db.query(InvEquipmentVerification).filter(InvEquipmentVerification.status == "PENDING").count()
-    pending_iv = db.query(InvInstrumentVerification).filter(InvInstrumentVerification.status == "PENDING").count()
-    pending_verifications = pending_bv + pending_ev + pending_iv
+    due_cutoff = today + datetime.timedelta(days=7)
+    maintenance_due = db.query(InvEquipmentCatalogue).filter(
+        InvEquipmentCatalogue.is_active.is_(True),
+        InvEquipmentCatalogue.next_maintenance_date != None,
+        InvEquipmentCatalogue.next_maintenance_date <= due_cutoff,
+    ).count()
+    calibration_due = db.query(InvInstrumentCatalogue).filter(
+        InvInstrumentCatalogue.is_active.is_(True),
+        InvInstrumentCatalogue.required_calibration.is_(True),
+        InvInstrumentCatalogue.next_calibration_date != None,
+        InvInstrumentCatalogue.next_calibration_date <= due_cutoff,
+    ).count()
 
     return DashboardKPIs(
         active_materials=active_materials,
@@ -83,9 +101,10 @@ def get_kpis(
         expired=expired,
         pending_stock_requests=pending_sr,
         critical_stock_requests=critical_sr,
+        out_of_stock=out_of_stock,
+        pending_approvals_total=pending_approvals_total,
         maintenance_due=maintenance_due,
         calibration_due=calibration_due,
-        pending_verifications=pending_verifications,
     )
 
 
@@ -160,16 +179,144 @@ def pending_actions(
     _: Any = Depends(get_current_user),
 ):
     pending_sr = db.query(InvStockRequest).filter(InvStockRequest.status == "PENDING").count()
-    pending_bv = db.query(InvBatchVerification).filter(InvBatchVerification.status == "PENDING").count()
-    pending_ev = db.query(InvEquipmentVerification).filter(InvEquipmentVerification.status == "PENDING").count()
-    pending_iv = db.query(InvInstrumentVerification).filter(InvInstrumentVerification.status == "PENDING").count()
-    due_maint = db.query(InvMaintenanceSchedule).filter(InvMaintenanceSchedule.status == "DUE").count()
-    due_calib = db.query(InvCalibrationSchedule).filter(InvCalibrationSchedule.status == "DUE").count()
     return {
         "pending_stock_requests": pending_sr,
-        "pending_batch_verifications": pending_bv,
-        "pending_equipment_verifications": pending_ev,
-        "pending_instrument_verifications": pending_iv,
-        "maintenance_due": due_maint,
-        "calibration_due": due_calib,
     }
+
+
+@router.get("/pending-approvals")
+def pending_approvals(
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    now = datetime.datetime.utcnow()
+    rows: list[dict] = []
+
+    for sr in db.query(InvStockRequest).filter(InvStockRequest.status == "PENDING").all():
+        rows.append({
+            "type": "Stock Request",
+            "reference_no": sr.request_no,
+            "status": sr.status,
+            "raised_by": sr.requested_by,
+            "raised_at": sr.created_at.isoformat() if sr.created_at else None,
+            "age_days": (now - sr.created_at).days if sr.created_at else None,
+        })
+
+    for wo in db.query(InvWorkOrder).filter(
+        InvWorkOrder.status.in_(["PENDING_VERIFICATION", "PENDING_APPROVAL"])
+    ).all():
+        rows.append({
+            "type": "Work Order",
+            "reference_no": wo.workorder_no,
+            "status": wo.status,
+            "raised_by": wo.raised_by,
+            "raised_at": wo.raised_at.isoformat() if wo.raised_at else None,
+            "age_days": (now - wo.raised_at).days if wo.raised_at else None,
+        })
+
+    for cl in db.query(InvChecklist).filter(
+        InvChecklist.status.in_(["PENDING_VERIFICATION", "PENDING_APPROVAL"])
+    ).all():
+        rows.append({
+            "type": "Checklist",
+            "reference_no": cl.name,
+            "status": cl.status,
+            "raised_by": cl.created_by,
+            "raised_at": cl.created_at.isoformat() if cl.created_at else None,
+            "age_days": (now - cl.created_at).days if cl.created_at else None,
+        })
+
+    rows.sort(key=lambda r: r["age_days"] if r["age_days"] is not None else -1, reverse=True)
+    return rows
+
+
+@router.get("/maintenance-calibration-due")
+def maintenance_calibration_due(
+    days: int = 7,
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    today = datetime.date.today()
+    cutoff = today + datetime.timedelta(days=days)
+    rows: list[dict] = []
+
+    for eq in db.query(InvEquipmentCatalogue).filter(
+        InvEquipmentCatalogue.is_active.is_(True),
+        InvEquipmentCatalogue.next_maintenance_date != None,
+        InvEquipmentCatalogue.next_maintenance_date <= cutoff,
+    ).order_by(InvEquipmentCatalogue.next_maintenance_date).all():
+        rows.append({
+            "type": "Maintenance",
+            "asset_code": eq.asset_id,
+            "asset_name": eq.name,
+            "due_date": eq.next_maintenance_date.isoformat(),
+            "days_until_due": (eq.next_maintenance_date - today).days,
+        })
+
+    for inst in db.query(InvInstrumentCatalogue).filter(
+        InvInstrumentCatalogue.is_active.is_(True),
+        InvInstrumentCatalogue.required_calibration.is_(True),
+        InvInstrumentCatalogue.next_calibration_date != None,
+        InvInstrumentCatalogue.next_calibration_date <= cutoff,
+    ).order_by(InvInstrumentCatalogue.next_calibration_date).all():
+        rows.append({
+            "type": "Calibration",
+            "asset_code": inst.asset_id,
+            "asset_name": inst.name,
+            "due_date": inst.next_calibration_date.isoformat(),
+            "days_until_due": (inst.next_calibration_date - today).days,
+        })
+
+    rows.sort(key=lambda r: r["due_date"])
+    return rows
+
+
+@router.get("/equipment-status")
+def equipment_status(
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    eq_rows = (
+        db.query(InvEquipmentCatalogue.status, func.count(InvEquipmentCatalogue.id))
+        .filter(InvEquipmentCatalogue.is_active.is_(True))
+        .group_by(InvEquipmentCatalogue.status)
+        .all()
+    )
+    inst_rows = (
+        db.query(InvInstrumentCatalogue.status, func.count(InvInstrumentCatalogue.id))
+        .filter(InvInstrumentCatalogue.is_active.is_(True))
+        .group_by(InvInstrumentCatalogue.status)
+        .all()
+    )
+    return {
+        "equipment": [{"status": s, "count": c} for s, c in eq_rows],
+        "instruments": [{"status": s, "count": c} for s, c in inst_rows],
+    }
+
+
+@router.get("/expiry-timeline")
+def expiry_timeline(
+    months: int = 6,
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    today = datetime.date.today()
+    cutoff = (today.replace(day=1) + datetime.timedelta(days=32 * months)).replace(day=1)
+    batches = db.query(InvBatch.expiry_date, InvBatch.qty_available).filter(
+        InvBatch.expiry_date != None,
+        InvBatch.expiry_date >= today,
+        InvBatch.expiry_date < cutoff,
+        InvBatch.qty_available > 0,
+    ).all()
+
+    buckets: dict[str, dict[str, float]] = {}
+    for expiry_date, qty in batches:
+        key = expiry_date.strftime("%Y-%m")
+        b = buckets.setdefault(key, {"count": 0, "qty": 0.0})
+        b["count"] += 1
+        b["qty"] += float(qty or 0)
+
+    return [
+        {"month": k, "count": int(v["count"]), "qty": v["qty"]}
+        for k, v in sorted(buckets.items())
+    ]

@@ -17,10 +17,16 @@ from app.modules.inventory.catalogue import (
 
 # B3 routers
 from app.modules.inventory.batches import router as batches_router
-from app.modules.inventory.batch_verifications import router as batch_verif_router
 from app.modules.inventory.stock_requests import router as stock_requests_router
-from app.modules.inventory.schedules import maintenance_router, calibration_router
-from app.modules.inventory.equip_verifications import equip_verif_router, instr_verif_router
+from app.modules.inventory.checklists import router as checklists_router
+from app.modules.inventory.measurement_master import router as measurement_master_router
+from app.modules.inventory.log_mapping import router as log_mapping_router
+from app.modules.inventory.instrument_spec import router as instrument_spec_router
+from app.modules.inventory.schedules import router as schedules_router
+from app.modules.inventory.master_templates import router as master_templates_router
+from app.modules.inventory.spare_parts import router as spare_parts_router
+from app.modules.inventory.work_orders import router as work_orders_router
+from app.modules.inventory.usage_logs import router as usage_logs_router
 from app.modules.inventory.lookup import router as lookup_router
 from app.modules.inventory.uom import router as uom_router
 from app.modules.inventory.test_master import router as test_master_router
@@ -43,12 +49,16 @@ __all__ = [
     "column_router",
     # B3
     "batches_router",
-    "batch_verif_router",
     "stock_requests_router",
-    "maintenance_router",
-    "calibration_router",
-    "equip_verif_router",
-    "instr_verif_router",
+    "checklists_router",
+    "measurement_master_router",
+    "log_mapping_router",
+    "instrument_spec_router",
+    "schedules_router",
+    "master_templates_router",
+    "spare_parts_router",
+    "work_orders_router",
+    "usage_logs_router",
     "lookup_router",
     "uom_router",
     "test_master_router",

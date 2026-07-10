@@ -1,17 +1,28 @@
 import { useEffect, useState } from 'react'
-import { Card, Statistic, Table, Spin, Alert } from 'antd'
+import { useNavigate } from 'react-router-dom'
+import { Table, Spin, Alert } from 'antd'
+import { Column, Pie } from '@ant-design/plots'
+import dayjs from 'dayjs'
 import { StatusTag } from '../../components/ui/StatusTag'
 import {
-  Package2, FlaskConical, AlertTriangle, Clock, Wrench,
-  Activity, ShoppingCart, CheckCircle2,
+  Package2, FlaskConical, AlertTriangle, Clock, PackageX,
+  ShoppingCart, ClipboardCheck, Wrench, CalendarCheck2,
 } from 'lucide-react'
-import { dashboardApi, type DashboardKPIs } from '../../api/inventory'
+import {
+  dashboardApi,
+  type DashboardKPIs, type PendingApproval, type MaintenanceCalibrationDue,
+  type EquipmentStatusBreakdown, type ExpiryTimelinePoint, type ExpiringBatch,
+} from '../../api/inventory'
 
 function KpiCard({
-  label, value, icon: Icon, bg, iconColor, sub,
-}: { label: string; value: number; icon: React.ElementType; bg: string; iconColor: string; sub?: string }) {
+  label, value, icon: Icon, bg, iconColor, sub, onClick,
+}: { label: string; value: number; icon: React.ElementType; bg: string; iconColor: string; sub?: string; onClick?: () => void }) {
   return (
-    <div className="glass-card rounded-lg p-4 lg:p-5 flex items-center gap-3 lg:gap-4">
+    <div
+      className={`glass-card rounded-lg p-4 lg:p-5 flex items-center gap-3 lg:gap-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+      onClick={onClick}
+      role={onClick ? 'button' : undefined}
+    >
       <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-lg flex items-center justify-center shrink-0 ${bg}`}>
         <Icon size={18} className={`${iconColor} lg:w-5 lg:h-5`} />
       </div>
@@ -24,10 +35,24 @@ function KpiCard({
   )
 }
 
+function SectionHeader({ icon: Icon, iconColor, title, count }: { icon: React.ElementType; iconColor: string; title: string; count?: number }) {
+  return (
+    <div className="px-4 lg:px-6 py-3 lg:py-4 border-b border-white/40 flex items-center gap-2">
+      <Icon size={14} className={iconColor} />
+      <span className="font-semibold text-sm lg:text-base text-slate-700">{title}</span>
+      {count != null && <span className="ml-auto text-xs lg:text-sm text-slate-400">{count} item{count !== 1 ? 's' : ''}</span>}
+    </div>
+  )
+}
+
 export default function InventoryDashboard() {
+  const navigate = useNavigate()
   const [kpis, setKpis] = useState<DashboardKPIs | null>(null)
-  const [expiring, setExpiring] = useState<unknown[]>([])
-  const [pendingActions, setPendingActions] = useState<Record<string, number>>({})
+  const [expiring, setExpiring] = useState<ExpiringBatch[]>([])
+  const [pendingApprovals, setPendingApprovals] = useState<PendingApproval[]>([])
+  const [dueItems, setDueItems] = useState<MaintenanceCalibrationDue[]>([])
+  const [equipmentStatus, setEquipmentStatus] = useState<EquipmentStatusBreakdown | null>(null)
+  const [expiryTimeline, setExpiryTimeline] = useState<ExpiryTimelinePoint[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
@@ -36,12 +61,18 @@ export default function InventoryDashboard() {
     Promise.all([
       dashboardApi.kpis(),
       dashboardApi.expiringSoon(30),
-      dashboardApi.pendingActions(),
+      dashboardApi.pendingApprovals(),
+      dashboardApi.maintenanceCalibrationDue(7),
+      dashboardApi.equipmentStatus(),
+      dashboardApi.expiryTimeline(6),
     ])
-      .then(([k, e, p]) => {
+      .then(([k, e, pa, due, es, et]) => {
         setKpis(k)
-        setExpiring(e as unknown[])
-        setPendingActions(p)
+        setExpiring(e)
+        setPendingApprovals(pa)
+        setDueItems(due)
+        setEquipmentStatus(es)
+        setExpiryTimeline(et)
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -52,47 +83,118 @@ export default function InventoryDashboard() {
   if (!kpis) return null
 
   const expiryColumns = [
-    { title: 'Batch No', dataIndex: 'batch_no', key: 'batch_no', width: 140 },
-    { title: 'Inhouse Batch', dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140 },
-    { title: 'Qty Available', dataIndex: 'qty_available', key: 'qty_available', width: 110, render: (v: number, r: Record<string, unknown>) => `${v} ${r.unit}` },
-    { title: 'Expiry Date', dataIndex: 'expiry_date', key: 'expiry_date', width: 120 },
+    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 140 },
+    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140 },
+    { title: 'Qty Available', ellipsis: true, dataIndex: 'qty_available', key: 'qty_available', width: 110, render: (v: number, r: ExpiringBatch) => `${v} ${r.unit}` },
+    { title: 'Expiry Date', ellipsis: true, dataIndex: 'expiry_date', key: 'expiry_date', width: 120 },
     {
-      title: 'Status',
-      key: 'status',
-      width: 90,
-      render: (_: unknown, r: Record<string, unknown>) => (
-        <StatusTag color={r.status === 'AVAILABLE' ? 'green' : 'orange'}>{r.status as string}</StatusTag>
-      ),
+      title: 'Days Remaining',
+      ellipsis: true,
+      key: 'days_remaining',
+      width: 130,
+      render: (_: unknown, r: ExpiringBatch) => {
+        const days = dayjs(r.expiry_date).diff(dayjs().startOf('day'), 'day')
+        return <StatusTag color={days <= 7 ? 'red' : days <= 15 ? 'orange' : 'green'}>{days} day{days !== 1 ? 's' : ''}</StatusTag>
+      },
     },
+  ]
+
+  const approvalColumns = [
+    { title: 'Type', ellipsis: true, dataIndex: 'type', key: 'type', width: 120 },
+    { title: 'Reference No', ellipsis: true, dataIndex: 'reference_no', key: 'reference_no', width: 160 },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 130, render: (v: string) => <StatusTag color="gold">{v.replaceAll('_', ' ')}</StatusTag> },
+    { title: 'Raised By', ellipsis: true, dataIndex: 'raised_by', key: 'raised_by', width: 140, render: (v: string | null) => v ?? '—' },
+    { title: 'Age', ellipsis: true, dataIndex: 'age_days', key: 'age_days', width: 100, render: (v: number | null) => v != null ? `${v} day${v !== 1 ? 's' : ''}` : '—' },
+  ]
+
+  const dueColumns = [
+    { title: 'Type', ellipsis: true, dataIndex: 'type', key: 'type', width: 110, render: (v: string) => <StatusTag color={v === 'Calibration' ? 'blue' : 'purple'}>{v}</StatusTag> },
+    { title: 'Asset Code', ellipsis: true, dataIndex: 'asset_code', key: 'asset_code', width: 130 },
+    { title: 'Asset Name', ellipsis: true, dataIndex: 'asset_name', key: 'asset_name', width: 180 },
+    { title: 'Due Date', ellipsis: true, dataIndex: 'due_date', key: 'due_date', width: 120 },
+    {
+      title: 'Days Until Due', ellipsis: true, dataIndex: 'days_until_due', key: 'days_until_due', width: 130,
+      render: (v: number) => <StatusTag color={v <= 0 ? 'red' : v <= 3 ? 'orange' : 'green'}>{v <= 0 ? 'Overdue' : `${v} day${v !== 1 ? 's' : ''}`}</StatusTag>,
+    },
+  ]
+
+  const statusPieData = [
+    ...(equipmentStatus?.equipment ?? []).map(s => ({ status: s.status, count: s.count, kind: 'Equipment' })),
+  ]
+  const instrumentPieData = [
+    ...(equipmentStatus?.instruments ?? []).map(s => ({ status: s.status, count: s.count, kind: 'Instrument' })),
   ]
 
   return (
     <div className="p-4 lg:p-8 space-y-4 lg:space-y-6">
-      {/* KPI grid */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
-        <KpiCard label="Active Materials" value={kpis.active_materials} icon={FlaskConical} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" />
-        <KpiCard label="Available Batches" value={kpis.available_batches} icon={Package2} bg="bg-gradient-to-br from-emerald-100 to-emerald-200" iconColor="text-emerald-600" />
-        <KpiCard label="Low Stock" value={kpis.low_stock} icon={AlertTriangle} bg="bg-gradient-to-br from-amber-100 to-yellow-200" iconColor="text-amber-600" sub="<10% remaining" />
-        <KpiCard label="Expiring Soon" value={kpis.expiring_soon} icon={Clock} bg="bg-gradient-to-br from-orange-100 to-amber-200" iconColor="text-orange-600" sub="≤30 days" />
-        <KpiCard label="Expired" value={kpis.expired} icon={AlertTriangle} bg="bg-gradient-to-br from-red-100 to-rose-200" iconColor="text-red-600" sub="with stock" />
-      </div>
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
-        <KpiCard label="Pending Requests" value={kpis.pending_stock_requests} icon={ShoppingCart} bg="bg-gradient-to-br from-blue-100 to-indigo-200" iconColor="text-blue-600" />
-        <KpiCard label="Critical Requests" value={kpis.critical_stock_requests} icon={AlertTriangle} bg="bg-gradient-to-br from-red-100 to-pink-200" iconColor="text-red-600" />
-        <KpiCard label="Maintenance Due" value={kpis.maintenance_due} icon={Wrench} bg="bg-gradient-to-br from-yellow-100 to-amber-200" iconColor="text-yellow-700" />
-        <KpiCard label="Calibration Due" value={kpis.calibration_due} icon={Activity} bg="bg-gradient-to-br from-cyan-100 to-sky-200" iconColor="text-cyan-600" />
-        <KpiCard label="Pending Verifications" value={kpis.pending_verifications} icon={CheckCircle2} bg="bg-gradient-to-br from-purple-100 to-violet-200" iconColor="text-purple-600" />
+      {/* Section 1 — KPI strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 lg:gap-4">
+        <KpiCard label="Active Materials" value={kpis.active_materials} icon={FlaskConical} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/materials')} />
+        <KpiCard label="Available Batches" value={kpis.available_batches} icon={Package2} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/batches')} />
+        <KpiCard label="Out of Stock" value={kpis.out_of_stock} icon={PackageX} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/materials')} />
+        <KpiCard label="Low Stock" value={kpis.low_stock} icon={AlertTriangle} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="<10% remaining" onClick={() => navigate('/inventory/batches')} />
+        <KpiCard label="Expiring Soon" value={kpis.expiring_soon} icon={Clock} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="≤30 days" onClick={() => navigate('/inventory/batches')} />
+        <KpiCard label="Expired" value={kpis.expired} icon={AlertTriangle} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="with stock" onClick={() => navigate('/inventory/batches')} />
       </div>
 
-      {/* Expiring Soon */}
-      <div className="glass-card rounded-lg overflow-hidden">
-        <div className="px-4 lg:px-6 py-3 lg:py-4 border-b border-white/40 flex items-center gap-2">
-          <Clock size={14} className="text-orange-500" />
-          <span className="font-semibold text-sm lg:text-base text-slate-700">Expiring in 30 Days</span>
-          <span className="ml-auto text-xs lg:text-sm text-slate-400">{expiring.length} batch{expiring.length !== 1 ? 'es' : ''}</span>
+      {/* Section 2 — Compliance & approval strip */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
+        <KpiCard label="Pending Requests" value={kpis.pending_stock_requests} icon={ShoppingCart} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/stock-requests')} />
+        <KpiCard label="Critical Requests" value={kpis.critical_stock_requests} icon={AlertTriangle} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/stock-requests')} />
+        <KpiCard label="Pending Approvals" value={kpis.pending_approvals_total} icon={ClipboardCheck} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="requests + orders + checklists" />
+        <KpiCard label="Maintenance Due" value={kpis.maintenance_due} icon={Wrench} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="≤7 days" onClick={() => navigate('/inventory/maintenance-planner')} />
+        <KpiCard label="Calibration Due" value={kpis.calibration_due} icon={CalendarCheck2} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="≤7 days" onClick={() => navigate('/inventory/calibration-planner')} />
+      </div>
+
+      {/* Section 3 — Analytics */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <div className="glass-card rounded-lg overflow-hidden">
+          <SectionHeader icon={Clock} iconColor="text-orange-500" title="Expiry Timeline" />
+          <div className="p-4">
+            {expiryTimeline.length === 0
+              ? <p className="text-[13px] text-slate-400 text-center py-10">No batches expiring in the next 6 months</p>
+              : (
+                <Column
+                  data={expiryTimeline}
+                  xField="month"
+                  yField="count"
+                  height={260}
+                  label={{ position: 'top' }}
+                  axis={{ y: { title: 'Batches expiring' } }}
+                  style={{ fill: '#8b5cf6', fillOpacity: 0.75, radiusTopLeft: 4, radiusTopRight: 4 }}
+                />
+              )}
+          </div>
         </div>
+
+        <div className="glass-card rounded-lg overflow-hidden">
+          <SectionHeader icon={Wrench} iconColor="text-fuchsia-500" title="Equipment & Instrument Status" />
+          <div className="p-4 grid grid-cols-2 gap-2">
+            {statusPieData.length === 0
+              ? <p className="text-[13px] text-slate-400 text-center py-10 col-span-2">No equipment records</p>
+              : (
+                <div>
+                  <p className="text-center text-xs text-slate-500 mb-1">Equipment</p>
+                  <Pie data={statusPieData} angleField="count" colorField="status" height={220} label={{ text: 'status' }} legend={{ color: { position: 'bottom' } }} />
+                </div>
+              )}
+            {instrumentPieData.length === 0
+              ? <p className="text-[13px] text-slate-400 text-center py-10">No instrument records</p>
+              : (
+                <div>
+                  <p className="text-center text-xs text-slate-500 mb-1">Instruments</p>
+                  <Pie data={instrumentPieData} angleField="count" colorField="status" height={220} label={{ text: 'status' }} legend={{ color: { position: 'bottom' } }} />
+                </div>
+              )}
+          </div>
+        </div>
+      </div>
+
+      {/* Section 4 — Action tables */}
+      <div className="glass-card rounded-lg overflow-hidden">
+        <SectionHeader icon={Clock} iconColor="text-orange-500" title="Expiring in 30 Days" count={expiring.length} />
         <Table
-          dataSource={expiring as Record<string, unknown>[]}
+          dataSource={expiring}
           columns={expiryColumns}
           rowKey="id"
           size="small"
@@ -102,16 +204,31 @@ export default function InventoryDashboard() {
         />
       </div>
 
-      {/* Pending Actions */}
-      <div className="glass-card rounded-lg p-4 lg:p-6">
-        <p className="font-semibold text-sm lg:text-base text-slate-700 mb-3 lg:mb-4">Pending Actions</p>
-        <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 lg:gap-4">
-          {Object.entries(pendingActions).map(([k, v]) => (
-            <div key={k} className="flex items-center justify-between bg-white/40 rounded-md px-3 lg:px-4 py-2 lg:py-3">
-              <span className="text-xs lg:text-sm text-slate-600 capitalize">{k.replaceAll('_', ' ')}</span>
-              <span className={`text-sm lg:text-base font-bold ${v > 0 ? 'text-violet-600' : 'text-slate-400'}`}>{v}</span>
-            </div>
-          ))}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
+        <div className="glass-card rounded-lg overflow-hidden">
+          <SectionHeader icon={ClipboardCheck} iconColor="text-indigo-500" title="Pending Approvals" count={pendingApprovals.length} />
+          <Table
+            dataSource={pendingApprovals}
+            columns={approvalColumns}
+            rowKey={(r) => `${r.type}-${r.reference_no}`}
+            size="small"
+            pagination={false}
+            scroll={{ x: 500, y: 320 }}
+            locale={{ emptyText: 'No pending approvals' }}
+          />
+        </div>
+
+        <div className="glass-card rounded-lg overflow-hidden">
+          <SectionHeader icon={Wrench} iconColor="text-fuchsia-500" title="Upcoming Maintenance & Calibration" count={dueItems.length} />
+          <Table
+            dataSource={dueItems}
+            columns={dueColumns}
+            rowKey={(r) => `${r.type}-${r.asset_code}`}
+            size="small"
+            pagination={false}
+            scroll={{ x: 550, y: 320 }}
+            locale={{ emptyText: 'Nothing due in the next 7 days' }}
+          />
         </div>
       </div>
     </div>

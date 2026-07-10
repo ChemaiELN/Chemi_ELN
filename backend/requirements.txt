@@ -9,3 +9,5 @@ python-multipart==0.0.17
 pydantic[email]==2.10.3
 pydantic-settings==2.7.0
 python-dotenv==1.0.1
+openpyxl==3.1.5
+et_xmlfile==2.0.0

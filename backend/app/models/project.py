@@ -74,6 +74,38 @@ class Project(Base):
     notebooks       = relationship("Notebook", back_populates="project")
 
 
+# ── CGT Project (Cell and Gene Therapy) ────────────────────────────────────────
+# Deliberately separate from Project/ADC: no department_id (CGT uses a free-text
+# "process" field instead) and none of the ADC-specific payload/linker/DAR columns.
+class CgtProject(Base):
+    __tablename__ = "cgt_projects"
+
+    id                  = Column(UUID(as_uuid=True), primary_key=True, default=_uuid)
+    code                = Column(String(20), unique=True, nullable=False)
+    name                = Column(String(255), nullable=False)
+    product_name        = Column(String(255), nullable=True)
+    in_house_project_id = Column(String(100), nullable=True)
+    project_type        = Column(String(20), nullable=True)
+    market              = Column(String(50), nullable=True)
+    process             = Column(String(200), nullable=True)
+    created_by          = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
+    start_date          = Column(Date, nullable=True)
+    target_date         = Column(Date, nullable=True)
+    status              = Column(String(20), default="ACTIVE", nullable=False)
+    description         = Column(Text, nullable=True)
+    objective           = Column(Text, nullable=True)
+    created_at          = Column(DateTime, nullable=False, default=_now)
+    updated_at          = Column(DateTime, nullable=False, default=_now, onupdate=_now)
+
+    creator = relationship("User", foreign_keys=[created_by])
+
+
+class CgtProjectCodeCounter(Base):
+    __tablename__ = "cgt_project_code_counter"
+    year     = Column(String(2), primary_key=True)
+    last_seq = Column(Integer, nullable=False, default=30000)
+
+
 # ── Project Code Counter — global per year (ADC/{YY}/{SEQ}) ───────────────────
 class ProjectCodeCounter(Base):
     __tablename__ = "project_code_counter"

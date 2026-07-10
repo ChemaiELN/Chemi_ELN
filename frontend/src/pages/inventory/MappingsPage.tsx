@@ -121,24 +121,28 @@ export default function MappingsPage() {
     {
       title: 'Material',
       dataIndex: 'material_id',
+      ellipsis: true,
       render: (v) => <span className="text-[13px] text-slate-800 font-medium">{matName(v)}</span>,
     },
     {
       title: 'Manufacturer',
       dataIndex: 'manufacturer_id',
+      ellipsis: true,
       render: (v) => <span className="text-[13px] text-slate-700">{mfrName(v)}</span>,
     },
     {
       title: 'Catalogue No',
       dataIndex: 'catalogue_no',
+      ellipsis: true,
       width: 150,
       render: (v: string | null) => v
-        ? <span className="font-mono text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-600">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Grade',
       dataIndex: 'technical_grade',
+      ellipsis: true,
       width: 120,
       render: (v: string | null) => v
         ? <StatusTag color="blue">{v}</StatusTag>
@@ -147,6 +151,7 @@ export default function MappingsPage() {
     {
       title: 'Lead Time',
       dataIndex: 'lead_time_days',
+      ellipsis: true,
       width: 110,
       render: (v: number | null) => v != null
         ? <span className="text-[13px] text-slate-600">{v} days</span>
@@ -155,6 +160,7 @@ export default function MappingsPage() {
     {
       title: 'Min Order Qty',
       dataIndex: 'min_order_qty',
+      ellipsis: true,
       width: 120,
       render: (v: number | null) => v != null
         ? <span className="text-[13px] text-slate-600">{v}</span>
@@ -169,11 +175,11 @@ export default function MappingsPage() {
           <Tooltip title="Download SDS">
             <Button type="text" size="small" icon={<Download size={13} />} onClick={() => handleDownloadSds(r)} />
           </Tooltip>
-          <Popconfirm title="Remove SDS file?" onConfirm={() => handleDeleteDsd(r.id)}>
+          {/* <Popconfirm title="Remove SDS file?" onConfirm={() => handleDeleteDsd(r.id)}>
             <Tooltip title="Remove">
               <Button type="text" size="small" danger icon={<X size={13} />} />
             </Tooltip>
-          </Popconfirm>
+          </Popconfirm> */}
         </Space>
       ) : <span className="text-[13px] text-slate-300">—</span>,
     },
@@ -233,6 +239,7 @@ export default function MappingsPage() {
         confirmLoading={saving}
         width={560}
         centered
+         closable={false}
         destroyOnHidden
         {...glassModalProps}
       >

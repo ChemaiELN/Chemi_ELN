@@ -8,10 +8,10 @@ import type { ColumnsType } from 'antd/es/table'
 import { Plus, Pencil, Trash2, Search, FlaskConical, Microscope, MapPin } from 'lucide-react'
 import {
   consumableTypeApi, equipmentTypeApi, instrumentTypeApi, columnTypeApi,
-  lookupApi, uomApi, testMasterApi, storageConditionApi,
+  lookupApi, uomApi, testMasterApi, storageConditionApi, measurementMasterApi, sparePartApi,
   type ConsumableType, type EquipType, type ColumnType,
   type Lookup, type UomDimension, type UomUnit,
-  type TestType, type TestName, type StorageCondition,
+  type TestType, type TestName, type StorageCondition, type MeasurementMaster, type SparePart,
 } from '../../api/inventory'
 import {
   adminApi,
@@ -63,12 +63,12 @@ function ChemicalsTab() {
   const confirmDel = (r: LookupChemical) => Modal.confirm({ title: `Delete "${r.chemical_name}"?`, okText: 'Delete', okButtonProps: { danger: true }, centered: true, styles: glassModalStyles, onOk: () => del.mutate(r.id) })
 
   const columns: ColumnsType<LookupChemical> = [
-    { title: 'Chemical Name', dataIndex: 'chemical_name', render: v => <span className="font-medium text-slate-800">{v}</span> },
-    { title: 'CAS No.', dataIndex: 'cas_no', responsive: ['lg'], render: v => <span className="font-mono text-xs text-slate-500">{v ?? '—'}</span> },
-    { title: 'Formula', dataIndex: 'formula', responsive: ['md'], render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Mol. Wt', dataIndex: 'mol_wt', width: 90, align: 'right', responsive: ['lg'], render: v => v != null ? <span>{Number(v).toFixed(2)}</span> : <span className="text-slate-300">—</span> },
-    { title: 'Purity%', dataIndex: 'purity_pct', width: 80, align: 'right', responsive: ['lg'], render: v => v != null ? <span>{v}%</span> : <span className="text-slate-300">—</span> },
-    { title: 'Vendor', dataIndex: 'vendor_name', responsive: ['md'], render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Chemical Name', dataIndex: 'chemical_name', ellipsis: true, render: v => <span className="font-medium text-slate-800">{v}</span> },
+    { title: 'CAS No.', dataIndex: 'cas_no', ellipsis: true, responsive: ['lg'], render: v => <span className="font-mono text-xs text-slate-500">{v ?? '—'}</span> },
+    { title: 'Formula', dataIndex: 'formula', ellipsis: true, responsive: ['md'], render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Mol. Wt', dataIndex: 'mol_wt', ellipsis: true, width: 90, align: 'right', responsive: ['lg'], render: v => v != null ? <span>{Number(v).toFixed(2)}</span> : <span className="text-slate-300">—</span> },
+    { title: 'Purity%', dataIndex: 'purity_pct', ellipsis: true, width: 80, align: 'right', responsive: ['lg'], render: v => v != null ? <span>{v}%</span> : <span className="text-slate-300">—</span> },
+    { title: 'Vendor', dataIndex: 'vendor_name', ellipsis: true, responsive: ['md'], render: v => v ?? <span className="text-slate-300">—</span> },
     { title: 'Active', dataIndex: 'is_active', width: 70, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={c => toggle.mutate({ id: r.id, is_active: c })} /> },
     { title: '', key: 'actions', width: 70, align: 'right', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
   ]
@@ -78,7 +78,7 @@ function ChemicalsTab() {
       {ctx}
       <div className={filterBar}><Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>Add Chemical</Button></div>
       <div className={tableWrap}><Table dataSource={data} columns={columns} rowKey="id" loading={isLoading} size="small" pagination={{ pageSize: 15 }} scroll={{ x: 'max-content' }} /></div>
-      <Modal open={open} title={editTarget ? `Edit — ${editTarget.chemical_name}` : 'Add Chemical'} onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()} okText={editTarget ? 'Save' : 'Create'} confirmLoading={save.isPending} width={520} centered destroyOnHidden {...glassModalProps}>
+      <Modal open={open} closable={false} title={editTarget ? `Edit — ${editTarget.chemical_name}` : 'Add Chemical'} onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()} okText={editTarget ? 'Save' : 'Create'} confirmLoading={save.isPending} width={520} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={v => save.mutate(v)}>
           <Form.Item name="chemical_name" label="Chemical Name" rules={[{ required: true }]}><Input /></Form.Item>
           <div className="grid grid-cols-2 gap-x-4">
@@ -127,11 +127,11 @@ function AdminInstrumentsTab() {
   const confirmDel = (r: LookupInstrument) => Modal.confirm({ title: `Delete "${r.instrument_name}"?`, okText: 'Delete', okButtonProps: { danger: true }, centered: true, styles: glassModalStyles, onOk: () => del.mutate(r.id) })
 
   const columns: ColumnsType<LookupInstrument> = [
-    { title: 'Code', dataIndex: 'instrument_code', width: 110, render: v => <StatusTag color="purple" className="font-mono text-xs">{v}</StatusTag> },
-    { title: 'Name', dataIndex: 'instrument_name', render: v => <span className="font-medium text-slate-800">{v}</span> },
-    { title: 'Type', dataIndex: 'instrument_type', responsive: ['md'], render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Maintenance', dataIndex: 'maintenance_status', width: 110, responsive: ['lg'], render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-300">—</span> },
-    { title: 'Calibration', dataIndex: 'calibration_status', width: 110, responsive: ['lg'], render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-300">—</span> },
+    { title: 'Code', dataIndex: 'instrument_code', ellipsis: true, width: 110, render: v => <StatusTag color="purple" className="font-mono text-xs">{v}</StatusTag> },
+    { title: 'Name', dataIndex: 'instrument_name', ellipsis: true, render: v => <span className="font-medium text-slate-800">{v}</span> },
+    { title: 'Type', dataIndex: 'instrument_type', ellipsis: true, responsive: ['md'], render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Maintenance', dataIndex: 'maintenance_status', ellipsis: true, width: 110, responsive: ['lg'], render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-300">—</span> },
+    { title: 'Calibration', dataIndex: 'calibration_status', ellipsis: true, width: 110, responsive: ['lg'], render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-300">—</span> },
     { title: 'Active', dataIndex: 'is_active', width: 70, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={c => toggle.mutate({ id: r.id, is_active: c })} /> },
     { title: '', key: 'actions', width: 70, align: 'right', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
   ]
@@ -141,7 +141,7 @@ function AdminInstrumentsTab() {
       {ctx}
       <div className={filterBar}><Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>Add Instrument</Button></div>
       <div className={tableWrap}><Table dataSource={data} columns={columns} rowKey="id" loading={isLoading} size="small" pagination={{ pageSize: 15 }} scroll={{ x: 'max-content' }} /></div>
-      <Modal open={open} title={editTarget ? `Edit — ${editTarget.instrument_name}` : 'Add Instrument'} onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()} okText={editTarget ? 'Save' : 'Create'} confirmLoading={save.isPending} width={480} centered destroyOnHidden {...glassModalProps}>
+      <Modal open={open} closable={false} title={editTarget ? `Edit — ${editTarget.instrument_name}` : 'Add Instrument'} onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()} okText={editTarget ? 'Save' : 'Create'} confirmLoading={save.isPending} width={480} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={v => save.mutate(v)}>
           {!editTarget && <Form.Item name="instrument_code" label="Code" rules={[{ required: true }]}><Input className="uppercase font-mono" /></Form.Item>}
           <Form.Item name="instrument_name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -187,8 +187,8 @@ function SitesTab() {
   const confirmDel = (r: LookupSite) => Modal.confirm({ title: `Delete "${r.name}"?`, okText: 'Delete', okButtonProps: { danger: true }, centered: true, styles: glassModalStyles, onOk: () => del.mutate(r.id) })
 
   const columns: ColumnsType<LookupSite> = [
-    { title: 'Code', dataIndex: 'code', width: 100, render: v => <StatusTag color="purple" className="font-mono text-xs font-bold">{v}</StatusTag> },
-    { title: 'Name', dataIndex: 'name', render: v => <span className="font-medium text-slate-800">{v}</span> },
+    { title: 'Code', dataIndex: 'code', ellipsis: true, width: 100, render: v => <StatusTag color="purple" className="font-mono text-xs font-bold">{v}</StatusTag> },
+    { title: 'Name', dataIndex: 'name', ellipsis: true, render: v => <span className="font-medium text-slate-800">{v}</span> },
     { title: 'Active', dataIndex: 'is_active', width: 70, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={c => toggle.mutate({ id: r.id, is_active: c })} /> },
     { title: '', key: 'actions', width: 70, align: 'right', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
   ]
@@ -198,7 +198,7 @@ function SitesTab() {
       {ctx}
       <div className={filterBar}><Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>Add Site</Button></div>
       <div className={tableWrap}><Table dataSource={data} columns={columns} rowKey="id" loading={isLoading} size="small" pagination={{ pageSize: 15 }} scroll={{ x: 'max-content' }} /></div>
-      <Modal open={open} title={editTarget ? `Edit — ${editTarget.name}` : 'Add Site'} onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()} okText={editTarget ? 'Save' : 'Create'} confirmLoading={save.isPending} width={400} centered destroyOnHidden {...glassModalProps}>
+      <Modal open={open} closable={false} title={editTarget ? `Edit — ${editTarget.name}` : 'Add Site'} onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()} okText={editTarget ? 'Save' : 'Create'} confirmLoading={save.isPending} width={400} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={v => save.mutate(v)}>
           {!editTarget && <Form.Item name="code" label="Code" rules={[{ required: true }]}><Input className="uppercase font-mono" /></Form.Item>}
           <Form.Item name="name" label="Site Name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -244,9 +244,9 @@ function ConsumableTypesTab() {
   }
 
   const columns: ColumnsType<ConsumableType> = [
-    { title: 'Name', dataIndex: 'name', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Sort', dataIndex: 'sort_order', width: 70, align: 'center', render: v => <span className="text-[13px] text-slate-500">{v}</span> },
-    { title: 'Status', dataIndex: 'is_active', width: 90, render: v => <StatusTag color={v ? 'success' : 'default'} className="text-[13px]">{v ? 'Active' : 'Inactive'}</StatusTag> },
+    { title: 'Name', dataIndex: 'name', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Sort', dataIndex: 'sort_order', ellipsis: true, width: 70, align: 'center', render: v => <span className="text-[13px] text-slate-500">{v}</span> },
+    { title: 'Status', dataIndex: 'is_active', ellipsis: true, width: 90, render: v => <StatusTag color={v ? 'success' : 'default'} className="text-[13px]">{v ? 'Active' : 'Inactive'}</StatusTag> },
     {
       title: '', key: 'actions', width: 80, align: 'right',
       render: (_, r) => (
@@ -268,7 +268,7 @@ function ConsumableTypesTab() {
       <div className={tableWrap}>
         <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 15 }} />
       </div>
-      <Modal title={editing ? 'Edit Consumable Type' : 'New Consumable Type'} open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={editing ? 'Edit Consumable Type' : 'New Consumable Type'} open={modalOpen} closable={false} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={handleSave}>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="description" label="Description"><Input.TextArea rows={2} /></Form.Item>
@@ -310,8 +310,8 @@ function EquipTypeTab({ api, label }: { api: typeof equipmentTypeApi; label: str
   }
 
   const columns: ColumnsType<EquipType> = [
-    { title: 'Code', dataIndex: 'code', width: 120, render: v => <span className="font-mono text-[13px] text-slate-700">{v}</span> },
-    { title: 'Name', dataIndex: 'name', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Code', dataIndex: 'code', ellipsis: true, width: 120, render: v => <span className="font-mono text-[13px] text-slate-700">{v}</span> },
+    { title: 'Name', dataIndex: 'name', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     {
       title: 'Active', dataIndex: 'is_active', width: 80, align: 'center',
       render: (v, r) => <Switch size="small" checked={v} onChange={() => api.toggle(r.id).then(load)} />,
@@ -330,7 +330,7 @@ function EquipTypeTab({ api, label }: { api: typeof equipmentTypeApi; label: str
       <div className={tableWrap}>
         <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 15 }} />
       </div>
-      <Modal title={editing ? `Edit ${label} Type` : `New ${label} Type`} open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={editing ? `Edit ${label} Type` : `New ${label} Type`} open={modalOpen} closable={false} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={handleSave}>
           {!editing && <Form.Item name="code" label="Code" rules={[{ required: true }]}><Input className="uppercase font-mono" /></Form.Item>}
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -372,11 +372,11 @@ function ColumnTypesTab() {
   }
 
   const columns: ColumnsType<ColumnType> = [
-    { title: 'Code', dataIndex: 'code', width: 120, render: v => <StatusTag color="purple" className="font-mono text-[13px]">{v}</StatusTag> },
-    { title: 'Name', dataIndex: 'name', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Length (mm)', dataIndex: 'length_mm', width: 110, render: v => v != null ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Particle (µm)', dataIndex: 'particle_size_um', width: 110, render: v => v != null ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Pore (Å)', dataIndex: 'pore_size_angstrom', width: 100, render: v => v != null ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Code', dataIndex: 'code', ellipsis: true, width: 120, render: v => <StatusTag color="purple" className="font-mono text-[13px]">{v}</StatusTag> },
+    { title: 'Name', dataIndex: 'name', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Length (mm)', dataIndex: 'length_mm', ellipsis: true, width: 110, render: v => v != null ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Particle (µm)', dataIndex: 'particle_size_um', ellipsis: true, width: 110, render: v => v != null ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Pore (Å)', dataIndex: 'pore_size_angstrom', ellipsis: true, width: 100, render: v => v != null ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
     {
       title: 'Active', dataIndex: 'is_active', width: 80, align: 'center',
       render: (v, r) => <Switch size="small" checked={v} onChange={() => columnTypeApi.toggle(r.id).then(load)} />,
@@ -395,7 +395,7 @@ function ColumnTypesTab() {
       <div className={tableWrap}>
         <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 15 }} />
       </div>
-      <Modal title={editing ? 'Edit Column Type' : 'New Column Type'} open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={editing ? 'Edit Column Type' : 'New Column Type'} open={modalOpen} closable={false} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={handleSave}>
           {!editing && <Form.Item name="code" label="Code" rules={[{ required: true }]}><Input className="uppercase font-mono" /></Form.Item>}
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -446,9 +446,9 @@ function UomTab() {
   }
 
   const unitColumns: ColumnsType<UomUnit> = [
-    { title: 'Symbol', dataIndex: 'symbol', width: 90, render: v => <StatusTag color="blue" className="font-mono text-[13px]">{v}</StatusTag> },
-    { title: 'Name', dataIndex: 'name', render: v => <span className="text-[13px] text-slate-700">{v}</span> },
-    { title: 'Sort', dataIndex: 'sort_order', width: 60, align: 'center', render: v => <span className="text-[13px] text-slate-500">{v}</span> },
+    { title: 'Symbol', dataIndex: 'symbol', ellipsis: true, width: 90, render: v => <StatusTag color="blue" className="font-mono text-[13px]">{v}</StatusTag> },
+    { title: 'Name', dataIndex: 'name', ellipsis: true, render: v => <span className="text-[13px] text-slate-700">{v}</span> },
+    { title: 'Sort', dataIndex: 'sort_order', ellipsis: true, width: 60, align: 'center', render: v => <span className="text-[13px] text-slate-500">{v}</span> },
     { title: 'Active', dataIndex: 'is_active', width: 80, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={() => uomApi.toggleUnit(r.id).then(load)} /> },
   ]
 
@@ -481,7 +481,7 @@ function UomTab() {
           }))}
         />
       </div>
-      <Modal title="New Dimension" open={dimModal} onCancel={() => setDimModal(false)} onOk={() => dimForm.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
+      <Modal title="New Dimension" open={dimModal} closable={false} onCancel={() => setDimModal(false)} onOk={() => dimForm.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
         <Form form={dimForm} layout="vertical" onFinish={handleDimSave}>
           <Form.Item name="dimension_key" label="Dimension Key" rules={[{ required: true }]}><Input className="uppercase font-mono" /></Form.Item>
           <Form.Item name="display_name" label="Display Name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -489,7 +489,7 @@ function UomTab() {
           <Form.Item name="sort_order" label="Sort Order" initialValue={0}><InputNumber style={{ width: '100%' }} /></Form.Item>
         </Form>
       </Modal>
-      <Modal title={`Add Unit to ${selDim?.display_name}`} open={unitModal} onCancel={() => setUnitModal(false)} onOk={() => unitForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={`Add Unit to ${selDim?.display_name}`} open={unitModal} closable={false} onCancel={() => setUnitModal(false)} onOk={() => unitForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
         <Form form={unitForm} layout="vertical" onFinish={handleUnitSave}>
           <Form.Item name="symbol" label="Symbol" rules={[{ required: true }]}><Input className="font-mono" /></Form.Item>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
@@ -542,9 +542,9 @@ function LookupTab() {
   }
 
   const columns: ColumnsType<Lookup> = [
-    { title: 'Type', dataIndex: 'lookup_type', width: 160, render: v => <StatusTag color="geekblue" className="text-[13px]">{v}</StatusTag> },
-    { title: 'Value', dataIndex: 'lookup_value', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Code', dataIndex: 'lookup_code', width: 120, render: v => <span className="font-mono text-[13px] text-slate-600">{v}</span> },
+    { title: 'Type', dataIndex: 'lookup_type', ellipsis: true, width: 160, render: v => <StatusTag color="geekblue" className="text-[13px]">{v}</StatusTag> },
+    { title: 'Value', dataIndex: 'lookup_value', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Code', dataIndex: 'lookup_code', ellipsis: true, width: 120, render: v => <span className="font-mono text-[13px] text-slate-600">{v}</span> },
     { title: 'Active', dataIndex: 'is_active', width: 80, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={() => lookupApi.toggle(r.id).then(load)} /> },
     {
       title: '', key: 'actions', width: 60, align: 'right',
@@ -562,7 +562,7 @@ function LookupTab() {
       <div className={tableWrap}>
         <Table dataSource={filtered} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20, showTotal: t => `${t} entries` }} />
       </div>
-      <Modal title={editing ? 'Edit Lookup' : 'New Lookup'} open={modalOpen} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={editing ? 'Edit Lookup' : 'New Lookup'} open={modalOpen} closable={false} onCancel={() => setModalOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={400} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={handleSave}>
           <Form.Item name="lookup_type" label="Type" rules={[{ required: true }]}>
             <Select showSearch allowClear options={types.map(t => ({ value: t, label: t }))} dropdownRender={menu => <>{menu}</>} />
@@ -679,18 +679,18 @@ function TestMasterTab() {
           }))} />
         )}
       </div>
-      <Modal title="New Test Type" open={typeModal} onCancel={() => setTypeModal(false)} onOk={() => typeForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
+      <Modal title="New Test Type" open={typeModal} closable={false} onCancel={() => setTypeModal(false)} onOk={() => typeForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
         <Form form={typeForm} layout="vertical" onFinish={handleTypeSave}>
           <Form.Item name="type_key" label="Type Key" rules={[{ required: true }]}><Input className="uppercase font-mono" /></Form.Item>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
         </Form>
       </Modal>
-      <Modal title={`Add Test Name to "${selType?.name}"`} open={nameModal} onCancel={() => setNameModal(false)} onOk={() => nameForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={`Add Test Name to "${selType?.name}"`} open={nameModal} closable={false} onCancel={() => setNameModal(false)} onOk={() => nameForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
         <Form form={nameForm} layout="vertical" onFinish={handleNameSave}>
           <Form.Item name="name" label="Test Name" rules={[{ required: true }]}><Input /></Form.Item>
         </Form>
       </Modal>
-      <Modal title={`Add Method to "${selName?.name}"`} open={methodModal} onCancel={() => setMethodModal(false)} onOk={() => methodForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={`Add Method to "${selName?.name}"`} open={methodModal} closable={false} onCancel={() => setMethodModal(false)} onOk={() => methodForm.submit()} confirmLoading={saving} width={360} centered destroyOnHidden {...glassModalProps}>
         <Form form={methodForm} layout="vertical" onFinish={handleMethodSave}>
           <Form.Item name="method_name" label="Method Name" rules={[{ required: true }]}><Input /></Form.Item>
         </Form>
@@ -759,9 +759,9 @@ function StorageMasterTab() {
   }
 
   const columns: ColumnsType<StorageCondition> = [
-    { title: 'Label', dataIndex: 'label', render: v => <span className="font-medium text-slate-800 text-[13px]">{v}</span> },
-    { title: 'Temperature Range', key: 'temp', width: 220, render: (_, r) => tempDisplay(r) },
-    { title: 'Sort', dataIndex: 'sort_order', width: 60, align: 'center', render: v => <span className="text-[13px] text-slate-500">{v}</span> },
+    { title: 'Label', dataIndex: 'label', ellipsis: true, render: v => <span className="font-medium text-slate-800 text-[13px]">{v}</span> },
+    { title: 'Temperature Range', key: 'temp', ellipsis: true, width: 220, render: (_, r) => tempDisplay(r) },
+    { title: 'Sort', dataIndex: 'sort_order', ellipsis: true, width: 60, align: 'center', render: v => <span className="text-[13px] text-slate-500">{v}</span> },
     { title: 'Active', dataIndex: 'is_active', width: 70, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={() => toggle.mutate(r.id)} /> },
     {
       title: '', key: 'actions', width: 80, align: 'right',
@@ -789,6 +789,7 @@ function StorageMasterTab() {
       </div>
       <Modal
         open={open}
+        closable={false}
         title={editTarget ? `Edit — ${editTarget.label}` : 'New Storage Condition'}
         onCancel={() => { setOpen(false); setEditTarget(null) }}
         onOk={() => form.submit()}
@@ -827,6 +828,117 @@ function StorageMasterTab() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
+// Measurement Master (instrument measurements)
+// ─────────────────────────────────────────────────────────────────────────────
+function MeasurementMasterTab() {
+  const [items, setItems] = useState<MeasurementMaster[]>([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<MeasurementMaster | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [form] = Form.useForm()
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setItems(await measurementMasterApi.list()) } finally { setLoading(false) }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const save = async (v: Record<string, unknown>) => {
+    setSaving(true)
+    try {
+      if (editing) await measurementMasterApi.update(editing.id, v)
+      else await measurementMasterApi.create(v)
+      message.success('Saved'); setOpen(false); form.resetFields(); load()
+    } catch (e: unknown) { message.error((e as Error).message) } finally { setSaving(false) }
+  }
+
+  const columns: ColumnsType<MeasurementMaster> = [
+    { title: 'Sl No', key: 'sl', ellipsis: true, width: 60, render: (_, __, i) => <span className="text-[13px] text-slate-500">{i + 1}</span> },
+    { title: 'Measurement Name', dataIndex: 'name', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Data Type', dataIndex: 'data_type', ellipsis: true, width: 130, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
+    { title: 'UOM', dataIndex: 'uom', ellipsis: true, width: 120, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-slate-300">—</span> },
+    { title: 'Active', dataIndex: 'is_active', width: 70, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={async () => { await measurementMasterApi.toggle(r.id); load() }} /> },
+    { title: 'Action', key: 'a', width: 60, align: 'right', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip> },
+  ]
+
+  return (
+    <div className="pt-3">
+      <div className="flex justify-end mb-3">
+        <Button type="primary" icon={<Plus size={14} />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true) }}>Add Measurement</Button>
+      </div>
+      <div className="glass-card rounded-lg overflow-hidden">
+        <Table dataSource={items} columns={columns} rowKey="id" size="small" loading={loading} pagination={{ pageSize: 15 }} />
+      </div>
+      <Modal title={editing ? 'Edit Measurement' : 'Add Measurement'} open={open} closable={false} onCancel={() => { setOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={440} centered destroyOnHidden {...glassModalProps}>
+        <Form form={form} layout="vertical" onFinish={save} initialValues={{ data_type: 'DECIMAL' }}>
+          <Form.Item name="name" label="Measurement Name" rules={[{ required: true }]}><Input /></Form.Item>
+          <div className="grid grid-cols-2 gap-x-3">
+            <Form.Item name="data_type" label="Data Type" rules={[{ required: true }]}>
+              <Select options={[{ value: 'INTEGER', label: 'Integer' }, { value: 'DECIMAL', label: 'Decimal' }]} />
+            </Form.Item>
+            <Form.Item name="uom" label="UOM"><Input /></Form.Item>
+          </div>
+        </Form>
+      </Modal>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Spare Parts (breakdown maintenance)
+// ─────────────────────────────────────────────────────────────────────────────
+function SparePartsTab() {
+  const [items, setItems] = useState<SparePart[]>([])
+  const [loading, setLoading] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<SparePart | null>(null)
+  const [saving, setSaving] = useState(false)
+  const [form] = Form.useForm()
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    try { setItems(await sparePartApi.list()) } finally { setLoading(false) }
+  }, [])
+  useEffect(() => { load() }, [load])
+
+  const save = async (v: Record<string, unknown>) => {
+    setSaving(true)
+    try {
+      if (editing) await sparePartApi.update(editing.id, v)
+      else await sparePartApi.create(v)
+      message.success('Saved'); setOpen(false); form.resetFields(); load()
+    } catch (e: unknown) { message.error((e as Error).message) } finally { setSaving(false) }
+  }
+
+  const columns: ColumnsType<SparePart> = [
+    { title: 'Part Code', dataIndex: 'part_code', ellipsis: true, width: 140, render: v => <span className="font-mono text-[13px] text-slate-800">{v}</span> },
+    { title: 'Name', dataIndex: 'name', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Description', dataIndex: 'description', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-slate-300">—</span> },
+    { title: 'Active', dataIndex: 'is_active', width: 70, align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={async () => { await sparePartApi.toggle(r.id); load() }} /> },
+    { title: 'Action', key: 'a', width: 60, align: 'right', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip> },
+  ]
+
+  return (
+    <div className="pt-3">
+      <div className="flex justify-end mb-3">
+        <Button type="primary" icon={<Plus size={14} />} onClick={() => { setEditing(null); form.resetFields(); setOpen(true) }}>Add Spare Part</Button>
+      </div>
+      <div className="glass-card rounded-lg overflow-hidden">
+        <Table dataSource={items} columns={columns} rowKey="id" size="small" loading={loading} pagination={{ pageSize: 15 }} />
+      </div>
+      <Modal title={editing ? 'Edit Spare Part' : 'Add Spare Part'} open={open} closable={false} onCancel={() => { setOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={460} centered destroyOnHidden {...glassModalProps}>
+        <Form form={form} layout="vertical" onFinish={save}>
+          {!editing && <Form.Item name="part_code" label="Part Code" rules={[{ required: true }]}><Input /></Form.Item>}
+          <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="description" label="Description"><Input.TextArea rows={2} /></Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  )
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
 // Root page
 // ─────────────────────────────────────────────────────────────────────────────
 export default function InventoryMasterDataPage() {
@@ -840,6 +952,8 @@ export default function InventoryMasterDataPage() {
           { key: 'equipment-types',  label: 'Equipment Types',  children: <EquipTypeTab api={equipmentTypeApi} label="Equipment" /> },
           { key: 'instrument-types', label: 'Instrument Types', children: <EquipTypeTab api={instrumentTypeApi} label="Instrument" /> },
           { key: 'column-types',     label: 'Column Types',     children: <ColumnTypesTab /> },
+          { key: 'measurement-master', label: 'Measurement Master', children: <MeasurementMasterTab /> },
+          { key: 'spare-parts', label: 'Spare Parts', children: <SparePartsTab /> },
           { key: 'uom',              label: 'UOM Master',        children: <UomTab /> },
           { key: 'lookup',           label: 'Lookup Master',     children: <LookupTab /> },
           { key: 'test-master',      label: 'Test Master',       children: <TestMasterTab /> },

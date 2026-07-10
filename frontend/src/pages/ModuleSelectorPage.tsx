@@ -1,5 +1,5 @@
 import { useNavigate } from 'react-router-dom'
-import { ShieldCheck, Package2, ChevronRight, FlaskConical, Atom, FileText } from 'lucide-react'
+import { ShieldCheck, Package2, ChevronRight, FlaskConical, Atom, FileText, Dna } from 'lucide-react'
 import { useAppSelector } from '../store'
 import { selectUser } from '../store/authSlice'
 import UserProfileMenu from '../components/layout/UserProfileMenu'
@@ -148,8 +148,39 @@ export default function ModuleSelectorPage() {
             </div>
           </button>
 
-          {/* Reports */}
+          {/* CGT */}
           <button
+            onClick={() => navigate('/cgt/projects')}
+            className="glass-card rounded-3xl p-7 text-left hover:shadow-2xl hover:shadow-teal-300/40 hover:-translate-y-1 hover:bg-white/65 transition-all duration-200 group cursor-pointer"
+          >
+            <div className="flex items-start justify-between mb-5">
+              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-teal-300 to-cyan-400 flex items-center justify-center shadow-lg shadow-teal-300/30">
+                <Dna size={26} className="text-white" />
+              </div>
+              <ChevronRight size={18} className="text-teal-300 group-hover:text-teal-500 mt-1 transition-colors" />
+            </div>
+
+            <h2 className="text-xl font-bold text-slate-800 mb-1">CGT</h2>
+            <p className="text-slate-500 text-sm mb-5">Manage Cell and Gene Therapy projects, notebooks and experiments</p>
+
+            <div className="space-y-1.5">
+              {['Projects', 'Notebooks', 'Experiments', 'Reports'].map((item) => (
+                <div key={item} className="flex items-center gap-2 text-slate-500 text-xs">
+                  <div className="w-1 h-1 rounded-full bg-teal-400 shrink-0" />
+                  {item}
+                </div>
+              ))}
+            </div>
+
+            <div className="mt-6 pt-4 border-t border-white/50">
+              <span className="text-xs font-semibold text-teal-600 flex items-center gap-1 group-hover:gap-2 transition-all">
+                Open CGT <ChevronRight size={12} />
+              </span>
+            </div>
+          </button>
+
+          {/* Reports */}
+          {/* <button
             onClick={() => navigate('/adc/reports')}
             className="glass-card rounded-3xl p-7 text-left hover:shadow-2xl hover:shadow-rose-300/40 hover:-translate-y-1 hover:bg-white/65 transition-all duration-200 group cursor-pointer"
           >
@@ -177,7 +208,7 @@ export default function ModuleSelectorPage() {
                 Open Reports <ChevronRight size={12} />
               </span>
             </div>
-          </button>
+          </button> */}
 
         </div>
       </main>

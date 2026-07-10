@@ -16,7 +16,7 @@ export function StatusTag({ style, children, ...props }: TagProps) {
     <Tag
       bordered
       {...props}
-      style={{ fontSize: 12, borderColor: 'currentColor', ...style }}
+      style={{ fontSize: 11, borderColor: 'currentColor', ...style }}
     >
       {processChildren(children)}
     </Tag>

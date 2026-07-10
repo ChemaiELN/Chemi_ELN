@@ -14,6 +14,7 @@ router = APIRouter(prefix="/inventory/audit-trail", tags=["inventory-audit"])
 def list_audit_trail(
     event_type: Optional[str] = Query(None),
     entity_type: Optional[str] = Query(None),
+    entity_id: Optional[str] = Query(None),
     performed_by: Optional[str] = Query(None),
     date_from: Optional[str] = Query(None, description="ISO date YYYY-MM-DD"),
     date_to: Optional[str] = Query(None, description="ISO date YYYY-MM-DD"),
@@ -28,6 +29,8 @@ def list_audit_trail(
         q = q.filter(InvAuditTrail.event_type == event_type)
     if entity_type:
         q = q.filter(InvAuditTrail.entity_type == entity_type)
+    if entity_id:
+        q = q.filter(InvAuditTrail.entity_id == entity_id)
     if performed_by:
         q = q.filter(InvAuditTrail.performed_by.ilike(f"%{performed_by}%"))
     if date_from:

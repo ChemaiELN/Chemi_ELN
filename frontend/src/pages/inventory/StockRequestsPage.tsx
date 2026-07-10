@@ -96,12 +96,14 @@ export default function StockRequestsPage() {
     {
       title: 'Request No',
       dataIndex: 'request_no',
+      ellipsis: true,
       width: 140,
-      render: (v) => <span className="font-mono text-[13px] text-slate-700">{v}</span>,
+      render: (v) => <span className=" text-[13px] text-slate-700">{v}</span>,
     },
     {
       title: 'Material',
       key: 'material',
+      ellipsis: true,
       render: (_, r) => {
         const name = materials.find(m => m.id === r.material_id)?.name
         return <span className="text-[13px] text-slate-800">{name ?? r.material_id}</span>
@@ -110,6 +112,7 @@ export default function StockRequestsPage() {
     {
       title: 'Qty Required',
       key: 'qty',
+      ellipsis: true,
       width: 120,
       render: (_, r) => <span className="text-[13px] text-slate-600">{r.qty_required} {r.unit}</span>,
     },
@@ -131,12 +134,14 @@ export default function StockRequestsPage() {
     {
       title: 'Status',
       dataIndex: 'status',
+      ellipsis: true,
       width: 110,
       render: (v: string) => <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag>,
     },
     {
       title: 'Created',
       dataIndex: 'created_at',
+      ellipsis: true,
       width: 120,
       render: (v: string) => <span className="text-[13px] text-slate-600">{new Date(v).toLocaleDateString()}</span>,
     },
@@ -208,6 +213,7 @@ export default function StockRequestsPage() {
         confirmLoading={saving}
         width={560}
         centered
+         closable={false}
         destroyOnHidden
         {...glassModalProps}
       >
@@ -244,6 +250,7 @@ export default function StockRequestsPage() {
       <Modal
         title={`${remarkAction?.action?.charAt(0).toUpperCase()}${remarkAction?.action?.slice(1)} Request`}
         open={remarkOpen}
+        closable={false}
         onCancel={() => { setRemarkOpen(false); remarkForm.resetFields() }}
         onOk={() => remarkForm.submit()}
         confirmLoading={saving}

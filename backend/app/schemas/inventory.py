@@ -274,6 +274,11 @@ class EquipmentCatalogueCreate(BaseModel):
     model: Optional[str] = None
     serial_no: Optional[str] = None
     location: Optional[str] = None
+    usage_type: Optional[str] = None
+    movable: bool = False
+    gross_capacity: Optional[Decimal] = None
+    capacity_unit: Optional[str] = None
+    description: Optional[str] = None
     next_maintenance_date: Optional[datetime.date] = None
 
 
@@ -284,6 +289,11 @@ class EquipmentCatalogueUpdate(BaseModel):
     model: Optional[str] = None
     serial_no: Optional[str] = None
     location: Optional[str] = None
+    usage_type: Optional[str] = None
+    movable: Optional[bool] = None
+    gross_capacity: Optional[Decimal] = None
+    capacity_unit: Optional[str] = None
+    description: Optional[str] = None
     maintenance_status: Optional[str] = None
     status: Optional[str] = None
     last_maintenance_date: Optional[datetime.date] = None
@@ -299,6 +309,11 @@ class EquipmentCatalogueOut(_OrmBase):
     model: Optional[str] = None
     serial_no: Optional[str] = None
     location: Optional[str] = None
+    usage_type: Optional[str] = None
+    movable: bool
+    gross_capacity: Optional[Decimal] = None
+    capacity_unit: Optional[str] = None
+    description: Optional[str] = None
     maintenance_status: str
     status: str
     last_maintenance_date: Optional[datetime.date] = None
@@ -317,6 +332,16 @@ class InstrumentCatalogueCreate(BaseModel):
     model: Optional[str] = None
     serial_no: Optional[str] = None
     location: Optional[str] = None
+    usage_type: Optional[str] = None
+    movable: bool = False
+    gross_capacity: Optional[Decimal] = None
+    capacity_unit: Optional[str] = None
+    lower_operating_range: Optional[Decimal] = None
+    lower_uom: Optional[str] = None
+    upper_operating_range: Optional[Decimal] = None
+    upper_uom: Optional[str] = None
+    required_calibration: bool = False
+    description: Optional[str] = None
     next_calibration_date: Optional[datetime.date] = None
 
 
@@ -327,6 +352,16 @@ class InstrumentCatalogueUpdate(BaseModel):
     model: Optional[str] = None
     serial_no: Optional[str] = None
     location: Optional[str] = None
+    usage_type: Optional[str] = None
+    movable: Optional[bool] = None
+    gross_capacity: Optional[Decimal] = None
+    capacity_unit: Optional[str] = None
+    lower_operating_range: Optional[Decimal] = None
+    lower_uom: Optional[str] = None
+    upper_operating_range: Optional[Decimal] = None
+    upper_uom: Optional[str] = None
+    required_calibration: Optional[bool] = None
+    description: Optional[str] = None
     calibration_status: Optional[str] = None
     status: Optional[str] = None
     last_calibration_date: Optional[datetime.date] = None
@@ -342,6 +377,16 @@ class InstrumentCatalogueOut(_OrmBase):
     model: Optional[str] = None
     serial_no: Optional[str] = None
     location: Optional[str] = None
+    usage_type: Optional[str] = None
+    movable: bool
+    gross_capacity: Optional[Decimal] = None
+    capacity_unit: Optional[str] = None
+    lower_operating_range: Optional[Decimal] = None
+    lower_uom: Optional[str] = None
+    upper_operating_range: Optional[Decimal] = None
+    upper_uom: Optional[str] = None
+    required_calibration: bool
+    description: Optional[str] = None
     calibration_status: str
     status: str
     last_calibration_date: Optional[datetime.date] = None
@@ -349,6 +394,461 @@ class InstrumentCatalogueOut(_OrmBase):
     is_active: bool
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+# ── Catalogue status change (shared) ──────────────────────────────────────────
+class CatalogueStatusChange(BaseModel):
+    status: str
+    remarks: Optional[str] = None
+
+
+# ── Checklist Templates (Phase 2) ─────────────────────────────────────────────
+class ChecklistItemCreate(BaseModel):
+    instruction_type: str = "INSTRUCTION"          # INSTRUCTION / HEADING
+    data_type: Optional[str] = None                # OBSERVATION / TEXT / INPUT / SINGLE_SELECTION / MULTIPLE_SELECTION
+    frequencies: Optional[list[str]] = None
+    precision: Optional[int] = None
+    lower_limit: Optional[Decimal] = None
+    upper_limit: Optional[Decimal] = None
+    options: Optional[list[str]] = None
+    details: Optional[str] = None
+    seq_no: Optional[int] = None
+
+
+class ChecklistItemUpdate(BaseModel):
+    instruction_type: Optional[str] = None
+    data_type: Optional[str] = None
+    frequencies: Optional[list[str]] = None
+    precision: Optional[int] = None
+    lower_limit: Optional[Decimal] = None
+    upper_limit: Optional[Decimal] = None
+    options: Optional[list[str]] = None
+    details: Optional[str] = None
+    seq_no: Optional[int] = None
+
+
+class ChecklistItemOut(_OrmBase):
+    id: int
+    checklist_id: int
+    seq_no: int
+    instruction_type: str
+    data_type: Optional[str] = None
+    frequencies: Optional[list[str]] = None
+    precision: Optional[int] = None
+    lower_limit: Optional[Decimal] = None
+    upper_limit: Optional[Decimal] = None
+    options: Optional[list[str]] = None
+    details: Optional[str] = None
+    created_at: datetime.datetime
+
+
+class ChecklistApprovalOut(_OrmBase):
+    id: int
+    checklist_id: int
+    action: str
+    from_state: Optional[str] = None
+    to_state: Optional[str] = None
+    performed_by: str
+    comment: Optional[str] = None
+    performed_at: datetime.datetime
+
+
+class ChecklistCreate(BaseModel):
+    name: str
+    checklist_type: str
+    log_type: str = "CHECKLIST"
+    usage_type: Optional[str] = None
+    target_kind: str = "EQUIPMENT"
+    equipment_code: Optional[str] = None
+
+
+class ChecklistUpdate(BaseModel):
+    name: Optional[str] = None
+    checklist_type: Optional[str] = None
+    log_type: Optional[str] = None
+    usage_type: Optional[str] = None
+    target_kind: Optional[str] = None
+    equipment_code: Optional[str] = None
+
+
+class ChecklistOut(_OrmBase):
+    id: int
+    name: str
+    checklist_type: str
+    log_type: str
+    usage_type: Optional[str] = None
+    target_kind: str
+    equipment_code: Optional[str] = None
+    version: str
+    status: str
+    is_active: bool
+    created_by: Optional[str] = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class ChecklistDetailOut(ChecklistOut):
+    items: list[ChecklistItemOut] = []
+    approvals: list[ChecklistApprovalOut] = []
+
+
+class ChecklistWorkflowAction(BaseModel):
+    comment: Optional[str] = None
+
+
+# ── Measurement Master (Phase 3) ──────────────────────────────────────────────
+class MeasurementMasterCreate(BaseModel):
+    name: str
+    data_type: str = "DECIMAL"
+    uom: Optional[str] = None
+
+
+class MeasurementMasterUpdate(BaseModel):
+    name: Optional[str] = None
+    data_type: Optional[str] = None
+    uom: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class MeasurementMasterOut(_OrmBase):
+    id: int
+    name: str
+    data_type: str
+    uom: Optional[str] = None
+    is_active: bool
+    created_at: datetime.datetime
+
+
+# ── Log Mapping (Phase 3) ─────────────────────────────────────────────────────
+class LogMappingCreate(BaseModel):
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    log_type: str
+    checklist_id: Optional[int] = None
+    tolerance_days: Optional[int] = None
+    alert_limit: Optional[int] = None
+    deviation_limit: Optional[int] = None
+
+
+class LogMappingUpdate(BaseModel):
+    checklist_id: Optional[int] = None
+    tolerance_days: Optional[int] = None
+    alert_limit: Optional[int] = None
+    deviation_limit: Optional[int] = None
+
+
+class LogMappingOut(BaseModel):
+    id: int
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    log_type: str
+    checklist_id: Optional[int] = None
+    checklist_name: Optional[str] = None
+    checklist_version: Optional[str] = None
+    tolerance_days: Optional[int] = None
+    alert_limit: Optional[int] = None
+    deviation_limit: Optional[int] = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+# ── Instrument Specification (Phase 3) ────────────────────────────────────────
+class InstrumentParameterCreate(BaseModel):
+    measurement_id: Optional[int] = None
+    measurement_name: Optional[str] = None
+    precision: Optional[int] = None
+    lower_unit: Optional[Decimal] = None
+    lower_uom: Optional[str] = None
+    upper_unit: Optional[Decimal] = None
+    upper_uom: Optional[str] = None
+    calibration_tolerance_pct: Optional[Decimal] = None
+    seq_no: Optional[int] = None
+
+
+class InstrumentParameterUpdate(InstrumentParameterCreate):
+    pass
+
+
+class InstrumentParameterOut(_OrmBase):
+    id: int
+    instrument_id: int
+    measurement_id: Optional[int] = None
+    measurement_name: Optional[str] = None
+    precision: Optional[int] = None
+    lower_unit: Optional[Decimal] = None
+    lower_uom: Optional[str] = None
+    upper_unit: Optional[Decimal] = None
+    upper_uom: Optional[str] = None
+    calibration_tolerance_pct: Optional[Decimal] = None
+    seq_no: int
+    created_at: datetime.datetime
+
+
+class InstrumentSpecDetailCreate(BaseModel):
+    specification: str
+    value: Optional[str] = None
+    uom: Optional[str] = None
+    seq_no: Optional[int] = None
+
+
+class InstrumentSpecDetailUpdate(BaseModel):
+    specification: Optional[str] = None
+    value: Optional[str] = None
+    uom: Optional[str] = None
+    seq_no: Optional[int] = None
+
+
+class InstrumentSpecDetailOut(_OrmBase):
+    id: int
+    instrument_id: int
+    specification: str
+    value: Optional[str] = None
+    uom: Optional[str] = None
+    seq_no: int
+    created_at: datetime.datetime
+
+
+# ── Schedules / Planner (Phase 4) ─────────────────────────────────────────────
+class ScheduleCreate(BaseModel):
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    log_type: str
+    checklist_id: Optional[int] = None
+    schedule_type: str
+    due_date: datetime.date
+    tolerance_days: Optional[int] = None
+    alert_limit: Optional[int] = None
+    deviation_limit: Optional[int] = None
+
+
+class ScheduleUpdate(BaseModel):
+    schedule_type: Optional[str] = None
+    due_date: Optional[datetime.date] = None
+    planned_date: Optional[datetime.date] = None
+    tolerance_days: Optional[int] = None
+    alert_limit: Optional[int] = None
+    deviation_limit: Optional[int] = None
+    status: Optional[str] = None
+
+
+class ScheduleCompleteRequest(BaseModel):
+    done_on: datetime.date
+    generate_next: bool = True
+
+
+class ScheduleOut(BaseModel):
+    id: int
+    target_kind: str
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    equipment_code: Optional[str] = None
+    equipment_type: Optional[str] = None
+    log_type: str
+    checklist_id: Optional[int] = None
+    schedule_type: str
+    due_date: datetime.date
+    planned_date: Optional[datetime.date] = None
+    tolerance_days: Optional[int] = None
+    alert_limit: Optional[int] = None
+    deviation_limit: Optional[int] = None
+    done_on: Optional[datetime.date] = None
+    status: str
+    source: str
+    current_status: Optional[str] = None
+    days_label: Optional[str] = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class ScheduleUploadResult(BaseModel):
+    created: int
+    skipped: int
+    errors: list[str]
+
+
+# ── Spare Parts (Phase 5) ─────────────────────────────────────────────────────
+class SparePartCreate(BaseModel):
+    part_code: str
+    name: str
+    description: Optional[str] = None
+
+
+class SparePartUpdate(BaseModel):
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
+
+
+class SparePartOut(_OrmBase):
+    id: int
+    part_code: str
+    name: str
+    description: Optional[str] = None
+    is_active: bool
+    created_at: datetime.datetime
+
+
+# ── Work Orders (Phase 5) ─────────────────────────────────────────────────────
+class WorkOrderRaise(BaseModel):
+    schedule_id: Optional[int] = None
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    kind: str  # PLANNED / UNPLANNED / BREAKDOWN
+    log_type: str
+    deviation: bool = False
+    remarks: Optional[str] = None
+    calibration_source: Optional[str] = None  # INTERNAL / EXTERNAL (instrument calibration only)
+
+
+class WorkOrderCommentAction(BaseModel):
+    comment: Optional[str] = None
+    certificate_no: Optional[str] = None
+
+
+class WorkOrderResultSave(BaseModel):
+    checklist_item_id: Optional[int] = None
+    observation: Optional[str] = None
+    comment: Optional[str] = None
+
+
+class WorkOrderVerifyAction(BaseModel):
+    password: str
+    comment: str
+    maintenance_type: Optional[str] = None  # MAJOR / MINOR
+
+
+class WorkOrderBreakdownDetails(BaseModel):
+    spare_parts_used: bool
+    description: str
+    part_codes: list[str] = []
+
+
+# ── Calibration Reference Details (Phase 6) ───────────────────────────────────
+class CalibrationReferenceCreate(BaseModel):
+    measurement_id: Optional[int] = None
+    reference_inst_id: Optional[str] = None
+    reference_reading: Decimal
+    instrument_reading: Decimal
+
+
+class CalibrationReferenceOut(_OrmBase):
+    id: int
+    work_order_id: int
+    measurement_id: Optional[int] = None
+    measurement_name: Optional[str] = None
+    reference_inst_id: Optional[str] = None
+    reference_reading: Optional[Decimal] = None
+    instrument_reading: Optional[Decimal] = None
+    variance_pct: Optional[Decimal] = None
+    tolerance_pct: Optional[Decimal] = None
+    status: Optional[str] = None
+    done_by: Optional[str] = None
+    done_at: Optional[datetime.datetime] = None
+
+
+# ── Usage Logs (Phase 7) ──────────────────────────────────────────────────────
+class UsageLogCreate(BaseModel):
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    started_at: datetime.datetime
+    previous_product_code: Optional[str] = None
+    previous_batch_no: Optional[str] = None
+    reference_no: Optional[str] = None
+    document_name: Optional[str] = None
+    usage_remarks: str
+
+
+class UsageLogEnd(BaseModel):
+    ended_at: datetime.datetime
+    usage_remarks: str
+
+
+class UsageLogOut(_OrmBase):
+    id: int
+    target_kind: str
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    previous_product_code: Optional[str] = None
+    previous_batch_no: Optional[str] = None
+    reference_no: Optional[str] = None
+    document_name: Optional[str] = None
+    usage_remarks: Optional[str] = None
+    status: str
+    started_by: Optional[str] = None
+    started_at: Optional[datetime.datetime] = None
+    ended_by: Optional[str] = None
+    ended_at: Optional[datetime.datetime] = None
+    source: str
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class WorkOrderResultOut(_OrmBase):
+    id: int
+    work_order_id: int
+    checklist_item_id: Optional[int] = None
+    observation: Optional[str] = None
+    comment: Optional[str] = None
+    done_by: Optional[str] = None
+    done_at: Optional[datetime.datetime] = None
+
+
+class WorkOrderSignatureOut(_OrmBase):
+    id: int
+    work_order_id: int
+    signing_for: str
+    name: str
+    comments: Optional[str] = None
+    completed_on: datetime.datetime
+
+
+class WorkOrderSpareOut(_OrmBase):
+    id: int
+    work_order_id: int
+    spare_part_id: Optional[int] = None
+    part_code: str
+
+
+class WorkOrderOut(BaseModel):
+    id: int
+    workorder_no: str
+    target_kind: str
+    equipment_id: Optional[int] = None
+    instrument_id: Optional[int] = None
+    equipment_code: Optional[str] = None
+    schedule_id: Optional[int] = None
+    checklist_id: Optional[int] = None
+    checklist_name: Optional[str] = None
+    kind: str
+    log_type: str
+    status: str
+    deviation: bool
+    remarks: Optional[str] = None
+    maintenance_type: Optional[str] = None
+    breakdown_description: Optional[str] = None
+    spare_parts_used: Optional[bool] = None
+    calibration_source: Optional[str] = None
+    certificate_no: Optional[str] = None
+    raised_by: Optional[str] = None
+    raised_at: Optional[datetime.datetime] = None
+    started_by: Optional[str] = None
+    started_at: Optional[datetime.datetime] = None
+    ended_by: Optional[str] = None
+    ended_at: Optional[datetime.datetime] = None
+    verified_by: Optional[str] = None
+    verified_at: Optional[datetime.datetime] = None
+    approved_by: Optional[str] = None
+    approved_at: Optional[datetime.datetime] = None
+    created_at: datetime.datetime
+    updated_at: datetime.datetime
+
+
+class WorkOrderDetailOut(WorkOrderOut):
+    results: list[WorkOrderResultOut] = []
+    signatures: list[WorkOrderSignatureOut] = []
+    spares_used: list[WorkOrderSpareOut] = []
+    checklist_items: list[ChecklistItemOut] = []
+    calib_references: list[CalibrationReferenceOut] = []
 
 
 # ── Column Catalogue ──────────────────────────────────────────────────────────
@@ -493,6 +993,7 @@ class BatchOut(_OrmBase):
     updated_at: datetime.datetime
     packs: list[BatchPackOut] = []
     manufacturer_name: Optional[str] = None
+    material_name: Optional[str] = None
 
     @model_validator(mode='before')
     @classmethod
@@ -501,6 +1002,9 @@ class BatchOut(_OrmBase):
             mfr = getattr(data, 'manufacturer', None)
             if mfr is not None:
                 data.__dict__['manufacturer_name'] = getattr(mfr, 'name', None)
+            mat = getattr(data, 'material', None)
+            if mat is not None:
+                data.__dict__['material_name'] = getattr(mat, 'name', None)
         return data
 
 
@@ -536,28 +1040,6 @@ class BatchEventOut(_OrmBase):
     project_code: Optional[str] = None
     performed_by: str
     performed_at: datetime.datetime
-    remarks: Optional[str] = None
-
-
-# ── Batch Verifications ───────────────────────────────────────────────────────
-class BatchVerificationCreate(BaseModel):
-    batch_id: int
-    remarks: Optional[str] = None
-
-
-class BatchVerificationAction(BaseModel):
-    remarks: Optional[str] = None
-
-
-class BatchVerificationOut(_OrmBase):
-    id: int
-    request_no: str
-    batch_id: int
-    requested_by: str
-    requested_at: datetime.datetime
-    verified_by: Optional[str] = None
-    verified_at: Optional[datetime.datetime] = None
-    status: str
     remarks: Optional[str] = None
 
 
@@ -614,101 +1096,6 @@ class StockRequestOut(_OrmBase):
     created_at: datetime.datetime
     updated_at: datetime.datetime
     events: list[StockRequestEventOut] = []
-
-
-# ── Maintenance Schedules ─────────────────────────────────────────────────────
-class MaintenanceScheduleCreate(BaseModel):
-    equipment_id: int
-    scheduled_date: datetime.date
-    notes: Optional[str] = None
-
-
-class MaintenanceScheduleUpdate(BaseModel):
-    scheduled_date: Optional[datetime.date] = None
-    notes: Optional[str] = None
-
-
-class MaintenanceCompleteRequest(BaseModel):
-    completed_date: datetime.date
-    notes: Optional[str] = None
-
-
-class MaintenanceScheduleOut(_OrmBase):
-    id: int
-    equipment_id: int
-    scheduled_date: datetime.date
-    completed_date: Optional[datetime.date] = None
-    notes: Optional[str] = None
-    status: str
-    created_at: datetime.datetime
-    updated_at: datetime.datetime
-
-
-# ── Calibration Schedules ─────────────────────────────────────────────────────
-class CalibrationScheduleCreate(BaseModel):
-    instrument_id: int
-    scheduled_date: datetime.date
-    certificate_no: Optional[str] = None
-
-
-class CalibrationScheduleUpdate(BaseModel):
-    scheduled_date: Optional[datetime.date] = None
-    certificate_no: Optional[str] = None
-
-
-class CalibrationCompleteRequest(BaseModel):
-    completed_date: datetime.date
-    certificate_no: Optional[str] = None
-
-
-class CalibrationScheduleOut(_OrmBase):
-    id: int
-    instrument_id: int
-    scheduled_date: datetime.date
-    completed_date: Optional[datetime.date] = None
-    certificate_no: Optional[str] = None
-    status: str
-    created_at: datetime.datetime
-    updated_at: datetime.datetime
-
-
-# ── Equipment / Instrument Verifications ──────────────────────────────────────
-class EquipVerificationCreate(BaseModel):
-    equipment_id: int
-    remarks: Optional[str] = None
-
-
-class InstrVerificationCreate(BaseModel):
-    instrument_id: int
-    remarks: Optional[str] = None
-
-
-class VerificationAction(BaseModel):
-    remarks: Optional[str] = None
-
-
-class EquipVerificationOut(_OrmBase):
-    id: int
-    request_no: str
-    equipment_id: int
-    requested_by: str
-    requested_at: datetime.datetime
-    verified_by: Optional[str] = None
-    verified_at: Optional[datetime.datetime] = None
-    status: str
-    remarks: Optional[str] = None
-
-
-class InstrVerificationOut(_OrmBase):
-    id: int
-    request_no: str
-    instrument_id: int
-    requested_by: str
-    requested_at: datetime.datetime
-    verified_by: Optional[str] = None
-    verified_at: Optional[datetime.datetime] = None
-    status: str
-    remarks: Optional[str] = None
 
 
 # ── General Lookup ────────────────────────────────────────────────────────────
@@ -846,6 +1233,7 @@ class DashboardKPIs(BaseModel):
     expired: int
     pending_stock_requests: int
     critical_stock_requests: int
+    out_of_stock: int
+    pending_approvals_total: int
     maintenance_due: int
     calibration_due: int
-    pending_verifications: int

@@ -1,10 +1,11 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import loginBg from '../../assets/loginPage.jpg'
+import logo from '../../assets/logo.svg'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import { z } from 'zod'
-import { Eye, EyeOff, FlaskConical } from 'lucide-react'
+import { Eye, EyeOff } from 'lucide-react'
 import { useAppDispatch } from '../../store'
 import { setAuth } from '../../store/authSlice'
 import { setPrivileges } from '../../store/privilegesSlice'
@@ -47,19 +48,16 @@ export default function LoginPage() {
     <div className="relative min-h-screen flex items-center justify-center overflow-hidden">
 
       {/* Background image */}
-      <div className="absolute inset-0 bg-cover bg-center bg-no-repeat" style={{ backgroundImage: `url(${loginBg})` }} />
+      <div className="absolute inset-0 bg-cover bg-center bg-no-repeat blur-sm scale-105" style={{ backgroundImage: `url(${loginBg})` }} />
       <div className="absolute inset-0 bg-black/30" />
 
       {/* Card */}
       <div className="relative z-10 w-full max-w-md px-4">
-        <div className="glass-strong rounded-3xl p-8">
+        <div className="bg-white rounded-3xl shadow-2xl p-8">
 
           {/* Brand */}
-          <div className="text-center mb-8">
-            <div className="inline-flex items-center justify-center w-16 h-16 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 shadow-lg shadow-violet-500/40 mb-4">
-              <FlaskConical size={28} className="text-white" />
-            </div>
-            <h1 className="text-2xl font-bold text-slate-800 tracking-tight">Laurus ELN</h1>
+          <div className="flex justify-center mb-8">
+            <img src={logo} alt="Laurus ELN" className="w-[200px] h-auto" />
           </div>
 
           {/* Error */}
@@ -72,7 +70,7 @@ export default function LoginPage() {
           <form onSubmit={handleSubmit(onSubmit)} noValidate className="space-y-5">
             {/* Username */}
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-slate-700">
+              <label className="block text-[13px] font-medium text-slate-700">
                 Username or Email
               </label>
               <input
@@ -82,7 +80,7 @@ export default function LoginPage() {
                 autoFocus
                 disabled={isSubmitting}
                 placeholder="Enter your username"
-                className="glass-input w-full px-4 py-3 rounded-xl text-sm text-slate-800 placeholder-slate-400 disabled:opacity-50"
+                className="w-full px-4 py-3 rounded-xl text-sm text-slate-800 placeholder-slate-400 bg-white border border-gray-300 focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition-all disabled:opacity-50"
               />
               {errors.username && (
                 <p className="text-xs text-red-500">{errors.username.message}</p>
@@ -91,7 +89,7 @@ export default function LoginPage() {
 
             {/* Password */}
             <div className="space-y-1.5">
-              <label className="block text-sm font-medium text-slate-700">Password</label>
+              <label className="block text-[13px] font-medium text-slate-700">Password</label>
               <div className="relative">
                 <input
                   {...register('password')}
@@ -99,7 +97,7 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   disabled={isSubmitting}
                   placeholder="Enter your password"
-                  className="glass-input w-full px-4 py-3 pr-11 rounded-xl text-sm text-slate-800 placeholder-slate-400 disabled:opacity-50"
+                  className="w-full px-4 py-3 pr-11 rounded-xl text-sm text-slate-800 placeholder-slate-400 bg-white border border-gray-300 focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition-all disabled:opacity-50"
                 />
                 <button
                   type="button"

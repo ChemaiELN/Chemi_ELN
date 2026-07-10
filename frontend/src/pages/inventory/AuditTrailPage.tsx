@@ -83,6 +83,7 @@ export default function AuditTrailPage() {
   const cols: ColumnsType<AuditTrailEntry> = [
     {
       title: 'Event Type',
+      ellipsis: true,
       dataIndex: 'event_type',
       key: 'event_type',
       width: 120,
@@ -90,6 +91,7 @@ export default function AuditTrailPage() {
     },
     {
       title: 'Entity Type',
+      ellipsis: true,
       dataIndex: 'entity_type',
       key: 'entity_type',
       width: 140,
@@ -97,6 +99,7 @@ export default function AuditTrailPage() {
     },
     {
       title: 'Entity Ref',
+      ellipsis: true,
       dataIndex: 'entity_ref',
       key: 'entity_ref',
       width: 150,
@@ -104,6 +107,7 @@ export default function AuditTrailPage() {
     },
     {
       title: 'Performed By',
+      ellipsis: true,
       dataIndex: 'performed_by',
       key: 'performed_by',
       width: 140,
@@ -111,6 +115,7 @@ export default function AuditTrailPage() {
     },
     {
       title: 'Performed At',
+      ellipsis: true,
       dataIndex: 'performed_at',
       key: 'performed_at',
       width: 160,

@@ -73,7 +73,7 @@ export default function AppShell() {
           {/* Edge toggle button — half inside, half outside the sidebar */}
           <button
             onClick={handleToggle}
-            style={{ left: collapsed ? 52 : 212 }}
+            style={{ left: collapsed ? 52 : 212 ,top:50 }}
             className="absolute top-[62px] z-50 w-6 h-6 rounded-full bg-white/95 border border-purple-200 shadow-md shadow-purple-200/40 flex items-center justify-center text-purple-500 hover:bg-purple-50 hover:border-purple-400 transition-all duration-200"
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >

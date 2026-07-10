@@ -57,7 +57,7 @@ export default function InventoryShell() {
           <Sidebar collapsed={collapsed} />
           <button
             onClick={handleToggle}
-            style={{ left: collapsed ? 52 : 212 }}
+            style={{ left: collapsed ? 52 : 212 ,top:50 }}
             className="absolute top-[62px] z-50 w-6 h-6 rounded-full bg-white/95 border border-violet-200 shadow-md shadow-violet-200/40 flex items-center justify-center text-violet-500 hover:bg-violet-50 hover:border-violet-400 transition-all duration-200"
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >

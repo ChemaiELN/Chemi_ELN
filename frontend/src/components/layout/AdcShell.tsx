@@ -73,9 +73,9 @@ export default function AdcShell() {
   return (
     <div className="relative min-h-screen flex overflow-hidden">
       {/* Background */}
-      <div className="fixed inset-0 -z-20 bg-gradient-to-br from-indigo-50 via-indigo-50 to-indigo-100" />
-      <div className="fixed top-[-100px] left-[-100px] -z-10 w-[500px] h-[500px] bg-indigo-200/50 rounded-full blur-3xl animate-blob" />
-      <div className="fixed top-10 right-[-80px] -z-10 w-[400px] h-[400px] bg-indigo-200/40 rounded-full blur-3xl animate-blob animation-delay-2000" />
+      <div className="fixed inset-0 -z-20 bg-gradient-to-br from-purple-100 via-purple-50 to-indigo-100" />
+      <div className="fixed top-[-100px] left-[-100px] -z-10 w-[500px] h-[500px] bg-purple-200/50 rounded-full blur-3xl animate-blob" />
+      <div className="fixed top-10 right-[-80px] -z-10 w-[400px] h-[400px] bg-purple-200/40 rounded-full blur-3xl animate-blob animation-delay-2000" />
       <div className="fixed bottom-[-80px] left-1/2 -z-10 w-[450px] h-[450px] bg-indigo-200/40 rounded-full blur-3xl animate-blob animation-delay-4000" />
 
       {/* Desktop/Tablet Sidebar */}
@@ -84,7 +84,7 @@ export default function AdcShell() {
           <AdcSidebar collapsed={collapsed} />
           <button
             onClick={handleToggle}
-            style={{ left: collapsed ? 52 : 212 }}
+            style={{ left: collapsed ? 52 : 212 ,top:50}}
             className="absolute top-[62px] z-50 w-6 h-6 rounded-full bg-white/95 border border-indigo-200 shadow-md shadow-indigo-200/40 flex items-center justify-center text-indigo-500 hover:bg-indigo-50 hover:border-indigo-400 transition-all duration-200"
             title={collapsed ? 'Expand sidebar' : 'Collapse sidebar'}
           >
@@ -105,7 +105,7 @@ export default function AdcShell() {
             wrapper: { width: 224, boxShadow: '4px 0 24px rgba(59,130,246,0.15)' },
           }}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-indigo-100/90 via-indigo-50/80 to-indigo-100/90 backdrop-blur-2xl" />
+          <div className="absolute inset-0 bg-gradient-to-br from-purple-100/90 via-purple-50/80 to-indigo-100/90 backdrop-blur-2xl" />
           <div className="relative h-full">
             <AdcSidebar collapsed={false} onItemClick={() => setDrawerOpen(false)} />
           </div>

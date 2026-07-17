@@ -135,7 +135,7 @@ export default function InventoryDashboard() {
   return (
     <div className="p-4 lg:p-8 space-y-4 lg:space-y-6">
       {/* Section 1 — KPI strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 lg:gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
   <KpiCard
     label="Active Materials"
     value={kpis.active_materials}
@@ -183,7 +183,7 @@ export default function InventoryDashboard() {
     onClick={() => navigate('/inventory/batches')}
   />
 
-  <KpiCard
+  {/* <KpiCard
     label="Expired"
     value={kpis.expired}
     icon={AlertTriangle}
@@ -191,7 +191,7 @@ export default function InventoryDashboard() {
     iconColor="text-rose-600"
     sub="with stock"
     onClick={() => navigate('/inventory/batches')}
-  />
+  /> */}
 </div>
 
       {/* Section 2 — Compliance & approval strip */}

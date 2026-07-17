@@ -14,9 +14,12 @@ const antdTheme = {
     borderRadiusSM: 4,
     controlHeight: 32,
     fontSize: 12,
-    fontFamily: "'UniversLTPro-55Roman', 'Inter', sans-serif",
+    fontFamily: "'Inter', 'SF Pro Text', 'UniversLTPro-55Roman', sans-serif",
     colorBgContainer: 'rgba(255,255,255,0.65)',
-    colorBgElevated: 'rgba(255,255,255,0.90)',
+    // Elevated surfaces (Select / Dropdown / Popover / Tooltip flyouts) must be
+    // fully opaque — a translucent popup lets page content bleed through and reads
+    // as a rendering glitch rather than a menu.
+    colorBgElevated: '#FFFFFF',
     colorBorder: 'rgba(216,180,254,0.55)',
     colorBorderSecondary: 'rgba(216,180,254,0.35)',
     boxShadow: '0 4px 24px rgba(216,180,254,0.12)',
@@ -32,7 +35,8 @@ const antdTheme = {
       itemHoverColor: '#9333ea',
       groupTitleColor: '#d8b4fe',
       groupTitleFontSize: 10,
-      popupBg: 'rgba(255,255,255,0.95)',
+      // Collapsed-sidebar fly-out popup: solid so it doesn't look see-through.
+      popupBg: '#FFFFFF',
     },
     Table: {
       headerBg: 'rgba(255,255,255,0.25)',

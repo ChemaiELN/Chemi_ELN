@@ -3,11 +3,13 @@ import datetime
 from typing import Any, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
+from pydantic import ValidationError
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
 from app.models.inventory import (
+    InvConsumableType,
     InvMaterialChemicalProps,
     InvMaterialFormulationProps,
     InvMaterial,
@@ -22,11 +24,25 @@ from app.schemas.inventory import (
     MaterialListOut,
     MaterialOut,
     MaterialUpdate,
+    MaterialUploadResult,
 )
 
 router = APIRouter(prefix="/inventory/materials", tags=["inventory-materials"])
 
 CODE_PREFIX = "MAT"
+
+# Whitelist of columns the Materials table UI is allowed to sort by.
+SORTABLE_COLUMNS = {
+    "code": InvMaterial.code,
+    "name": InvMaterial.name,
+    "material_type": InvMaterial.material_type,
+    "cas_no": InvMaterial.cas_no,
+    "molecular_formula": InvMaterial.molecular_formula,
+    "mol_weight": InvMaterial.mol_weight,
+    "storage_condition": InvMaterial.storage_condition,
+    "hazard_class": InvMaterial.hazard_class,
+    "is_active": InvMaterial.is_active,
+}
 
 
 def _seed_max_seq(db: Session, year: str) -> int:
@@ -83,6 +99,8 @@ def list_materials(
     active_only: bool = Query(False),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: str = Query("asc"),
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
@@ -106,7 +124,9 @@ def list_materials(
             | InvMaterial.material_type.ilike(term)
         )
     total = q.count()
-    items = q.order_by(InvMaterial.code).offset(skip).limit(limit).all()
+    sort_col = SORTABLE_COLUMNS.get(sort_by, InvMaterial.code)
+    order_clause = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+    items = q.order_by(order_clause).offset(skip).limit(limit).all()
     return {"items": items, "total": total}
 
 
@@ -116,6 +136,8 @@ def create_material(
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
+    if db.query(InvMaterial).filter(InvMaterial.cas_no == body.cas_no).first():
+        raise HTTPException(409, f"CAS No '{body.cas_no}' is already used by another material.")
     data = body.model_dump(exclude={"code"})
     year = datetime.datetime.utcnow().strftime('%y')
     seq = _claim_next_seq(db, year)
@@ -148,6 +170,9 @@ def update_material(
     row = db.get(InvMaterial, material_id)
     if not row:
         raise HTTPException(404, "Material not found.")
+    if body.cas_no is not None and body.cas_no != row.cas_no:
+        if db.query(InvMaterial).filter(InvMaterial.cas_no == body.cas_no, InvMaterial.id != material_id).first():
+            raise HTTPException(409, f"CAS No '{body.cas_no}' is already used by another material.")
     for k, v in body.model_dump(exclude_none=True).items():
         setattr(row, k, v)
     db.commit()
@@ -168,6 +193,23 @@ def deactivate_material(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.patch("/{material_id}/toggle", response_model=MaterialOut)
+def toggle_material(
+    material_id: int,
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    row = db.get(InvMaterial, material_id)
+    if not row:
+        raise HTTPException(404, "Material not found.")
+    row.is_active = not row.is_active
+    db.commit()
+    db.refresh(row)
+    out = MaterialOut.model_validate(row)
+    out.message = f"{row.name} {'activated' if row.is_active else 'deactivated'}."
+    return out
 
 
 # ── Chemical Props ─────────────────────────────────────────────────────────────
@@ -236,3 +278,78 @@ def upsert_formulation_props(
     db.commit()
     db.refresh(props)
     return props
+
+
+# ── Bulk Excel upload ──────────────────────────────────────────────────────────
+# Column order must match master_templates.py's TEMPLATE_SHEETS["materials"]["headers"].
+UPLOAD_COLUMNS = [
+    "name", "material_type", "cas_no", "molecular_formula",
+    "mol_weight", "storage_condition", "hazard_class",
+    "consumable_type_name", "description",
+]
+
+
+@router.post("/upload", response_model=MaterialUploadResult)
+def upload_materials(
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    from openpyxl import load_workbook
+
+    try:
+        wb = load_workbook(file.file, data_only=True)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(400, f"Could not read Excel file: {exc}")
+    ws = wb.active
+
+    created, skipped, errors = 0, 0, []
+    year = datetime.datetime.utcnow().strftime('%y')
+    seen_cas: dict[str, int] = {}  # cas_no -> first row number that used it, within this file
+
+    for i, row in enumerate(ws.iter_rows(min_row=2, values_only=True), start=2):
+        if not row or all(c is None for c in row):
+            continue
+        values = dict(zip(UPLOAD_COLUMNS, (row + (None,) * len(UPLOAD_COLUMNS))[:len(UPLOAD_COLUMNS)]))
+        consumable_type_name = values.pop("consumable_type_name", None)
+
+        mol_weight = values.get("mol_weight")
+        if mol_weight is not None:
+            values["mol_weight"] = str(mol_weight).strip() or None
+
+        try:
+            body = MaterialCreate(**{k: v for k, v in values.items() if v is not None})
+        except ValidationError as exc:
+            msgs = "; ".join(f"{e['loc'][0]}: {e['msg']}" for e in exc.errors())
+            errors.append(f"Row {i}: {msgs}")
+            skipped += 1
+            continue
+
+        if body.cas_no in seen_cas:
+            errors.append(f"Row {i}: CAS No '{body.cas_no}' duplicates row {seen_cas[body.cas_no]} in this file.")
+            skipped += 1
+            continue
+        if db.query(InvMaterial).filter(InvMaterial.cas_no == body.cas_no).first():
+            errors.append(f"Row {i}: CAS No '{body.cas_no}' is already used by another material.")
+            skipped += 1
+            continue
+
+        consumable_type_id = None
+        if consumable_type_name and str(consumable_type_name).strip():
+            ctype = db.query(InvConsumableType).filter(
+                InvConsumableType.name.ilike(str(consumable_type_name).strip())
+            ).first()
+            if not ctype:
+                errors.append(f"Row {i}: Consumable Type '{consumable_type_name}' not found.")
+                skipped += 1
+                continue
+            consumable_type_id = ctype.id
+
+        seq = _claim_next_seq(db, year)
+        data = body.model_dump(exclude={"code", "consumable_type_id"})
+        db.add(InvMaterial(code=f"{CODE_PREFIX}/{year}/{seq}", consumable_type_id=consumable_type_id, **data))
+        seen_cas[body.cas_no] = i
+        created += 1
+
+    db.commit()
+    return MaterialUploadResult(created=created, skipped=skipped, errors=errors)

@@ -130,4 +130,6 @@ def toggle_lookup(
     )
     db.commit()
     db.refresh(row)
-    return row
+    out = LookupOut.model_validate(row)
+    out.message = f"{row.lookup_value} {'activated' if row.is_active else 'deactivated'}."
+    return out

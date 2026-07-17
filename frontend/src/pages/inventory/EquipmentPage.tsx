@@ -36,7 +36,7 @@ function QrModal({ open, onClose, code, name }: { open: boolean; onClose: () => 
       <div className="flex flex-col items-center gap-3 py-2">
         {code && <QRCodeSVG value={code} size={200} level="M" includeMargin />}
         <div className="text-center">
-          <p className="font-mono font-semibold text-slate-800">{code}</p>
+          <p className="  font-semibold text-slate-800">{code}</p>
           {name && <p className="text-slate-500 text-sm">{name}</p>}
         </div>
       </div>
@@ -163,7 +163,7 @@ function EquipmentTab() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">New Equipment</Button>
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} items` }} />
+        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} items` }} />
       </div>
 
       <Modal title={editing ? 'Edit Equipment' : 'New Equipment'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={640} centered destroyOnHidden {...glassModalProps}>
@@ -312,7 +312,7 @@ function InstrumentTab() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">New Instrument</Button>
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} items` }} />
+        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} items` }} />
       </div>
 
       <Modal title={editing ? 'Edit Instrument' : 'New Instrument'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={680} centered destroyOnHidden {...glassModalProps}>
@@ -409,10 +409,10 @@ function ColumnTab() {
   }
 
   const columns: ColumnsType<ColumnCatalogue> = [
-    { title: 'Column ID', ellipsis: true, dataIndex: 'column_id', width: 130, render: v => <StatusTag color="cyan" className="font-mono text-[13px]">{v}</StatusTag> },
+    { title: 'Column ID', ellipsis: true, dataIndex: 'column_id', width: 130, render: v => <StatusTag color="cyan" className="  text-[13px]">{v}</StatusTag> },
     { title: 'Name', ellipsis: true, dataIndex: 'name', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Serial No', ellipsis: true, dataIndex: 'serial_no', width: 130, render: v => v ? <span className="font-mono text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Lot No', ellipsis: true, dataIndex: 'lot_no', width: 120, render: v => v ? <span className="font-mono text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Serial No', ellipsis: true, dataIndex: 'serial_no', width: 130, render: v => v ? <span className="  text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Lot No', ellipsis: true, dataIndex: 'lot_no', width: 120, render: v => v ? <span className="  text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
     { title: 'Max Inj.', ellipsis: true, dataIndex: 'max_injections', width: 100, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
     { title: 'Used', ellipsis: true, dataIndex: 'cumulative_injections', width: 80, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
     { title: 'Remaining', ellipsis: true, dataIndex: 'injections_remaining', width: 100, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
@@ -428,7 +428,7 @@ function ColumnTab() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">New Column</Button>
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} columns` }} />
+        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} columns` }} />
       </div>
 
       <Modal title={editing ? 'Edit Column' : 'New Column'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>

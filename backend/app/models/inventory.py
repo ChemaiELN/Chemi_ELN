@@ -55,6 +55,7 @@ class InvMaterial(Base):
     __tablename__ = "inv_materials"
     __table_args__ = (
         Index("ix_inv_materials_code", "code"),
+        Index("ix_inv_materials_cas_no_unique", "cas_no", unique=True, postgresql_where=text("cas_no IS NOT NULL")),
     )
 
     id                  = Column(Integer, primary_key=True, autoincrement=True)
@@ -187,6 +188,7 @@ class InvBatch(Base):
     batch_no             = Column(String(100), unique=True, nullable=False, index=True)
     material_id          = Column(Integer, ForeignKey("inv_materials.id"), nullable=False)
     manufacturer_id      = Column(Integer, ForeignKey("inv_manufacturers.id"), nullable=True)
+    stock_request_id     = Column(Integer, ForeignKey("inv_stock_requests.id"), nullable=True)
     qty_received         = Column(Numeric(12, 4), nullable=False)
     qty_available        = Column(Numeric(12, 4), nullable=False)
     unit                 = Column(String(20), nullable=False, default="g")
@@ -221,6 +223,7 @@ class InvBatch(Base):
 
     material      = relationship("InvMaterial", back_populates="batches")
     manufacturer  = relationship("InvManufacturer", back_populates="batches")
+    stock_request = relationship("InvStockRequest", foreign_keys=[stock_request_id])
     events        = relationship("InvBatchEvent", back_populates="batch", cascade="all, delete-orphan")
     packs         = relationship("InvBatchPack", back_populates="batch", cascade="all, delete-orphan")
 
@@ -789,9 +792,10 @@ class InvTestType(Base):
     __tablename__ = "inv_test_types"
     __table_args__ = (Index("ix_inv_test_types_key", "type_key"),)
 
-    id       = Column(Integer, primary_key=True, autoincrement=True)
-    type_key = Column(String(100), unique=True, nullable=False)
-    name     = Column(String(255), nullable=False)
+    id        = Column(Integer, primary_key=True, autoincrement=True)
+    type_key  = Column(String(100), unique=True, nullable=False)
+    name      = Column(String(255), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True, server_default="true")
 
     names = relationship("InvTestName", back_populates="test_type", cascade="all, delete-orphan")
 
@@ -802,6 +806,7 @@ class InvTestName(Base):
     id           = Column(Integer, primary_key=True, autoincrement=True)
     test_type_id = Column(Integer, ForeignKey("inv_test_types.id", ondelete="CASCADE"), nullable=False)
     name         = Column(String(255), nullable=False)
+    is_active    = Column(Boolean, nullable=False, default=True, server_default="true")
 
     test_type = relationship("InvTestType", back_populates="names")
     methods   = relationship("InvTestMethod", back_populates="test_name", cascade="all, delete-orphan")
@@ -813,5 +818,6 @@ class InvTestMethod(Base):
     id           = Column(Integer, primary_key=True, autoincrement=True)
     test_name_id = Column(Integer, ForeignKey("inv_test_names.id", ondelete="CASCADE"), nullable=False)
     method_name  = Column(String(255), nullable=False)
+    is_active    = Column(Boolean, nullable=False, default=True, server_default="true")
 
     test_name = relationship("InvTestName", back_populates="methods")

@@ -2,6 +2,10 @@
 // Stored as-is in WorkflowTemplate.definition (JSON column) via the existing
 // /api/workflow-templates endpoints — no new backend needed. Kept flat and
 // serializable so it round-trips cleanly through JSON.
+//
+// Hierarchy mirrors the ADC workflow templates: section → screen → field.
+// A section groups related screens (sub-forms); a screen holds fields laid
+// out in a 1- or 2-column grid.
 
 export type FieldType =
   | 'SECTION_HEADING'
@@ -35,15 +39,49 @@ export interface TemplateField {
   minValue?: number
   maxValue?: number
   regex?: string
-  options?: string[]         // DROPDOWN / CHECKLIST / RADIO
-  colSpan?: 1 | 2             // within a 2-column section; SECTION_HEADING/SPACER always span 2
+  options?: string[]         // DROPDOWN / CHECKLIST / RADIO — static option list
+  // Inventory-backed options (DROPDOWN). Undefined/'static' → use `options`
+  // above (back-compat with all existing templates).
+  optionsMode?: 'static' | 'inventory'
+  inventorySource?: {
+    source: string           // InventorySourceKey (see inventorySources.ts)
+    lookupType?: string      // required only when source === 'lookup'
+    valueField: string       // row column stored as the answer (e.g. 'code')
+    labelField: string       // row column shown to the user (e.g. 'name')
+  }
+  // Auto-fill: derive this field's value from other fields on the same screen.
+  // Locked (read-only) unless `editable`. Runtime wiring lives in the CGT form.
+  //   • 'attribute' — copy one column from the row picked in a single driver
+  //     dropdown (e.g. Material → CAS No).
+  //   • 'mapping'   — resolve the material↔manufacturer mapping from TWO driver
+  //     dropdowns and copy a mapping column (e.g. → Catalogue No).
+  autoFill?: {
+    mode?: 'attribute' | 'mapping'   // default/undefined → 'attribute'
+    editable?: boolean               // default false → value is locked
+    // attribute mode:
+    sourceFieldName?: string         // `name` of the driver dropdown (inventory-backed)
+    attribute?: string               // column copied from the selected row
+    // mapping mode:
+    materialFieldName?: string       // `name` of a materials dropdown
+    manufacturerFieldName?: string   // `name` of a manufacturers dropdown
+    mappingAttribute?: string        // mapping column (e.g. 'catalogue_no')
+  }
+  colSpan?: 1 | 2            // within a 2-column screen; SECTION_HEADING/SPACER always span 2
+}
+
+export interface TemplateScreen {
+  id: string
+  title: string
+  columns: 1 | 2
+  fields: TemplateField[]
 }
 
 export interface TemplateSection {
   id: string
   title: string
-  columns: 1 | 2
-  fields: TemplateField[]
+  phase?: string             // optional grouping label (e.g. 'RUN SETUP'); consecutive
+                             // sections sharing a phase render under one collapsible group
+  screens: TemplateScreen[]
 }
 
 export interface TemplateDefinition {
@@ -104,6 +142,10 @@ export function makeField(type: FieldType): TemplateField {
   }
 }
 
+export function makeScreen(title = 'New Screen'): TemplateScreen {
+  return { id: newId('screen'), title, columns: 2, fields: [] }
+}
+
 export function makeSection(title = 'New Section'): TemplateSection {
-  return { id: newId('section'), title, columns: 1, fields: [] }
+  return { id: newId('section'), title, screens: [makeScreen('Details')] }
 }

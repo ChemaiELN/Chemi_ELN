@@ -39,7 +39,7 @@ function AuditTab({ entityId }: { entityId: number }) {
     { title: 'New', dataIndex: 'new_value', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-300">—</span> },
     { title: 'Details', dataIndex: 'details', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-300">—</span> },
   ]
-  return <Table dataSource={rows} columns={columns} rowKey="id" size="small" loading={loading} pagination={{ pageSize: 15 }} scroll={{ x: 'max-content' }} />
+  return <Table dataSource={rows} columns={columns} rowKey="id" size="small" loading={loading} pagination={{ pageSize: 10 }} scroll={{ x: 'max-content' }} />
 }
 
 export default function InstrumentDetailPage() {
@@ -115,7 +115,7 @@ export default function InstrumentDetailPage() {
         <div className="flex flex-col items-center gap-3 py-2">
           <QRCodeSVG value={item.asset_id} size={200} level="M" includeMargin />
           <div className="text-center">
-            <p className="font-mono font-semibold text-slate-800">{item.asset_id}</p>
+            <p className="  font-semibold text-slate-800">{item.asset_id}</p>
             <p className="text-slate-500 text-sm">{item.name}</p>
           </div>
         </div>

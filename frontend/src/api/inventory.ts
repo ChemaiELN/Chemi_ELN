@@ -1,17 +1,17 @@
 import { apiDelete, apiDownloadBlob, apiGet, apiPatch, apiPost, apiPut, apiUpload } from './client'
 
 // ── Shared types ──────────────────────────────────────────────────────────────
-export interface ConsumableType { id: number; name: string; description: string | null; sort_order: number; is_active: boolean }
+export interface ConsumableType { id: number; name: string; description: string | null; sort_order: number; is_active: boolean; message?: string | null }
 export interface ChemicalProps { purity_pct: number | null; grade: string | null; appearance: string | null; solubility: string | null; boiling_pt: number | null; melting_pt: number | null; flash_pt: number | null; density: number | null; ph_range: string | null }
 export interface FormulationProps { role: string | null; concentration: number | null; units: string | null; function: string | null; compatibility_notes: string | null }
-export interface Material { id: number; code: string; name: string; material_type: string | null; cas_no: string | null; molecular_formula: string | null; mol_weight: number | null; storage_condition: string | null; hazard_class: string | null; description: string | null; is_active: boolean; department_id: string | null; consumable_type_id: number | null; created_at: string; updated_at: string; chemical_props: ChemicalProps | null; formulation_props: FormulationProps | null }
-export interface Manufacturer { id: number; code: string; name: string; country: string | null; contact_person: string | null; email: string | null; phone: string | null; website: string | null; address: string | null; is_active: boolean; created_at: string; updated_at: string }
+export interface Material { id: number; code: string; name: string; material_type: string | null; cas_no: string | null; molecular_formula: string | null; mol_weight: number | null; storage_condition: string | null; hazard_class: string | null; description: string | null; is_active: boolean; department_id: string | null; consumable_type_id: number | null; created_at: string; updated_at: string; chemical_props: ChemicalProps | null; formulation_props: FormulationProps | null; message?: string | null }
+export interface Manufacturer { id: number; code: string; name: string; country: string | null; contact_person: string | null; email: string | null; phone: string | null; website: string | null; address: string | null; is_active: boolean; created_at: string; updated_at: string; message?: string | null }
 export interface Mapping { id: number; material_id: number; manufacturer_id: number; catalogue_no: string | null; technical_grade: string | null; lead_time_days: number | null; min_order_qty: number | null; dsd_file_path: string | null; created_at: string; updated_at: string }
 
 // B3 types
 export interface BatchPack { id: number; batch_id: number; seq_no: number; pack_no: string; qty_per_pack: number; qty_available: number; inhouse_batch_no: string }
 export interface Batch {
-  id: number; batch_no: string; material_id: number; manufacturer_id: number | null
+  id: number; batch_no: string; material_id: number; manufacturer_id: number | null; stock_request_id: number | null
   qty_received: number; qty_available: number; unit: string; status: string; category: string
   measuring_unit: string | null; include_pack: boolean; pack_number: number | null
   inhouse_batch_no: string | null; mfg_date: string | null; expiry_date: string | null
@@ -28,17 +28,18 @@ export interface Batch {
 export interface BatchEvent { id: number; batch_id: number; event_type: string; qty: number | null; ref_no: string | null; module: string | null; issued_to: string | null; purpose: string | null; project_code: string | null; performed_by: string; performed_at: string; remarks: string | null }
 export interface StockRequestEvent { id: number; request_id: number; event_type: string; performed_by: string; performed_at: string; remarks: string | null }
 export interface StockRequest { id: number; request_no: string; material_id: number; qty_required: number; unit: string; criticality: string; status: string; created_at: string; updated_at: string; events: StockRequestEvent[]; required_by_date: string | null; purpose: string | null; requested_by: string | null; requested_at: string | null; approved_by: string | null; approved_at: string | null; remarks: string | null }
-export interface Lookup { id: number; lookup_type: string; lookup_value: string; lookup_code: string; is_active: boolean; created_by: string | null; created_at: string; updated_at: string }
-export interface UomUnit { id: number; dimension_id: number; symbol: string; name: string; sort_order: number; is_active: boolean }
-export interface UomDimension { id: number; dimension_key: string; display_name: string; base_unit: string; sort_order: number; is_active: boolean; units: UomUnit[] }
-export interface TestMethod { id: number; test_name_id: number; method_name: string }
-export interface TestName { id: number; test_type_id: number; name: string; methods: TestMethod[] }
-export interface TestType { id: number; type_key: string; name: string; names: TestName[] }
+export interface Lookup { id: number; lookup_type: string; lookup_value: string; lookup_code: string; is_active: boolean; created_by: string | null; created_at: string; updated_at: string; message?: string | null }
+export interface UomUnit { id: number; dimension_id: number; symbol: string; name: string; sort_order: number; is_active: boolean; message?: string | null }
+export interface UomDimension { id: number; dimension_key: string; display_name: string; base_unit: string; sort_order: number; is_active: boolean; units: UomUnit[]; message?: string | null }
+export interface TestMethod { id: number; test_name_id: number; method_name: string; is_active: boolean; message?: string | null }
+export interface TestName { id: number; test_type_id: number; name: string; is_active: boolean; methods: TestMethod[]; message?: string | null }
+export interface TestType { id: number; type_key: string; name: string; is_active: boolean; names: TestName[]; message?: string | null }
 export interface DashboardKPIs {
   active_materials: number; available_batches: number; low_stock: number; expiring_soon: number; expired: number
   pending_stock_requests: number; critical_stock_requests: number
   out_of_stock: number; pending_approvals_total: number; maintenance_due: number; calibration_due: number
 }
+export interface AvailableStockRow { material_id: number; code: string; name: string; total_qty_available: number; batch_count: number }
 export interface PendingApproval { type: string; reference_no: string; status: string; raised_by: string | null; raised_at: string | null; age_days: number | null }
 export interface MaintenanceCalibrationDue { type: 'Maintenance' | 'Calibration'; asset_code: string; asset_name: string; due_date: string; days_until_due: number }
 export interface EquipmentStatusBreakdown { equipment: { status: string; count: number }[]; instruments: { status: string; count: number }[] }
@@ -47,21 +48,24 @@ export interface ExpiringBatch { id: number; batch_no: string; inhouse_batch_no:
 export interface EquipmentCatalogue { id: number; asset_id: string; equipment_type_id: number | null; name: string; make: string | null; model: string | null; serial_no: string | null; location: string | null; usage_type: string | null; movable: boolean; gross_capacity: number | null; capacity_unit: string | null; description: string | null; maintenance_status: string; status: string; last_maintenance_date: string | null; next_maintenance_date: string | null; is_active: boolean; created_at: string; updated_at: string }
 export interface InstrumentCatalogue { id: number; asset_id: string; instrument_type_id: number | null; name: string; make: string | null; model: string | null; serial_no: string | null; location: string | null; usage_type: string | null; movable: boolean; gross_capacity: number | null; capacity_unit: string | null; lower_operating_range: number | null; lower_uom: string | null; upper_operating_range: number | null; upper_uom: string | null; required_calibration: boolean; description: string | null; calibration_status: string; status: string; last_calibration_date: string | null; next_calibration_date: string | null; is_active: boolean; created_at: string; updated_at: string }
 export interface ColumnCatalogue { id: number; column_id: string; column_type_id: number | null; name: string; serial_no: string | null; lot_no: string | null; max_injections: number; cumulative_injections: number; injections_remaining: number; status: string; is_active: boolean; created_at: string; updated_at: string }
-export interface EquipType { id: number; code: string; name: string; description: string | null; is_active: boolean; created_at: string }
-export interface ColumnType { id: number; code: string; name: string; description: string | null; length_mm: number | null; particle_size_um: number | null; pore_size_angstrom: number | null; is_active: boolean; created_at: string }
-export interface StorageCondition { id: number; label: string; temperature_min: number | null; temperature_max: number | null; temperature_unit: string; description: string | null; sort_order: number; is_active: boolean }
+export interface EquipType { id: number; code: string; name: string; description: string | null; is_active: boolean; created_at: string; message?: string | null }
+export interface ColumnType { id: number; code: string; name: string; description: string | null; length_mm: number | null; particle_size_um: number | null; pore_size_angstrom: number | null; is_active: boolean; created_at: string; message?: string | null }
+export interface StorageCondition { id: number; label: string; temperature_min: number | null; temperature_max: number | null; temperature_unit: string; description: string | null; sort_order: number; is_active: boolean; message?: string | null }
 export interface ChecklistItem { id: number; checklist_id: number; seq_no: number; instruction_type: string; data_type: string | null; frequencies: string[] | null; precision: number | null; lower_limit: number | null; upper_limit: number | null; options: string[] | null; details: string | null; created_at: string }
 export interface ChecklistApproval { id: number; checklist_id: number; action: string; from_state: string | null; to_state: string | null; performed_by: string; comment: string | null; performed_at: string }
 export interface Checklist { id: number; name: string; checklist_type: string; log_type: string; usage_type: string | null; target_kind: string; equipment_code: string | null; version: string; status: string; is_active: boolean; created_by: string | null; created_at: string; updated_at: string }
 export interface ChecklistDetail extends Checklist { items: ChecklistItem[]; approvals: ChecklistApproval[] }
-export interface MeasurementMaster { id: number; name: string; data_type: string; uom: string | null; is_active: boolean; created_at: string }
+export interface MeasurementMaster { id: number; name: string; data_type: string; uom: string | null; is_active: boolean; created_at: string; message?: string | null }
 export interface LogMapping { id: number; equipment_id: number | null; instrument_id: number | null; log_type: string; checklist_id: number | null; checklist_name: string | null; checklist_version: string | null; tolerance_days: number | null; alert_limit: number | null; deviation_limit: number | null; created_at: string; updated_at: string }
 export interface InstrumentParameter { id: number; instrument_id: number; measurement_id: number | null; measurement_name: string | null; precision: number | null; lower_unit: number | null; lower_uom: string | null; upper_unit: number | null; upper_uom: string | null; calibration_tolerance_pct: number | null; seq_no: number; created_at: string }
 export interface InstrumentSpecDetail { id: number; instrument_id: number; specification: string; value: string | null; uom: string | null; seq_no: number; created_at: string }
 export interface Schedule { id: number; target_kind: string; equipment_id: number | null; instrument_id: number | null; equipment_code: string | null; equipment_type: string | null; log_type: string; checklist_id: number | null; schedule_type: string; due_date: string; planned_date: string | null; tolerance_days: number | null; alert_limit: number | null; deviation_limit: number | null; done_on: string | null; status: string; source: string; current_status: string | null; days_label: string | null; created_at: string; updated_at: string }
 export interface MasterTemplate { key: string; name: string; filename: string }
 export interface ScheduleUploadResult { created: number; skipped: number; errors: string[] }
-export interface SparePart { id: number; part_code: string; name: string; description: string | null; is_active: boolean; created_at: string }
+export interface MaterialUploadResult { created: number; skipped: number; errors: string[] }
+export interface ManufacturerUploadResult { created: number; skipped: number; errors: string[] }
+export interface MappingUploadResult { created: number; skipped: number; errors: string[] }
+export interface SparePart { id: number; part_code: string; name: string; description: string | null; is_active: boolean; created_at: string; message?: string | null }
 export interface RequestItem {
   // PLANNED: a Schedule; UNPLANNED/BREAKDOWN: a catalogue item
   id: number; equipment_code?: string | null; asset_id?: string; name?: string
@@ -163,11 +167,14 @@ export const testMasterApi = {
   get: (key: string) => apiGet<TestType>(`/api/inventory/test-master/${key}`),
   create: (body: unknown) => apiPost<TestType>('/api/inventory/test-master', body),
   update: (key: string, body: unknown) => apiPatch<TestType>(`/api/inventory/test-master/${key}`, body),
+  toggle: (key: string) => apiPatch<TestType>(`/api/inventory/test-master/${key}/toggle`, {}),
   createName: (key: string, body: unknown) => apiPost<TestName>(`/api/inventory/test-master/${key}/names`, body),
   updateName: (id: number, body: unknown) => apiPatch<TestName>(`/api/inventory/test-master/names/${id}`, body),
+  toggleName: (id: number) => apiPatch<TestName>(`/api/inventory/test-master/names/${id}/toggle`, {}),
   deleteName: (id: number) => apiDelete(`/api/inventory/test-master/names/${id}`),
   createMethod: (nameId: number, body: unknown) => apiPost<TestMethod>(`/api/inventory/test-master/names/${nameId}/methods`, body),
   updateMethod: (id: number, body: unknown) => apiPatch<TestMethod>(`/api/inventory/test-master/methods/${id}`, body),
+  toggleMethod: (id: number) => apiPatch<TestMethod>(`/api/inventory/test-master/methods/${id}/toggle`, {}),
   deleteMethod: (id: number) => apiDelete(`/api/inventory/test-master/methods/${id}`),
 }
 
@@ -183,7 +190,8 @@ export const consumableTypeApi = {
 // ── Dashboard ─────────────────────────────────────────────────────────────────
 export const dashboardApi = {
   kpis: () => apiGet<DashboardKPIs>('/api/inventory/dashboard/kpis'),
-  availableStock: () => apiGet<unknown[]>('/api/inventory/dashboard/available-stock'),
+  availableStock: (params?: { material_id?: number }) =>
+    apiGet<AvailableStockRow[]>('/api/inventory/dashboard/available-stock', params as Record<string, unknown>),
   expiringSoon: (days?: number) => apiGet<ExpiringBatch[]>('/api/inventory/dashboard/expiring-soon', days ? { days } : undefined),
   pendingActions: () => apiGet<Record<string, number>>('/api/inventory/dashboard/pending-actions'),
   pendingApprovals: () => apiGet<PendingApproval[]>('/api/inventory/dashboard/pending-approvals'),
@@ -217,8 +225,13 @@ export const materialApi = {
   create: (body: unknown) => apiPost<Material>('/api/inventory/materials', body),
   update: (id: number, body: unknown) => apiPatch<Material>(`/api/inventory/materials/${id}`, body),
   deactivate: (id: number) => apiDelete<Material>(`/api/inventory/materials/${id}/deactivate`),
+  toggle: (id: number) => apiPatch<Material>(`/api/inventory/materials/${id}/toggle`, {}),
   upsertChemicalProps: (id: number, body: unknown) => apiPut<ChemicalProps>(`/api/inventory/materials/${id}/chemical-props`, body),
   upsertFormulationProps: (id: number, body: unknown) => apiPut<FormulationProps>(`/api/inventory/materials/${id}/formulation-props`, body),
+  upload: (file: File) => {
+    const fd = new FormData(); fd.append('file', file)
+    return apiUpload<MaterialUploadResult>('/api/inventory/materials/upload', fd)
+  },
 }
 
 export const mappingApi = {
@@ -232,14 +245,29 @@ export const mappingApi = {
   },
   downloadDsd: (id: number) => `/api/inventory/mappings/${id}/dsd/download`,
   deleteDsd: (id: number) => apiDelete<Mapping>(`/api/inventory/mappings/${id}/dsd`),
+  upload: (file: File) => {
+    const fd = new FormData(); fd.append('file', file)
+    return apiUpload<MappingUploadResult>('/api/inventory/mappings/upload', fd)
+  },
 }
 
 export const manufacturerApi = {
-  list: (params?: Record<string, unknown>) => apiGet<Manufacturer[]>('/api/inventory/manufacturers', params),
+  // Back-compat: unwraps the paginated response and returns just the page of items
+  // (used by pickers/dropdowns elsewhere that don't need a total count).
+  list: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Manufacturer[]; total: number }>('/api/inventory/manufacturers', params).then(r => r.items),
+  // Server-side pagination: returns { items, total } so the caller can size a Table's pagination.
+  listPaged: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Manufacturer[]; total: number }>('/api/inventory/manufacturers', params),
   get: (id: number) => apiGet<Manufacturer>(`/api/inventory/manufacturers/${id}`),
   create: (body: unknown) => apiPost<Manufacturer>('/api/inventory/manufacturers', body),
   update: (id: number, body: unknown) => apiPatch<Manufacturer>(`/api/inventory/manufacturers/${id}`, body),
   deactivate: (id: number) => apiDelete<Manufacturer>(`/api/inventory/manufacturers/${id}/deactivate`),
+  toggle: (id: number) => apiPatch<Manufacturer>(`/api/inventory/manufacturers/${id}/toggle`, {}),
+  upload: (file: File) => {
+    const fd = new FormData(); fd.append('file', file)
+    return apiUpload<ManufacturerUploadResult>('/api/inventory/manufacturers/upload', fd)
+  },
 }
 
 export const equipmentCatalogueApi = {

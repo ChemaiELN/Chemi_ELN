@@ -70,7 +70,7 @@ function PlannedTab({ targetKind, calibrationSource }: { targetKind: Kind; calib
   }
 
   const columns: ColumnsType<RequestItem> = [
-    { title: isEquipment ? 'Equipment Code' : 'Instrument Code', dataIndex: 'equipment_code', ellipsis: true, width: 150, render: v => <span className="font-mono text-[13px] text-slate-700">{v}</span> },
+    { title: isEquipment ? 'Equipment Code' : 'Instrument Code', dataIndex: 'equipment_code', ellipsis: true, width: 150, render: v => <span className="  text-[13px] text-slate-700">{v}</span> },
     { title: 'Schedule Type', dataIndex: 'schedule_type', ellipsis: true, width: 120, render: v => <span className="text-[13px] text-slate-600">{String(v).replace(/_/g, ' ')}</span> },
     { title: 'Due Date', dataIndex: 'due_date', ellipsis: true, width: 110 },
     { title: 'Planned Date', dataIndex: 'planned_date', ellipsis: true, width: 120, render: v => v ?? <span className="text-slate-300">—</span> },
@@ -98,7 +98,7 @@ function PlannedTab({ targetKind, calibrationSource }: { targetKind: Kind; calib
         {logTypes.length > 1 && <Select value={logType} onChange={setLogType} style={{ minWidth: 150 }} options={logTypes} />}
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20 }} locale={{ emptyText: 'No pending requests' }} />
+        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10 }} locale={{ emptyText: 'No pending requests' }} />
       </div>
 
       <Modal title="Planned Request" open={!!planTarget} closable={false} onCancel={() => setPlanTarget(null)} onOk={() => form.submit()} confirmLoading={saving} width={420} centered destroyOnHidden {...glassModalProps}>
@@ -144,7 +144,7 @@ function DirectPickTab({ targetKind, kind }: { targetKind: Kind; kind: 'UNPLANNE
   })
 
   const columns: ColumnsType<RequestItem> = [
-    { title: isEquipment ? 'Equipment Code' : 'Instrument Code', dataIndex: 'asset_id', ellipsis: true, width: 160, render: v => <span className="font-mono text-[13px] text-slate-700">{v}</span> },
+    { title: isEquipment ? 'Equipment Code' : 'Instrument Code', dataIndex: 'asset_id', ellipsis: true, width: 160, render: v => <span className="  text-[13px] text-slate-700">{v}</span> },
     { title: 'Name', dataIndex: 'name', ellipsis: true },
     { title: 'Status', dataIndex: 'status', ellipsis: true, width: 150, render: v => <StatusTag color="default">{String(v).replace(/_/g, ' ')}</StatusTag> },
     {
@@ -159,7 +159,7 @@ function DirectPickTab({ targetKind, kind }: { targetKind: Kind; kind: 'UNPLANNE
   return (
     <div className="pt-3">
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20 }} />
+        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10 }} />
       </div>
     </div>
   )

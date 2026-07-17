@@ -75,6 +75,23 @@ def update_type(
     return row
 
 
+@router.patch("/{type_key}/toggle", response_model=TestTypeOut)
+def toggle_type(
+    type_key: str,
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    row = db.query(InvTestType).filter_by(type_key=type_key).first()
+    if not row:
+        raise HTTPException(404, "Test type not found.")
+    row.is_active = not row.is_active
+    db.commit()
+    db.refresh(row)
+    out = TestTypeOut.model_validate(row)
+    out.message = f"{row.name} {'activated' if row.is_active else 'deactivated'}."
+    return out
+
+
 # ── Test Names ─────────────────────────────────────────────────────────────────
 @router.post("/{type_key}/names", response_model=TestNameOut, status_code=201)
 def create_name(
@@ -108,6 +125,23 @@ def update_name(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.patch("/names/{name_id}/toggle", response_model=TestNameOut)
+def toggle_name(
+    name_id: int,
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    row = db.get(InvTestName, name_id)
+    if not row:
+        raise HTTPException(404, "Test name not found.")
+    row.is_active = not row.is_active
+    db.commit()
+    db.refresh(row)
+    out = TestNameOut.model_validate(row)
+    out.message = f"{row.name} {'activated' if row.is_active else 'deactivated'}."
+    return out
 
 
 @router.delete("/names/{name_id}", status_code=204)
@@ -155,6 +189,23 @@ def update_method(
     db.commit()
     db.refresh(row)
     return row
+
+
+@router.patch("/methods/{method_id}/toggle", response_model=TestMethodOut)
+def toggle_method(
+    method_id: int,
+    db: Session = Depends(get_db),
+    _: Any = Depends(get_current_user),
+):
+    row = db.get(InvTestMethod, method_id)
+    if not row:
+        raise HTTPException(404, "Test method not found.")
+    row.is_active = not row.is_active
+    db.commit()
+    db.refresh(row)
+    out = TestMethodOut.model_validate(row)
+    out.message = f"{row.method_name} {'activated' if row.is_active else 'deactivated'}."
+    return out
 
 
 @router.delete("/methods/{method_id}", status_code=204)

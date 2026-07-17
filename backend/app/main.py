@@ -111,6 +111,8 @@ from app.models import project as _proj           # noqa: F401
 from app.models import notebook as _nb            # noqa: F401
 from app.models import experiment as _exp         # noqa: F401
 from app.models import adc as _adc               # noqa: F401
+from app.models import cgt_notebook as _cgt_nb    # noqa: F401
+from app.models import cgt_experiment as _cgt_exp # noqa: F401
 
 # Phase D2 — ADC module
 from app.modules.workflow_templates.router import router as workflow_templates_router
@@ -127,5 +129,13 @@ app.include_router(experiments_nb_router, prefix="/api")
 app.include_router(experiments_router,    prefix="/api")
 
 # CGT module
-from app.modules.cgt import cgt_projects_router
-app.include_router(cgt_projects_router, prefix="/api")
+from app.modules.cgt import (
+    cgt_projects_router,
+    cgt_notebooks_router, cgt_notebooks_sub_router,
+    cgt_experiments_nb_router, cgt_experiments_router,
+)
+app.include_router(cgt_projects_router,       prefix="/api")
+app.include_router(cgt_notebooks_router,      prefix="/api")
+app.include_router(cgt_notebooks_sub_router,  prefix="/api")
+app.include_router(cgt_experiments_nb_router, prefix="/api")
+app.include_router(cgt_experiments_router,    prefix="/api")

@@ -67,7 +67,7 @@ function ChemicalsTab() {
 
   const columns: ColumnsType<LookupChemical> = [
     { title: 'Chemical Name', dataIndex: 'chemical_name', render: (v) => <span className="font-medium text-slate-800 text-sm">{v}</span> },
-    { title: 'CAS No.', dataIndex: 'cas_no', responsive: ['lg'], render: (v) => <span className="font-mono text-xs text-slate-500">{v ?? '—'}</span> },
+    { title: 'CAS No.', dataIndex: 'cas_no', responsive: ['lg'], render: (v) => <span className="  text-xs text-slate-500">{v ?? '—'}</span> },
     { title: 'Formula', dataIndex: 'formula', responsive: ['md'], render: (v) => v ?? <span className="text-slate-300">—</span> },
     { title: 'Mol. Wt', dataIndex: 'mol_wt', width: 90, align: 'right', responsive: ['lg'], render: (v) => v != null ? <span className="text-slate-600 text-sm">{Number(v).toFixed(2)}</span> : <span className="text-slate-300">—</span> },
     { title: 'Purity %', dataIndex: 'purity_pct', width: 85, align: 'right', responsive: ['lg'], render: (v) => v != null ? <span className="text-slate-600 text-sm">{v}%</span> : <span className="text-slate-300">—</span> },
@@ -94,7 +94,7 @@ function ChemicalsTab() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>Add Chemical</Button>
       </div>
       <Table dataSource={data} columns={columns} rowKey="id" loading={isLoading} size="small"
-        pagination={{ pageSize: 15, showTotal: (t) => `${t} items` }} scroll={{ x: 'max-content' }} />
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} items` }} scroll={{ x: 'max-content' }} />
 
       <Modal open={open} title={editTarget ? `Edit — ${editTarget.chemical_name}` : 'Add Chemical'}
         onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()}
@@ -163,7 +163,7 @@ function InstrumentsTab() {
   })
 
   const columns: ColumnsType<LookupInstrument> = [
-    { title: 'Code', dataIndex: 'instrument_code', width: 110, render: (v) => <Tag color="purple" className="font-mono text-xs">{v}</Tag> },
+    { title: 'Code', dataIndex: 'instrument_code', width: 110, render: (v) => <Tag color="purple" className="  text-xs">{v}</Tag> },
     { title: 'Name', dataIndex: 'instrument_name', render: (v) => <span className="font-medium text-slate-800 text-sm">{v}</span> },
     { title: 'Type', dataIndex: 'instrument_type', responsive: ['md'], render: (v) => v ?? <span className="text-slate-300">—</span> },
     { title: 'Maintenance', dataIndex: 'maintenance_status', width: 110, responsive: ['lg'], render: (v) => v ? <Tag color={statusColor(v)}>{v}</Tag> : <span className="text-slate-300">—</span> },
@@ -190,7 +190,7 @@ function InstrumentsTab() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>Add Instrument</Button>
       </div>
       <Table dataSource={data} columns={columns} rowKey="id" loading={isLoading} size="small"
-        pagination={{ pageSize: 15, showTotal: (t) => `${t} items` }} scroll={{ x: 'max-content' }} />
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} items` }} scroll={{ x: 'max-content' }} />
 
       <Modal open={open} title={editTarget ? `Edit — ${editTarget.instrument_name}` : 'Add Instrument'}
         onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()}
@@ -200,7 +200,7 @@ function InstrumentsTab() {
         <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
           {!editTarget && (
             <Form.Item name="instrument_code" label="Code" rules={[{ required: true, max: 50 }]}>
-              <Input placeholder="e.g. HPLC-001" className="uppercase font-mono" />
+              <Input placeholder="e.g. HPLC-001" className="uppercase  " />
             </Form.Item>
           )}
           <Form.Item name="instrument_name" label="Name" rules={[{ required: true }]}>
@@ -265,7 +265,7 @@ function SitesTab() {
   })
 
   const columns: ColumnsType<LookupSite> = [
-    { title: 'Code', dataIndex: 'code', width: 100, render: (v) => <Tag color="purple" className="font-mono text-xs font-bold">{v}</Tag> },
+    { title: 'Code', dataIndex: 'code', width: 100, render: (v) => <Tag color="purple" className="  text-xs font-bold">{v}</Tag> },
     { title: 'Name', dataIndex: 'name', render: (v) => <span className="font-medium text-slate-800 text-sm">{v}</span> },
     {
       title: 'Active', dataIndex: 'is_active', width: 70, align: 'center',
@@ -289,7 +289,7 @@ function SitesTab() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate}>Add Site</Button>
       </div>
       <Table dataSource={data} columns={columns} rowKey="id" loading={isLoading} size="small"
-        pagination={{ pageSize: 15, showTotal: (t) => `${t} sites` }} scroll={{ x: 'max-content' }} />
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} sites` }} scroll={{ x: 'max-content' }} />
 
       <Modal open={open} title={editTarget ? `Edit — ${editTarget.name}` : 'Add Site'}
         onCancel={() => { setOpen(false); setEditTarget(null) }} onOk={() => form.submit()}
@@ -299,7 +299,7 @@ function SitesTab() {
         <Form form={form} layout="vertical" onFinish={(v) => save.mutate(v)}>
           {!editTarget && (
             <Form.Item name="code" label="Code" rules={[{ required: true, max: 20 }]}>
-              <Input placeholder="e.g. HYD-1" className="uppercase font-mono" />
+              <Input placeholder="e.g. HYD-1" className="uppercase  " />
             </Form.Item>
           )}
           <Form.Item name="name" label="Site Name" rules={[{ required: true }]}>

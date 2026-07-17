@@ -537,7 +537,7 @@ export default function ExperimentDetailPage() {
                 STEP {stepNumber} OF {totalSteps}
               </p>
             </div>
-            <span className="font-mono text-xs text-violet-600 bg-violet-50 px-2 py-0.5 rounded">
+            <span className="  text-xs text-violet-600 bg-violet-50 px-2 py-0.5 rounded">
               {exp.full_code}
             </span>
             <Tag color={STATUS_COLOR[exp.status] ?? 'default'} className="flex items-center gap-1">

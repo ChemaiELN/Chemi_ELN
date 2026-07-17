@@ -9,7 +9,7 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
-from app.models.inventory import InvBatch, InvBatchEvent, InvBatchPack, InvBatchNoCounter, InvBatchNumberCounter
+from app.models.inventory import InvBatch, InvBatchEvent, InvBatchPack, InvBatchNoCounter, InvBatchNumberCounter, InvStockRequest, InvStockRequestEvent
 from app.schemas.inventory import (
     BatchAllocateRequest,
     BatchCreate,
@@ -187,16 +187,31 @@ def create_batch(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
+    if db.query(InvBatch).filter(InvBatch.batch_no == body.batch_no).first():
+        raise HTTPException(409, f"MFG Batch No '{body.batch_no}' is already in use.")
+
     data = body.model_dump(exclude={"batch_no"})
     data["qty_available"] = data["qty_received"]
     include_pack = data.pop("include_pack")
     pack_number = data.get("pack_number")
 
-    # Always generate batch_no and inhouse_batch_no server-side so the counters stay accurate
+    # A batch created to fulfill a stock request atomically transitions that
+    # request to FULFILLED in the same transaction — only Store Incharge may
+    # do this, mirroring the standalone /fulfill endpoint's gate.
+    linked_request: Optional[InvStockRequest] = None
+    if data.get("stock_request_id") is not None:
+        if current_user.role.code != "STORE_INCHARGE":
+            raise HTTPException(403, "Only Store Incharge can create a batch that fulfills a stock request.")
+        linked_request = db.get(InvStockRequest, data["stock_request_id"])
+        if not linked_request:
+            raise HTTPException(404, "Stock request not found.")
+        if linked_request.status != "APPROVED":
+            raise HTTPException(400, f"Cannot fulfill a '{linked_request.status}' request.")
+
+    # inhouse_batch_no is still always generated server-side so its counter stays accurate.
     data.pop("inhouse_batch_no", None)
     year = datetime.datetime.utcnow().strftime('%y')
-    batch_seq = _claim_next_batch_no_seq(db, year)
-    batch = InvBatch(batch_no=f"{BATCH_NO_PREFIX}/{year}/{batch_seq:03d}", **data, include_pack=include_pack)
+    batch = InvBatch(batch_no=body.batch_no, **data, include_pack=include_pack)
     db.add(batch)
     db.flush()
 
@@ -237,6 +252,24 @@ def create_batch(
         entity_ref=batch.batch_no,
         performed_by=_user_ref(current_user),
     )
+
+    if linked_request is not None:
+        linked_request.status = "FULFILLED"
+        db.add(InvStockRequestEvent(
+            request_id=linked_request.id,
+            event_type="FULFILLED",
+            performed_by=_user_ref(current_user),
+            performed_at=datetime.datetime.utcnow(),
+            remarks=f"Fulfilled by batch {batch.batch_no}",
+        ))
+        write_inv_audit(
+            db,
+            event_type="STOCK_REQUEST_FULFILLED",
+            entity_type="inv_stock_request",
+            entity_ref=linked_request.request_no,
+            performed_by=_user_ref(current_user),
+        )
+
     db.commit()
     db.refresh(batch)
     return batch

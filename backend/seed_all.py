@@ -11,6 +11,10 @@ Seeds, in dependency order:
   2. RBAC role privileges
   3. Inventory reference data (consumable types, UOM master, test master)
   4. ADC workflow templates
+  5. CGT Plasmid workflow templates (USP, DSP)
+  6. CGT AAV workflow templates (USP, DSP)
+  7. CGT Molecular Biology workflow templates (Cloning, PCS, Transformation,
+     Plasmid Isolation, Cell Banking)
 """
 import importlib
 import sys
@@ -23,6 +27,9 @@ STEPS = [
     ("seeds.seed_uom_master",       "run"),
     ("seeds.seed_test_master",      "run"),
     ("seeds.seed_adc_templates",    "seed"),
+    ("seeds.seed_cgt_plasmid_templates", "seed"),
+    ("seeds.seed_aav_templates",    "seed"),
+    ("seeds.seed_molbio_templates", "seed"),
 ]
 
 

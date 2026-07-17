@@ -45,8 +45,8 @@ function BatchInventoryTab() {
   })
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, render: v => <span className="font-mono text-[13px]">{v as string}</span> },
-    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, render: v => <span className="font-mono text-[13px]">{v as string ?? '—'}</span> },
+    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, render: v => <span className="  text-[13px]">{v as string}</span> },
+    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, render: v => <span className="  text-[13px]">{v as string ?? '—'}</span> },
     { title: 'Material ID', ellipsis: true, dataIndex: 'material_id', key: 'material_id', width: 100, render: v => <span className="text-[13px]">{v as number}</span> },
     { title: 'Category', ellipsis: true, dataIndex: 'category', key: 'category', width: 120, render: v => v ? <Tag color="blue" bordered className="text-[13px]">{v as string}</Tag> : '—' },
     { title: 'Qty Received', ellipsis: true, dataIndex: 'qty_received', key: 'qty_received', width: 110, align: 'right', render: (v, r) => <span className="text-[13px]">{(v as number).toFixed(2)} {r.unit as string}</span> },
@@ -116,8 +116,8 @@ function ExpiryReportTab() {
   }
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, render: v => <span className="font-mono text-[13px]">{v as string}</span> },
-    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, render: v => <span className="font-mono text-[13px]">{v as string ?? '—'}</span> },
+    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, render: v => <span className="  text-[13px]">{v as string}</span> },
+    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, render: v => <span className="  text-[13px]">{v as string ?? '—'}</span> },
     { title: 'Material ID', ellipsis: true, dataIndex: 'material_id', key: 'material_id', width: 100, render: v => <span className="text-[13px]">{v as number}</span> },
     { title: 'Qty Available', ellipsis: true, dataIndex: 'qty_available', key: 'qty_available', width: 110, align: 'right', render: (v, r) => <span className="text-[13px]">{(v as number).toFixed(2)} {r.unit as string}</span> },
     { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 110, render: v => <Tag color={BATCH_STATUS_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
@@ -199,7 +199,7 @@ function StockRequestsReportTab() {
   })
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Request No', ellipsis: true, dataIndex: 'request_no', key: 'request_no', width: 140, render: v => <span className="font-mono text-[13px]">{v as string}</span> },
+    { title: 'Request No', ellipsis: true, dataIndex: 'request_no', key: 'request_no', width: 140, render: v => <span className="  text-[13px]">{v as string}</span> },
     { title: 'Material ID', ellipsis: true, dataIndex: 'material_id', key: 'material_id', width: 100, render: v => <span className="text-[13px]">{v as number}</span> },
     { title: 'Qty Required', ellipsis: true, dataIndex: 'qty_required', key: 'qty_required', width: 110, align: 'right', render: (v, r) => <span className="text-[13px]">{(v as number).toFixed(2)} {r.unit as string}</span> },
     { title: 'Criticality', ellipsis: true, dataIndex: 'criticality', key: 'criticality', width: 110, render: v => <Tag color={CRIT_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
@@ -289,7 +289,7 @@ function EquipmentStatusTab() {
   })
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 120, render: v => <Tag color="purple" bordered className="font-mono text-[13px]">{v as string}</Tag> },
+    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 120, render: v => <Tag color="purple" bordered className="  text-[13px]">{v as string}</Tag> },
     { title: 'Name', ellipsis: true, dataIndex: 'name', key: 'name', width: 180, render: v => <span className="text-[13px]">{v as string}</span> },
     { title: 'Make', ellipsis: true, dataIndex: 'make', key: 'make', width: 120, render: v => <span className="text-[13px]">{v as string ?? '—'}</span> },
     { title: 'Model', ellipsis: true, dataIndex: 'model', key: 'model', width: 120, render: v => <span className="text-[13px]">{v as string ?? '—'}</span> },
@@ -378,7 +378,7 @@ function InstrumentStatusTab() {
   })
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 130, render: v => <Tag color="purple" bordered className="font-mono text-[13px]">{v as string}</Tag> },
+    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 130, render: v => <Tag color="purple" bordered className="  text-[13px]">{v as string}</Tag> },
     { title: 'Name', ellipsis: true, dataIndex: 'name', key: 'name', width: 180, render: v => <span className="text-[13px]">{v as string}</span> },
     { title: 'Make', ellipsis: true, dataIndex: 'make', key: 'make', width: 120, render: v => <span className="text-[13px]">{v as string ?? '—'}</span> },
     { title: 'Model', ellipsis: true, dataIndex: 'model', key: 'model', width: 120, render: v => <span className="text-[13px]">{v as string ?? '—'}</span> },
@@ -430,8 +430,8 @@ function WorkOrdersReportTab() {
   })
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Workorder No', ellipsis: true, dataIndex: 'workorder_no', key: 'workorder_no', width: 140, render: v => <span className="font-mono text-[13px]">{v as string}</span> },
-    { title: 'Code', ellipsis: true, dataIndex: 'equipment_code', key: 'equipment_code', width: 130, render: v => <span className="font-mono text-[13px]">{v as string ?? '—'}</span> },
+    { title: 'Workorder No', ellipsis: true, dataIndex: 'workorder_no', key: 'workorder_no', width: 140, render: v => <span className="  text-[13px]">{v as string}</span> },
+    { title: 'Code', ellipsis: true, dataIndex: 'equipment_code', key: 'equipment_code', width: 130, render: v => <span className="  text-[13px]">{v as string ?? '—'}</span> },
     { title: 'Kind', ellipsis: true, dataIndex: 'kind', key: 'kind', width: 110, render: v => <span className="text-[13px]">{v as string}</span> },
     { title: 'Log Type', ellipsis: true, dataIndex: 'log_type', key: 'log_type', width: 120, render: v => <span className="text-[13px]">{v as string}</span> },
     { title: 'Source', ellipsis: true, dataIndex: 'calibration_source', key: 'calibration_source', width: 100, render: v => v ? <span className="text-[13px]">{v as string}</span> : '—' },
@@ -470,7 +470,7 @@ function UsageSummaryTab() {
   }
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 150, render: v => <Tag color="purple" bordered className="font-mono text-[13px]">{v as string}</Tag> },
+    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 150, render: v => <Tag color="purple" bordered className="  text-[13px]">{v as string}</Tag> },
     { title: 'Sessions', ellipsis: true, dataIndex: 'session_count', key: 'session_count', width: 100, align: 'right', render: v => <span className="text-[13px]">{v as number}</span> },
     { title: 'Total Hours', ellipsis: true, dataIndex: 'total_hours', key: 'total_hours', width: 120, align: 'right', render: v => <span className="text-[13px]">{v as number}</span> },
     { title: 'Last Used', ellipsis: true, dataIndex: 'last_used_at', key: 'last_used_at', width: 160, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD-MMM-YY HH:mm') : '—'}</span> },

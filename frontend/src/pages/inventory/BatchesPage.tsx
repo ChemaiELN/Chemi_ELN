@@ -9,7 +9,7 @@ import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType } from 'antd/es/table'
 import { Plus, Eye, Zap, Search, Pencil, Upload as UploadIcon, FileCheck, History, MessageSquare } from 'lucide-react'
 import dayjs from 'dayjs'
-import { batchApi, materialApi, manufacturerApi, uomApi, type Batch, type BatchEvent, type Material, type Manufacturer, type UomUnit } from '../../api/inventory'
+import { batchApi, materialApi, manufacturerApi, mappingApi, uomApi, type Batch, type BatchEvent, type Material, type Manufacturer, type UomUnit } from '../../api/inventory'
 import { glassModalProps } from '../../utils/modalStyles'
 
 const API_BASE =
@@ -43,6 +43,9 @@ const STATUS_COLOR: Record<string, string> = {
   AVAILABLE: 'green', PARTIALLY_CONSUMED: 'blue', CONSUMED: 'default',
   EXPIRED: 'red', QUARANTINE: 'orange',
 }
+
+// Measuring Unit / Measuring Unit Value only apply to materials under this Material Type.
+const ANTIBODY_MATERIAL_TYPE = 'Antibody Materials'
 
 type FlatRow = Batch & {
   _packSku: string | null
@@ -105,7 +108,6 @@ export default function BatchesPage() {
   const [historyLoading, setHistoryLoading] = useState(false)
 
   const [inhouseLoading, setInhouseLoading] = useState(false)
-  const [nextBatchNo, setNextBatchNo] = useState('')
   const [massUnits, setMassUnits] = useState<UomUnit[]>([])
   const [coaFile, setCoaFile] = useState<UploadFile | null>(null)
   const [editOpen, setEditOpen] = useState(false)
@@ -114,6 +116,14 @@ export default function BatchesPage() {
   const [editSaving, setEditSaving] = useState(false)
   const [materialSearchLoading, setMaterialSearchLoading] = useState(false)
   const materialSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // Manufacturer options in the New Batch modal are restricted to whatever's
+  // actually mapped to the selected Material (via Manufacturer Mapping), not
+  // the full manufacturer list.
+  const [manufacturerOptions, setManufacturerOptions] = useState<Manufacturer[]>([])
+  const [manufacturerSearchLoading, setManufacturerSearchLoading] = useState(false)
+  const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null)
+  const [selectedMaterialType, setSelectedMaterialType] = useState<string | null>(null)
+  const manufacturerSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [form] = Form.useForm()
   const [issueForm] = Form.useForm()
   const [editForm] = Form.useForm()
@@ -180,13 +190,52 @@ export default function BatchesPage() {
     form.resetFields()
     setCoaFile(null)
     setCreateOpen(true)
-    setNextBatchNo('')
-    batchApi.nextBatchNo().then(r => setNextBatchNo(r.batch_no)).catch(() => setNextBatchNo(''))
+    setSelectedMaterialId(null)
+    setSelectedMaterialType(null)
+    setManufacturerOptions([])
+  }
+
+  // Loads the manufacturers actually mapped to `materialId` (via Manufacturer
+  // Mapping), optionally narrowed by a name filter. Resolves ids to full
+  // Manufacturer records using the already-loaded `manufacturers` list where
+  // possible, falling back to a direct fetch for ids outside that page.
+  const loadMappedManufacturers = useCallback(async (materialId: number, nameFilter?: string) => {
+    setManufacturerSearchLoading(true)
+    try {
+      const mappings = await mappingApi.list({ material_id: materialId })
+      const ids = [...new Set(mappings.map(m => m.manufacturer_id))]
+      const known = manufacturers.filter(m => ids.includes(m.id))
+      const missingIds = ids.filter(id => !known.some(m => m.id === id))
+      const fetched = missingIds.length
+        ? (await Promise.all(missingIds.map(id => manufacturerApi.get(id).catch(() => null)))).filter((m): m is Manufacturer => !!m)
+        : []
+      let opts = [...known, ...fetched]
+      if (nameFilter) opts = opts.filter(m => m.name.toLowerCase().includes(nameFilter.toLowerCase()))
+      setManufacturerOptions(opts)
+    } finally {
+      setManufacturerSearchLoading(false)
+    }
+  }, [manufacturers])
+
+  const handleManufacturerSearch = (value: string) => {
+    if (!selectedMaterialId) return
+    if (manufacturerSearchTimeout.current) clearTimeout(manufacturerSearchTimeout.current)
+    manufacturerSearchTimeout.current = setTimeout(() => {
+      loadMappedManufacturers(selectedMaterialId, value)
+    }, 300)
   }
 
   const handleMaterialChange = async (materialId: number) => {
     form.setFieldValue('inhouse_batch_no', '')
+    form.setFieldValue('manufacturer_id', undefined)
+    setSelectedMaterialId(materialId)
+    loadMappedManufacturers(materialId)
     const mat = materials.find(m => m.id === materialId)
+    setSelectedMaterialType(mat?.material_type ?? null)
+    if (mat?.material_type !== ANTIBODY_MATERIAL_TYPE) {
+      form.setFieldValue('measuring_unit', undefined)
+      form.setFieldValue('measuring_unit_value', undefined)
+    }
     if (!mat?.material_type) return
     setInhouseLoading(true)
     try {
@@ -284,21 +333,27 @@ export default function BatchesPage() {
 
   const flatRows = flattenBatches(batches)
 
+  const strSorter = (get: (r: FlatRow) => string | null | undefined) => (a: FlatRow, b: FlatRow) =>
+    (get(a) ?? '').localeCompare(get(b) ?? '')
+  const numSorter = (get: (r: FlatRow) => number) => (a: FlatRow, b: FlatRow) => get(a) - get(b)
+
   const columns: ColumnsType<FlatRow> = [
     {
-      title: 'Batch No',
+      title: 'MFG Batch No',
       dataIndex: 'batch_no',
       ellipsis: true,
       width: 140,
-      render: (v) => <span className=" text-[13px] text-slate-700">{v}</span>,
+      sorter: strSorter(r => r.batch_no),
+      render: (v) => <span className=" text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Inhouse Batch',
       dataIndex: 'inhouse_batch_no',
       ellipsis: true,
       width: 160,
+      sorter: strSorter(r => r.inhouse_batch_no),
       render: (v) => v
-        ? <span className=" text-[13px] text-slate-600">{v}</span>
+        ? <span className=" text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -306,14 +361,16 @@ export default function BatchesPage() {
       key: 'sku',
       ellipsis: true,
       width: 200,
+      sorter: strSorter(r => r._packSku),
       render: (_, r) => r._packSku
-        ? <span className=" text-[12px] text-slate-600">{r._packSku}</span>
+        ? <span className=" text-[12px] text-slate-800">{r._packSku}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Material',
       key: 'material',
       ellipsis: true,
+      sorter: strSorter(r => r.material_name ?? String(r.material_id)),
       render: (_, r) => (
         <span className="text-[13px] text-slate-800">{r.material_name ?? r.material_id}</span>
       ),
@@ -323,9 +380,10 @@ export default function BatchesPage() {
       key: 'manufacturer',
       ellipsis: true,
       width: 160,
+      sorter: strSorter(r => r.manufacturer_name),
       render: (_: unknown, r: FlatRow) => (
         r.manufacturer_name
-          ? <span className="text-[13px] text-slate-600">{r.manufacturer_name}</span>
+          ? <span className="text-[13px] text-slate-800">{r.manufacturer_name}</span>
           : <span className="text-[13px] text-slate-300">—</span>
       ),
     },
@@ -333,6 +391,7 @@ export default function BatchesPage() {
       title: 'Qty Available',
       key: 'qty',
       width: 160,
+      sorter: numSorter(r => Number(r.qty_available)),
       render: (_, r) => {
         const pct = r.qty_received > 0 ? Math.round((Number(r.qty_available) / Number(r.qty_received)) * 100) : 0
         const color = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444'
@@ -359,7 +418,7 @@ export default function BatchesPage() {
               size="small"
               className="text-emerald-600 font-semibold text-[12px]"
               icon={<FileCheck size={13} />}
-              onClick={() => openCoaFile(r.id, r.batch_no, r.coa_file_path!)}
+              onClick={(e) => { e.stopPropagation(); openCoaFile(r.id, r.batch_no, r.coa_file_path!) }}
             >
               Yes
             </Button>
@@ -372,8 +431,9 @@ export default function BatchesPage() {
       dataIndex: 'expiry_date',
       ellipsis: true,
       width: 110,
+      sorter: strSorter(r => r.expiry_date),
       render: (v) => v
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -381,8 +441,9 @@ export default function BatchesPage() {
       dataIndex: 'mfg_date',
       ellipsis: true,
       width: 110,
+      sorter: strSorter(r => r.mfg_date),
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -390,8 +451,9 @@ export default function BatchesPage() {
       dataIndex: 'gr_date',
       ellipsis: true,
       width: 110,
+      sorter: strSorter(r => r.gr_date),
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -399,6 +461,7 @@ export default function BatchesPage() {
       dataIndex: 'status',
       ellipsis: true,
       width: 150,
+      sorter: strSorter(r => r.status),
       render: (v: string) => (
         <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag>
       ),
@@ -407,9 +470,9 @@ export default function BatchesPage() {
       title: '',
       key: 'actions',
       width: 120,
-      align: 'right',
+      align: 'center',
       render: (_, r) => (
-        <Space size={4}>
+        <Space size={4} onClick={e => e.stopPropagation()}>
           <Tooltip title="Edit">
             <Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} />
           </Tooltip>
@@ -457,7 +520,8 @@ export default function BatchesPage() {
           size="middle"
           loading={loading}
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} batches` }}
+          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} batches` }}
+          onRow={r => ({ onClick: () => openDetail(r), style: { cursor: 'pointer' } })}
         />
       </div>
 
@@ -465,7 +529,7 @@ export default function BatchesPage() {
       <Modal
         title="New Batch"
         open={createOpen}
-        onCancel={() => { setCreateOpen(false); form.resetFields(); setCoaFile(null); setInhouseLoading(false); setNextBatchNo('') }}
+        onCancel={() => { setCreateOpen(false); form.resetFields(); setCoaFile(null); setInhouseLoading(false) }}
         onOk={() => form.submit()}
         confirmLoading={saving}
         width={740}
@@ -473,11 +537,19 @@ export default function BatchesPage() {
         destroyOnHidden
          closable={false}
         {...glassModalProps}
+        styles={{
+          ...glassModalProps.styles,
+          body: {
+            ...glassModalProps.styles?.body,
+            maxHeight: '65vh',
+            overflowY: 'auto',
+          },
+        }}
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <div className="grid grid-cols-3 gap-x-3">
-            <Form.Item label="Batch No (auto-generated)">
-              <Input value={nextBatchNo || 'Generating…'} disabled />
+            <Form.Item name="batch_no" label="MFG Batch No" rules={[{ required: true, whitespace: true, message: 'MFG Batch No is required' }]}>
+              <Input placeholder="e.g. MCE/26/013" />
             </Form.Item>
             <Form.Item name="material_id" label="Material" rules={[{ required: true }]}>
               <Select
@@ -491,7 +563,17 @@ export default function BatchesPage() {
               />
             </Form.Item>
             <Form.Item name="manufacturer_id" label="Manufacturer">
-              <Select allowClear showSearch optionFilterProp="label" options={manufacturers.map(m => ({ value: m.id, label: m.name }))} />
+              <Select
+                allowClear
+                showSearch
+                filterOption={false}
+                onSearch={handleManufacturerSearch}
+                loading={manufacturerSearchLoading}
+                disabled={!selectedMaterialId}
+                placeholder={selectedMaterialId ? 'Select manufacturer' : 'Select a material first'}
+                notFoundContent={manufacturerSearchLoading ? 'Searching…' : 'No manufacturers mapped to this material'}
+                options={manufacturerOptions.map(m => ({ value: m.id, label: m.name }))}
+              />
             </Form.Item>
             <Form.Item name="qty_received" label="Qty Received per Pack" rules={[{ required: true }]}>
               <InputNumber style={{ width: '100%' }} min={0} />
@@ -506,17 +588,21 @@ export default function BatchesPage() {
             <Form.Item name="inhouse_batch_no" label="Inhouse Batch No">
               <Input readOnly disabled={inhouseLoading} placeholder={inhouseLoading ? 'Generating…' : 'Select a material first'} className="bg-slate-50 cursor-not-allowed" />
             </Form.Item>
-            <Form.Item name="measuring_unit" label="Measuring Unit">
-              <Select allowClear options={[
-                { value: 'molarity', label: 'Molarity' },
-                { value: 'concentration', label: 'Concentration' },
-                { value: 'percentage', label: 'Percentage' },
-                { value: 'ipa', label: 'IPA' },
-              ]} />
-            </Form.Item>
-            <Form.Item name="measuring_unit_value" label="Measuring Unit Value">
-              <InputNumber style={{ width: '100%' }} min={0} />
-            </Form.Item>
+            {selectedMaterialType === ANTIBODY_MATERIAL_TYPE && (
+              <>
+                <Form.Item name="measuring_unit" label="Measuring Unit">
+                  <Select allowClear options={[
+                    { value: 'molarity', label: 'Molarity' },
+                    { value: 'concentration', label: 'Concentration' },
+                    { value: 'percentage', label: 'Percentage' },
+                    { value: 'ipa', label: 'IPA' },
+                  ]} />
+                </Form.Item>
+                <Form.Item name="measuring_unit_value" label="Measuring Unit Value">
+                  <InputNumber style={{ width: '100%' }} min={0} />
+                </Form.Item>
+              </>
+            )}
             <Form.Item name="mfg_date" label="Mfg Date">
               <DatePicker style={{ width: '100%' }} />
             </Form.Item>
@@ -685,7 +771,7 @@ export default function BatchesPage() {
         title={
           <div className="flex items-center gap-2">
             <span className="font-bold text-slate-800">Batch Details</span>
-            <span className="font-mono text-sm text-violet-600 bg-violet-50 border border-violet-200 rounded px-2 py-0.5">{selectedBatch?.batch_no}</span>
+            <span className="  text-sm text-violet-600 bg-violet-50 border border-violet-200 rounded px-2 py-0.5">{selectedBatch?.batch_no}</span>
           </div>
         }
         open={detailOpen}

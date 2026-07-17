@@ -1,12 +1,21 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Grid } from 'antd'
 import { Plus, FolderOpen, Search } from 'lucide-react'
 import dayjs from 'dayjs'
 import { cgtProjectApi, type CgtProject } from '../../api/cgt'
 import { glassModalProps } from '../../utils/modalStyles'
+import { useAppSelector } from '../../store'
+import { selectUser } from '../../store/authSlice'
 
 const { useBreakpoint } = Grid
+
+const PROCESS_OPTIONS = ['Molecular Biology', 'Plasmid', 'AAV']
+
+// Only HOD/Team Lead can create CGT projects — chemists/analysts never reach
+// this page via nav (they land on My Notebooks) but this gates direct URL access too.
+const CAN_CREATE_PROJECT = ['HOD', 'TL']
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: 'green',
@@ -18,11 +27,14 @@ const STATUS_COLOR: Record<string, string> = {
 
 // Default landing page for the CGT module. Mirrors AdcProjectsPage's page
 // header + filter bar + table + create-project modal, with the Department
-// field removed and replaced by a free-text Process field (no CGT-specific
-// master-data table for "process" exists yet, so it's plain text for now).
+// field removed and replaced by a Process dropdown (Molecular Biology /
+// Plasmid / AAV — the CGT modalities).
 export default function CgtProjectsPage() {
   const qc = useQueryClient()
+  const navigate = useNavigate()
   const screens = useBreakpoint()
+  const user = useAppSelector(selectUser)
+  const canCreate = CAN_CREATE_PROJECT.includes(user?.role_code ?? '')
 
   const [search, setSearch] = useState('')
   const [modalOpen, setModal] = useState(false)
@@ -69,7 +81,7 @@ export default function CgtProjectsPage() {
   const columns = [
     {
       title: 'Code', dataIndex: 'code', key: 'code', width: 120,
-      render: (v: string) => <span className="font-mono text-[13px] font-semibold text-slate-700">{v}</span>,
+      render: (v: string) => <span className=" text-[13px] font-semibold text-slate-700">{v}</span>,
     },
     {
       title: 'Project Name', dataIndex: 'name', key: 'name',
@@ -112,7 +124,7 @@ export default function CgtProjectsPage() {
   return (
     <div className="p-6">
       {/* Page header */}
-      <div className="flex items-center justify-between mb-5">
+      {/* <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-3">
           <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center shadow-lg shadow-violet-500/30">
             <FolderOpen size={18} className="text-white" />
@@ -122,7 +134,7 @@ export default function CgtProjectsPage() {
             <p className="text-xs text-slate-400">{total} project{total !== 1 ? 's' : ''}</p>
           </div>
         </div>
-      </div>
+      </div> */}
 
       {/* Filters */}
       <div className="flex items-center gap-3 mb-4 flex-wrap">
@@ -135,14 +147,16 @@ export default function CgtProjectsPage() {
             className="pl-8 pr-3 py-1.5 text-sm border border-slate-200 rounded-lg bg-white/80 focus:outline-none focus:ring-2 focus:ring-violet-300 focus:border-transparent w-64"
           />
         </div>
-        <Button
-          type="primary"
-          icon={<Plus size={15} />}
-          onClick={openCreate}
-          className="font-bold rounded-md"
-        >
-          New Project
-        </Button>
+        {canCreate && (
+          <Button
+            type="primary"
+            icon={<Plus size={15} />}
+            onClick={openCreate}
+            className="font-bold rounded-md"
+          >
+            New Project
+          </Button>
+        )}
       </div>
 
       {/* Table */}
@@ -154,6 +168,10 @@ export default function CgtProjectsPage() {
           loading={isLoading}
           size={screens.md ? 'middle' : 'small'}
           scroll={{ x: 'max-content' }}
+          onRow={record => ({
+            onClick: () => navigate(`/cgt/projects/${record.id}`),
+            className: 'cursor-pointer',
+          })}
           pagination={{
             pageSize: 20,
             showSizeChanger: false,
@@ -236,7 +254,10 @@ export default function CgtProjectsPage() {
               name="process"
               rules={[{ required: true, message: 'Required' }]}
             >
-              <Input placeholder="e.g. Cell Expansion" />
+              <Select
+                placeholder="Select process"
+                options={PROCESS_OPTIONS.map(p => ({ value: p, label: p }))}
+              />
             </Form.Item>
             <Form.Item label="Start Date" name="start_date">
               <DatePicker className="w-full" />

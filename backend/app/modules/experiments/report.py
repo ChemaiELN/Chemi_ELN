@@ -129,6 +129,7 @@ def generate_experiment_docx(
     project: dict,
     approver_name: str | None,
     submitter_name: str | None,
+    module_label: str = "ADC MODULE",
 ) -> bytes:
     doc = Document()
 
@@ -150,7 +151,7 @@ def generate_experiment_docx(
     # Top label
     p = doc.add_paragraph()
     p.alignment = WD_ALIGN_PARAGRAPH.CENTER
-    r = p.add_run("LAURUS ELN  —  ADC MODULE")
+    r = p.add_run(f"LAURUS ELN  —  {module_label}")
     r.font.size  = Pt(8)
     r.font.bold  = True
     r.font.color.rgb = VIOLET

@@ -100,7 +100,7 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
   }
 
   const columns: ColumnsType<Schedule> = [
-    { title: isEquipment ? 'Equipment Code' : 'Instrument Code', ellipsis: true, dataIndex: 'equipment_code', width: 150, render: v => <span className="font-mono text-[13px] text-slate-700">{v}</span> },
+    { title: isEquipment ? 'Equipment Code' : 'Instrument Code', ellipsis: true, dataIndex: 'equipment_code', width: 150, render: v => <span className="  text-[13px] text-slate-700">{v}</span> },
     { title: 'Schedule Type', ellipsis: true, dataIndex: 'schedule_type', width: 120, render: v => <span className="text-[13px] text-slate-600">{label(v)}</span> },
     { title: 'Due Date', ellipsis: true, dataIndex: 'due_date', width: 110, render: v => <span className="text-[13px] text-slate-700">{v}</span> },
     { title: 'Days', ellipsis: true, dataIndex: 'days_label', width: 130, render: v => <span className="text-[13px] text-slate-500">{v}</span> },
@@ -143,7 +143,7 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
 
       <div className="glass-card rounded-lg overflow-hidden">
         <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} items` }} />
+          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} items` }} />
       </div>
 
       <Modal title="New Schedule" open={createOpen} closable={false} onCancel={() => { setCreateOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>

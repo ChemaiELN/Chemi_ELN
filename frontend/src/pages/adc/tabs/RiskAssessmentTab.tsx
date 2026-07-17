@@ -133,15 +133,15 @@ export default function RiskAssessmentTab({ projectId }: Props) {
     },
     {
       title: 'S', dataIndex: 'severity', key: 'severity', width: 50,
-      render: (v: number) => <span className="text-xs font-mono font-bold text-slate-600">{v ?? '—'}</span>,
+      render: (v: number) => <span className="text-xs   font-bold text-slate-600">{v ?? '—'}</span>,
     },
     {
       title: 'O', dataIndex: 'occurrence', key: 'occurrence', width: 50,
-      render: (v: number) => <span className="text-xs font-mono font-bold text-slate-600">{v ?? '—'}</span>,
+      render: (v: number) => <span className="text-xs   font-bold text-slate-600">{v ?? '—'}</span>,
     },
     {
       title: 'D', dataIndex: 'detection', key: 'detection', width: 50,
-      render: (v: number) => <span className="text-xs font-mono font-bold text-slate-600">{v ?? '—'}</span>,
+      render: (v: number) => <span className="text-xs   font-bold text-slate-600">{v ?? '—'}</span>,
     },
     {
       title: 'RPN', dataIndex: 'rpn', key: 'rpn', width: 70,

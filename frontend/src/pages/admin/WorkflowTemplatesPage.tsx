@@ -200,7 +200,7 @@ function FieldModal({
             <Input placeholder="e.g. Batch Number" />
           </Form.Item>
           <Form.Item name="key" label="Field Key" rules={[{ required: true }]} extra="Unique snake_case ID">
-            <Input placeholder="batch_number" className="font-mono text-xs" />
+            <Input placeholder="batch_number" className="  text-xs" />
           </Form.Item>
         </div>
         <div className="grid grid-cols-2 gap-x-4">
@@ -281,7 +281,7 @@ function ColumnRow({
   return (
     <div className="border border-slate-200 rounded-lg px-3 pt-3 pb-2 bg-slate-50/60 relative">
       <div className="absolute top-2 right-2 flex items-center gap-1">
-        <span className="text-[10px] text-slate-400 font-mono">col {idx + 1}</span>
+        <span className="text-[10px] text-slate-400  ">col {idx + 1}</span>
         <Popconfirm title="Remove this column?" okButtonProps={{ danger: true }} okText="Remove"
           onConfirm={() => remove(field.name)}>
           <Button type="text" size="small" danger icon={<Trash2 size={12} />} />
@@ -309,7 +309,7 @@ function ColumnRow({
           rules={[{ required: true, message: 'Required' }]}
           className="mb-2"
         >
-          <Input placeholder="volume" size="small" className="font-mono text-[11px]" />
+          <Input placeholder="volume" size="small" className="  text-[11px]" />
         </Form.Item>
         <Form.Item name={[field.name, 'type']} label="Type" rules={[{ required: true }]} className="mb-2">
           <Select size="small" options={COLUMN_TYPES.map(t => ({ value: t, label: t }))} />
@@ -376,7 +376,7 @@ function ScreenModal({
             <Input placeholder="e.g. Antibody Info" />
           </Form.Item>
           <Form.Item name="key" label="Screen Key" rules={[{ required: true }]}>
-            <Input placeholder="antibody_info" className="font-mono text-xs" />
+            <Input placeholder="antibody_info" className="  text-xs" />
           </Form.Item>
         </div>
         <Form.Item name="screen_type" label="Screen Type">
@@ -431,7 +431,7 @@ function SectionModal({
           <Input placeholder="e.g. Buffer Preparation" />
         </Form.Item>
         <Form.Item name="key" label="Section Key" rules={[{ required: true }]}>
-          <Input placeholder="buffer_preparation" className="font-mono text-xs" />
+          <Input placeholder="buffer_preparation" className="  text-xs" />
         </Form.Item>
       </Form>
     </Modal>
@@ -469,7 +469,7 @@ function SortableFieldRow({
       <span className="text-[11px] text-slate-400 w-5 text-right shrink-0 select-none">{fi + 1}</span>
       <div className="flex-1 min-w-0">
         <p className="text-[13px] font-medium text-slate-800 truncate">{f.label}</p>
-        <p className="text-[11px] text-slate-400 font-mono truncate">{f.key}</p>
+        <p className="text-[11px] text-slate-400   truncate">{f.key}</p>
       </div>
       <div className="flex items-center gap-1.5 flex-wrap justify-end">
         <Tag color={FIELD_TYPE_COLOR[f.type] ?? 'default'} bordered className="text-[11px]">{f.type}</Tag>
@@ -545,13 +545,13 @@ function SortableScreenBlock({
         </span>
         <div className="flex-1 min-w-0">
           <span className="text-[13px] font-semibold text-slate-800">{screen.title}</span>
-          <span className="text-[11px] text-slate-400 font-mono ml-2">{screen.key}</span>
+          <span className="text-[11px] text-slate-400   ml-2">{screen.key}</span>
         </div>
         <div className="flex items-center gap-1.5 flex-wrap">
           {screen.has_signature && <Tag color="purple" bordered className="text-[11px]">Signature</Tag>}
           {screen.has_files     && <Tag color="blue"   bordered className="text-[11px]">Files</Tag>}
           {screen.screen_type   && <Tag bordered className="text-[11px]">{screen.screen_type}</Tag>}
-          <Tag bordered className="text-[11px] font-mono">{screen.fields.length} fields</Tag>
+          <Tag bordered className="text-[11px]  ">{screen.fields.length} fields</Tag>
         </div>
         <div className="flex items-center gap-0.5 ml-auto shrink-0">
           <Tooltip title="Edit screen">
@@ -1074,7 +1074,8 @@ export default function WorkflowTemplatesPage() {
           description="Cell and Gene Therapy plasmid workflow — production sections & templates"
           items={['Plasmid Design', 'Fermentation', 'Purification', 'Quality Control']}
           accent="teal"
-          onClick={() => navigate('/admin/workflow-templates/cgt-plasmid')}
+          // Skip the single-option hub page and open the builder directly.
+          onClick={() => navigate('/admin/workflow-templates/cgt-plasmid/builder')}
         />
 
         <div className="glass-card rounded-3xl p-7 border-2 border-dashed border-slate-200 flex flex-col items-center justify-center text-center opacity-40 min-h-[280px]">

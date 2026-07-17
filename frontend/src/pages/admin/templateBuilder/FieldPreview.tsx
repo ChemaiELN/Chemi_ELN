@@ -1,11 +1,15 @@
 import { Input, InputNumber, DatePicker, Select, Checkbox, Radio, Switch, Upload } from 'antd'
 import { Paperclip, Image as ImageIcon } from 'lucide-react'
 import type { TemplateField } from './types'
+import { useInventoryOptions } from './useInventoryOptions'
 
 // Renders a single field exactly as an end user would see it — used by both
 // the design canvas (non-interactive, for layout preview) and the real
 // Preview modal (interactive, respects required/readOnly/hidden).
-export default function FieldPreview({ field, interactive = false }: { field: TemplateField; interactive?: boolean }) {
+export default function FieldPreview({ field, interactive = false, bare = false }: { field: TemplateField; interactive?: boolean; bare?: boolean }) {
+  // Resolves static or inventory-backed options; a no-op fetch for static fields.
+  const { options: dropdownOptions, loading: optionsLoading } = useInventoryOptions(field)
+
   if (field.hidden && !interactive) {
     return <div className="text-xs text-slate-400 italic border border-dashed border-slate-200 rounded px-2 py-1.5">Hidden field: {field.label}</div>
   }
@@ -37,7 +41,10 @@ export default function FieldPreview({ field, interactive = false }: { field: Te
             className="w-full"
             placeholder={field.placeholder ?? 'Select…'}
             disabled={field.readOnly || !interactive}
-            options={(field.options ?? []).map(o => ({ value: o, label: o }))}
+            loading={optionsLoading}
+            showSearch
+            optionFilterProp="label"
+            options={dropdownOptions}
           />
         )
       case 'CHECKBOX':
@@ -81,6 +88,10 @@ export default function FieldPreview({ field, interactive = false }: { field: Te
   })()
 
   if (field.type === 'SECTION_HEADING' || field.type === 'SPACER') return control
+
+  // Bare mode: just the control (used inside table cells, where the column
+  // header already carries the label).
+  if (bare) return control
 
   return (
     <div>

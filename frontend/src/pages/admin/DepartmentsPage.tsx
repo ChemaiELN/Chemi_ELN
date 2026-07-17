@@ -8,6 +8,9 @@ import { adminApi, type DepartmentOut } from '../../api/admin'
 import { ApiError } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
 
+const strSorter = <T,>(key: keyof T) => (a: T, b: T) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''))
+const numSorter = <T,>(key: keyof T) => (a: T, b: T) => Number(a[key] ?? 0) - Number(b[key] ?? 0)
+
 export default function DepartmentsPage() {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
@@ -55,9 +58,10 @@ export default function DepartmentsPage() {
     {
       title: 'Code',
       dataIndex: 'code',
-      width: 110,
+      width: '20%',
+      sorter: strSorter('code'),
       render: (v) => (
-        <span className="font-mono text-[13px] font-semibold text-purple-600 border border-purple-300 rounded px-1.5 py-0.5 bg-purple-50">
+        <span className=" text-[13px] text-slate-800">
           {String(v).toUpperCase()}
         </span>
       ),
@@ -65,19 +69,22 @@ export default function DepartmentsPage() {
     {
       title: 'Name',
       dataIndex: 'name',
+      width: '20%',
+      sorter: strSorter('name'),
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Users',
       dataIndex: 'user_count',
-      width: 70,
+      width: '20%',
       align: 'center',
-      render: (v) => <span className="text-[13px] text-slate-600">{v}</span>,
+      sorter: numSorter('user_count'),
+      render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Active',
       dataIndex: 'is_active',
-      width: 80,
+      width: '20%',
       align: 'center',
       render: (v, record) => (
         <Switch
@@ -90,8 +97,8 @@ export default function DepartmentsPage() {
     {
       title: '',
       key: 'actions',
-      width: 60,
-      align: 'right',
+      width: '20%',
+      align: 'center',
       render: (_, record) => (
         <Tooltip title="Edit">
           <Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(record)} />
@@ -140,14 +147,15 @@ export default function DepartmentsPage() {
           rowKey="id"
           loading={isLoading}
           size="middle"
-          scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 15, showTotal: (t) => `${t} departments` }}
+          scroll={{ x: 700 }}
+          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (t) => `${t} departments` }}
         />
       </div>
 
       {/* Create Modal */}
       <Modal
         open={createOpen}
+        closable={false}
         title="New Department"
         onCancel={() => setCreateOpen(false)}
         onOk={() => createForm.submit()}
@@ -160,7 +168,7 @@ export default function DepartmentsPage() {
       >
         <Form form={createForm} layout="vertical" onFinish={(v) => onCreate.mutate(v)}>
           <Form.Item name="code" label="Code" rules={[{ required: true, max: 20 }]}>
-            <Input placeholder="e.g. QC" className="uppercase font-mono" onChange={e => createForm.setFieldValue('code', e.target.value.toUpperCase())} />
+            <Input placeholder="e.g. QC" className="uppercase  " onChange={e => createForm.setFieldValue('code', e.target.value.toUpperCase())} />
           </Form.Item>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input placeholder="e.g. Quality Control" />
@@ -174,6 +182,7 @@ export default function DepartmentsPage() {
       {/* Edit Modal */}
       <Modal
         open={editTarget !== null}
+        closable={false}
         title={`Edit — ${editTarget?.name}`}
         onCancel={() => setEditTarget(null)}
         onOk={() => editForm.submit()}
@@ -190,8 +199,8 @@ export default function DepartmentsPage() {
           onFinish={(v) => editTarget && onEdit.mutate({ id: editTarget.id, v })}
          
         >
-          <Form.Item name="code" label="Code" rules={[{ required: true, max: 20 }]}>
-            <Input className="uppercase font-mono" onChange={e => editForm.setFieldValue('code', e.target.value.toUpperCase())} />
+          <Form.Item name="code" label="Code" extra="Code can't be changed after creation — it's used across access & workflow rules.">
+            <Input disabled className="uppercase" />
           </Form.Item>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input />

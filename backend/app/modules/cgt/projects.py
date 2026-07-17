@@ -9,7 +9,9 @@ from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
 from app.models.project import CgtProject, CgtProjectCodeCounter
+from app.models.cgt_notebook import CgtNotebook, CgtNotebookPermission
 from app.models.admin import User
+from app.shared.privileges import require_creator_role, ASSIGNMENT_RESTRICTED_ROLES
 
 router = APIRouter(prefix="/cgt-projects", tags=["cgt-projects"])
 
@@ -111,9 +113,22 @@ def list_projects(
     skip:   int           = Query(0, ge=0),
     limit:  int           = Query(100, le=500),
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     q = db.query(CgtProject)
+    # Chemists/Analysts only ever see projects containing a notebook explicitly
+    # assigned to them — enforced server-side, not just hidden in the nav.
+    if current_user.role.code in ASSIGNMENT_RESTRICTED_ROLES:
+        assigned_project_ids = (
+            db.query(CgtNotebook.cgt_project_id)
+            .join(CgtNotebookPermission, CgtNotebookPermission.cgt_notebook_id == CgtNotebook.id)
+            .filter(
+                CgtNotebookPermission.user_id == current_user.id,
+                CgtNotebookPermission.can_view.is_(True),
+            )
+            .subquery()
+        )
+        q = q.filter(CgtProject.id.in_(assigned_project_ids))
     if status:
         q = q.filter(CgtProject.status == status)
     if search:
@@ -130,13 +145,33 @@ def list_projects(
     }
 
 
+def _assert_project_access(db: Session, user, project: CgtProject) -> None:
+    """Raise 403 if `user` is assignment-restricted and has no assigned
+    notebook within `project` — mirrors assert_cgt_notebook_access."""
+    if user.role.code not in ASSIGNMENT_RESTRICTED_ROLES:
+        return
+    assigned = (
+        db.query(CgtNotebook)
+        .join(CgtNotebookPermission, CgtNotebookPermission.cgt_notebook_id == CgtNotebook.id)
+        .filter(
+            CgtNotebook.cgt_project_id == project.id,
+            CgtNotebookPermission.user_id == user.id,
+            CgtNotebookPermission.can_view.is_(True),
+        )
+        .first()
+    )
+    if not assigned:
+        raise HTTPException(403, "You are not assigned to any notebook in this project.")
+
+
 @router.get("/{project_id}")
 def get_project(
     project_id: str,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    current_user: Any = Depends(get_current_user),
 ):
     p = _get_or_404(db, project_id)
+    _assert_project_access(db, current_user, p)
     creator = db.query(User).filter(User.id == p.created_by).first() if p.created_by else None
     return _project_dict(p, detail=True, creator=creator)
 
@@ -145,7 +180,7 @@ def get_project(
 def create_project(
     body: dict,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_creator_role(),
 ):
     if not body.get("name"):
         raise HTTPException(422, "name is required")
@@ -184,7 +219,7 @@ def update_project(
     project_id: str,
     body: dict,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    _: Any = require_creator_role(),
 ):
     p = _get_or_404(db, project_id)
     editable = [
@@ -205,7 +240,7 @@ def update_project(
 def archive_project(
     project_id: str,
     db: Session = Depends(get_db),
-    _: Any = Depends(get_current_user),
+    _: Any = require_creator_role(),
 ):
     p = _get_or_404(db, project_id)
     p.status = "ARCHIVED"

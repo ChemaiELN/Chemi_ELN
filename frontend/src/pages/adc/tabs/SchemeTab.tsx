@@ -121,7 +121,7 @@ export default function SchemeTab({ project, projectId }: Props) {
             onChange={e => setSmilesInput(e.target.value)}
             onPressEnter={loadStructure}
             placeholder="Enter SMILES notation and press Enter… e.g. CC(=O)Nc1ccc(O)cc1"
-            className="font-mono text-sm"
+            className="  text-sm"
             allowClear
           />
           <Button

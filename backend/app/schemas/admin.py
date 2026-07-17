@@ -1,7 +1,23 @@
+import re
 from typing import Optional, List
 from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, EmailStr, field_validator
+
+# Password policy: min 6 chars, at least one uppercase letter, one digit,
+# and one special (non-alphanumeric) character. Mirrors the client-side rule
+# on the Reset Password / Create User forms so the API can't be bypassed.
+_PASSWORD_POLICY = re.compile(r"^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).{6,}$")
+_PASSWORD_MESSAGE = (
+    "Password must be at least 6 characters and include an uppercase letter, "
+    "a number, and a special character."
+)
+
+
+def _validate_password(value: str) -> str:
+    if not _PASSWORD_POLICY.match(value or ""):
+        raise ValueError(_PASSWORD_MESSAGE)
+    return value
 
 
 # ── Roles ──────────────────────────────────────────────────────
@@ -36,7 +52,9 @@ class DepartmentCreate(BaseModel):
 
 
 class DepartmentUpdate(BaseModel):
-    code: Optional[str] = None
+    # `code` is intentionally omitted: a department's code is a stable system
+    # identifier that RBAC / module-access / workflow logic keys off (e.g. QA, QC),
+    # so it is immutable after creation. Any `code` sent by a client is ignored.
     name: Optional[str] = None
     description: Optional[str] = None
     is_active: Optional[bool] = None
@@ -64,11 +82,15 @@ class UserCreate(BaseModel):
     username: str
     emp_no: Optional[str] = None      # auto-generated if omitted
     email: EmailStr
-    password: str = "password@123"    # default password for new users
+    password: str = "Password@123"    # default password for new users (policy-compliant)
     role_id: UUID
     department_id: Optional[UUID] = None
     site: Optional[str] = None
     is_active: bool = True
+
+    # Only validates an explicitly-provided password; the "Password@123" default
+    # is a temporary credential the new user is expected to reset, so it is exempt.
+    _check_password = field_validator("password")(_validate_password)
 
 
 class UserUpdate(BaseModel):
@@ -84,6 +106,8 @@ class UserUpdate(BaseModel):
 
 class UserPasswordReset(BaseModel):
     new_password: str
+
+    _check_password = field_validator("new_password")(_validate_password)
 
 
 class UserOut(BaseModel):

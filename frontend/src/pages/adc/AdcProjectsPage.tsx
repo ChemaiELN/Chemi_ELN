@@ -84,7 +84,7 @@ export default function AdcProjectsPage() {
     {
       title: 'Code', dataIndex: 'code', key: 'code', width: 120,
       render: (v: string) => (
-        <span className="font-mono text-[13px] font-semibold text-slate-700">{v}</span>
+        <span className=" text-[13px] font-semibold text-slate-700">{v}</span>
       ),
     },
     {
@@ -120,7 +120,7 @@ export default function AdcProjectsPage() {
         : <span className="text-slate-300 text-[13px]">—</span>,
     },
     {
-      title: 'Created At', dataIndex: 'created_at', key: 'created_at', width: 120,
+      title: 'Created Dt', dataIndex: 'created_at', key: 'created_at', width: 120,
       render: (v: string) => (
         <span className="text-[13px] text-slate-500">{dayjs(v).format('DD MMM YYYY')}</span>
       ),

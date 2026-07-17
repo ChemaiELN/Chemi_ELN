@@ -71,7 +71,9 @@ def toggle_storage_condition(
     row.is_active = not row.is_active
     db.commit()
     db.refresh(row)
-    return row
+    out = StorageConditionOut.model_validate(row)
+    out.message = f"{row.label} {'activated' if row.is_active else 'deactivated'}."
+    return out
 
 
 @router.delete("/{condition_id}", status_code=204)

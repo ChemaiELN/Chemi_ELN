@@ -129,22 +129,113 @@ export default function InventoryDashboard() {
     <div className="p-4 lg:p-8 space-y-4 lg:space-y-6">
       {/* Section 1 — KPI strip */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3 lg:gap-4">
-        <KpiCard label="Active Materials" value={kpis.active_materials} icon={FlaskConical} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/materials')} />
-        <KpiCard label="Available Batches" value={kpis.available_batches} icon={Package2} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/batches')} />
-        <KpiCard label="Out of Stock" value={kpis.out_of_stock} icon={PackageX} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/materials')} />
-        <KpiCard label="Low Stock" value={kpis.low_stock} icon={AlertTriangle} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="<10% remaining" onClick={() => navigate('/inventory/batches')} />
-        <KpiCard label="Expiring Soon" value={kpis.expiring_soon} icon={Clock} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="≤30 days" onClick={() => navigate('/inventory/batches')} />
-        <KpiCard label="Expired" value={kpis.expired} icon={AlertTriangle} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="with stock" onClick={() => navigate('/inventory/batches')} />
-      </div>
+  <KpiCard
+    label="Active Materials"
+    value={kpis.active_materials}
+    icon={FlaskConical}
+    bg="bg-gradient-to-br from-violet-50 to-violet-100"
+    iconColor="text-violet-600"
+    onClick={() => navigate('/inventory/materials')}
+  />
+
+  <KpiCard
+    label="Available Batches"
+    value={kpis.available_batches}
+    icon={Package2}
+    bg="bg-gradient-to-br from-blue-50 to-blue-100"
+    iconColor="text-blue-600"
+    onClick={() => navigate('/inventory/batches')}
+  />
+
+  <KpiCard
+    label="Out of Stock"
+    value={kpis.out_of_stock}
+    icon={PackageX}
+    bg="bg-gradient-to-br from-red-50 to-red-100"
+    iconColor="text-red-600"
+    onClick={() => navigate('/inventory/materials')}
+  />
+
+  <KpiCard
+    label="Low Stock"
+    value={kpis.low_stock}
+    icon={AlertTriangle}
+    bg="bg-gradient-to-br from-amber-50 to-amber-100"
+    iconColor="text-amber-600"
+    sub="<10% remaining"
+    onClick={() => navigate('/inventory/batches')}
+  />
+
+  <KpiCard
+    label="Expiring Soon"
+    value={kpis.expiring_soon}
+    icon={Clock}
+    bg="bg-gradient-to-br from-yellow-50 to-yellow-100"
+    iconColor="text-yellow-600"
+    sub="≤30 days"
+    onClick={() => navigate('/inventory/batches')}
+  />
+
+  <KpiCard
+    label="Expired"
+    value={kpis.expired}
+    icon={AlertTriangle}
+    bg="bg-gradient-to-br from-rose-50 to-rose-100"
+    iconColor="text-rose-600"
+    sub="with stock"
+    onClick={() => navigate('/inventory/batches')}
+  />
+</div>
 
       {/* Section 2 — Compliance & approval strip */}
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
-        <KpiCard label="Pending Requests" value={kpis.pending_stock_requests} icon={ShoppingCart} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/stock-requests')} />
-        <KpiCard label="Critical Requests" value={kpis.critical_stock_requests} icon={AlertTriangle} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" onClick={() => navigate('/inventory/stock-requests')} />
-        <KpiCard label="Pending Approvals" value={kpis.pending_approvals_total} icon={ClipboardCheck} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="requests + orders + checklists" />
-        <KpiCard label="Maintenance Due" value={kpis.maintenance_due} icon={Wrench} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="≤7 days" onClick={() => navigate('/inventory/maintenance-planner')} />
-        <KpiCard label="Calibration Due" value={kpis.calibration_due} icon={CalendarCheck2} bg="bg-gradient-to-br from-violet-100 to-purple-200" iconColor="text-violet-600" sub="≤7 days" onClick={() => navigate('/inventory/calibration-planner')} />
-      </div>
+   <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 lg:gap-4">
+  <KpiCard
+    label="Pending Requests"
+    value={kpis.pending_stock_requests}
+    icon={ShoppingCart}
+    bg="bg-gradient-to-br from-blue-50 to-blue-100"
+    iconColor="text-blue-600"
+    onClick={() => navigate('/inventory/stock-requests')}
+  />
+
+  <KpiCard
+    label="Critical Requests"
+    value={kpis.critical_stock_requests}
+    icon={AlertTriangle}
+    bg="bg-gradient-to-br from-red-50 to-red-100"
+    iconColor="text-red-600"
+    onClick={() => navigate('/inventory/stock-requests')}
+  />
+
+  <KpiCard
+    label="Pending Approvals"
+    value={kpis.pending_approvals_total}
+    icon={ClipboardCheck}
+    bg="bg-gradient-to-br from-violet-50 to-violet-100"
+    iconColor="text-violet-600"
+    sub="requests + orders + checklists"
+  />
+
+  <KpiCard
+    label="Maintenance Due"
+    value={kpis.maintenance_due}
+    icon={Wrench}
+    bg="bg-gradient-to-br from-amber-50 to-amber-100"
+    iconColor="text-amber-600"
+    sub="≤7 days"
+    onClick={() => navigate('/inventory/maintenance-planner')}
+  />
+
+  <KpiCard
+    label="Calibration Due"
+    value={kpis.calibration_due}
+    icon={CalendarCheck2}
+    bg="bg-gradient-to-br from-emerald-50 to-emerald-100"
+    iconColor="text-emerald-600"
+    sub="≤7 days"
+    onClick={() => navigate('/inventory/calibration-planner')}
+  />
+</div>
 
       {/* Section 3 — Analytics */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
@@ -161,7 +252,7 @@ export default function InventoryDashboard() {
                   height={260}
                   label={{ position: 'top' }}
                   axis={{ y: { title: 'Batches expiring' } }}
-                  style={{ fill: '#8b5cf6', fillOpacity: 0.75, radiusTopLeft: 4, radiusTopRight: 4 }}
+                  style={{ fill: '#b9a0f3', fillOpacity: 0.75, radiusTopLeft: 4, radiusTopRight: 4 }}
                 />
               )}
           </div>
@@ -175,7 +266,7 @@ export default function InventoryDashboard() {
               : (
                 <div>
                   <p className="text-center text-xs text-slate-500 mb-1">Equipment</p>
-                  <Pie data={statusPieData} angleField="count" colorField="status" height={220} label={{ text: 'status' }} legend={{ color: { position: 'bottom' } }} />
+                  <Pie data={statusPieData} angleField="count" colorField="status" innerRadius={0.6} height={220} label={false} legend={{ color: { position: 'bottom' } }} />
                 </div>
               )}
             {instrumentPieData.length === 0
@@ -183,7 +274,7 @@ export default function InventoryDashboard() {
               : (
                 <div>
                   <p className="text-center text-xs text-slate-500 mb-1">Instruments</p>
-                  <Pie data={instrumentPieData} angleField="count" colorField="status" height={220} label={{ text: 'status' }} legend={{ color: { position: 'bottom' } }} />
+                  <Pie data={instrumentPieData} angleField="count" colorField="status" innerRadius={0.6} height={220} label={false} legend={{ color: { position: 'bottom' } }} />
                 </div>
               )}
           </div>

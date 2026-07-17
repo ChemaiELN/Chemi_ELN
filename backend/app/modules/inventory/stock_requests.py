@@ -15,6 +15,7 @@ from app.schemas.inventory import (
     StockRequestUpdate,
 )
 from app.shared.inv_audit import write_inv_audit
+from app.shared.privileges import require_creator_role, require_store_incharge_role
 
 router = APIRouter(prefix="/inventory/stock-requests", tags=["inventory-stock-requests"])
 
@@ -150,7 +151,7 @@ def approve_request(
     request_id: int,
     body: StockRequestAction,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_creator_role(),
 ):
     row = db.get(InvStockRequest, request_id)
     if not row:
@@ -178,10 +179,19 @@ def reject_request(
     db: Session = Depends(get_db),
     current_user: Any = Depends(get_current_user),
 ):
+    """Reject is two-stage, like approve: HOD/TL reject a PENDING request
+    (the initial review); Store Incharge rejects an already-APPROVED one
+    (e.g. stock turned out unavailable during fulfillment)."""
     row = db.get(InvStockRequest, request_id)
     if not row:
         raise HTTPException(404, "Stock request not found.")
-    if row.status != "PENDING":
+    if row.status == "PENDING":
+        if current_user.role.code not in {"HOD", "TL"}:
+            raise HTTPException(403, "Only HOD or Team Lead can reject a pending request.")
+    elif row.status == "APPROVED":
+        if current_user.role.code != "STORE_INCHARGE":
+            raise HTTPException(403, "Only Store Incharge can reject an approved request.")
+    else:
         raise HTTPException(400, f"Cannot reject a '{row.status}' request.")
     row.status = "REJECTED"
     _add_event(db, row.id, "REJECTED", _user_ref(current_user), body.remarks)
@@ -202,7 +212,7 @@ def fulfill_request(
     request_id: int,
     body: StockRequestAction,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_store_incharge_role(),
 ):
     row = db.get(InvStockRequest, request_id)
     if not row:
@@ -228,13 +238,13 @@ def cancel_request(
     request_id: int,
     body: StockRequestAction,
     db: Session = Depends(get_db),
-    current_user: Any = Depends(get_current_user),
+    current_user: Any = require_store_incharge_role(),
 ):
     row = db.get(InvStockRequest, request_id)
     if not row:
         raise HTTPException(404, "Stock request not found.")
-    if row.status == "CANCELLED":
-        raise HTTPException(400, "Request is already cancelled.")
+    if row.status != "APPROVED":
+        raise HTTPException(400, f"Cannot cancel a '{row.status}' request — only APPROVED requests can be cancelled.")
     row.status = "CANCELLED"
     _add_event(db, row.id, "CANCELLED", _user_ref(current_user), body.remarks)
     write_inv_audit(

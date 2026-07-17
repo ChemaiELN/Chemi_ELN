@@ -27,6 +27,12 @@ const authSlice = createSlice({
     setUser(state, action: PayloadAction<MeResponse>) {
       state.user = action.payload
     },
+    // Swap only the access token (used by the silent-refresh flow) without
+    // touching the already-loaded user — keeps the session alive seamlessly.
+    setAccessToken(state, action: PayloadAction<string>) {
+      state.accessToken = action.payload
+      localStorage.setItem('access_token', action.payload)
+    },
     clearAuth(state) {
       state.user = null
       state.accessToken = null
@@ -40,7 +46,7 @@ const authSlice = createSlice({
   },
 })
 
-export const { setAuth, setUser, clearAuth, setInitialized } = authSlice.actions
+export const { setAuth, setUser, setAccessToken, clearAuth, setInitialized } = authSlice.actions
 export default authSlice.reducer
 
 export const selectUser = (s: RootState) => s.auth.user

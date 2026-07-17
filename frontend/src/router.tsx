@@ -47,13 +47,36 @@ import NotebooksPage from './pages/notebooks/NotebooksPage'
 import NotebookOverviewPage from './pages/notebooks/NotebookOverviewPage'
 import ExperimentDetailPage from './pages/notebooks/ExperimentDetailPage'
 import CgtProjectsPage from './pages/cgt/CgtProjectsPage'
+import CgtProjectDetailPage from './pages/cgt/CgtProjectDetailPage'
+import CgtNotebookPage from './pages/cgt/CgtNotebookPage'
+import CgtSectionPage from './pages/cgt/CgtSectionPage'
 import CgtNotebooksPage from './pages/cgt/CgtNotebooksPage'
 import CgtExperimentsPage from './pages/cgt/CgtExperimentsPage'
 import CgtReportsPage from './pages/cgt/CgtReportsPage'
+import CgtMyNotebooksPage from './pages/cgt/CgtMyNotebooksPage'
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
   const isAuthenticated = useAppSelector(selectIsAuthenticated)
   if (!isAuthenticated) return <Navigate to="/login" replace />
+  return <>{children}</>
+}
+
+// Chemists/Analysts in CGT only ever work within notebooks assigned to them —
+// block direct URL navigation to Projects/Notebooks/Experiments/Reports (the
+// backend already enforces this in the API, but the route itself should never
+// even render for a restricted role; nav-hiding alone isn't enough).
+const CGT_ASSIGNMENT_RESTRICTED_ROLES = ['CHEM', 'ANALYST']
+
+function CgtIndexRedirect() {
+  const user = useAppSelector(selectUser)
+  const isRestricted = CGT_ASSIGNMENT_RESTRICTED_ROLES.includes(user?.role_code ?? '')
+  return <Navigate to={isRestricted ? 'my-notebooks' : 'projects'} replace />
+}
+
+function CgtUnrestrictedRoute({ children }: { children: React.ReactNode }) {
+  const user = useAppSelector(selectUser)
+  const isRestricted = CGT_ASSIGNMENT_RESTRICTED_ROLES.includes(user?.role_code ?? '')
+  if (isRestricted) return <Navigate to="/cgt/my-notebooks" replace />
   return <>{children}</>
 }
 
@@ -169,11 +192,15 @@ export function AppRouter() {
           </ProtectedRoute>
         }
       >
-        <Route index element={<Navigate to="projects" replace />} />
-        <Route path="projects" element={<CgtProjectsPage />} />
-        <Route path="notebooks" element={<CgtNotebooksPage />} />
-        <Route path="experiments" element={<CgtExperimentsPage />} />
-        <Route path="reports" element={<CgtReportsPage />} />
+        <Route index element={<CgtIndexRedirect />} />
+        <Route path="projects" element={<CgtUnrestrictedRoute><CgtProjectsPage /></CgtUnrestrictedRoute>} />
+        <Route path="projects/:projectId" element={<CgtUnrestrictedRoute><CgtProjectDetailPage /></CgtUnrestrictedRoute>} />
+        <Route path="projects/:projectId/notebooks/:notebookId" element={<CgtNotebookPage />} />
+        <Route path="projects/:projectId/notebooks/:notebookId/experiments/:experimentId" element={<CgtSectionPage />} />
+        <Route path="notebooks" element={<CgtUnrestrictedRoute><CgtNotebooksPage /></CgtUnrestrictedRoute>} />
+        <Route path="experiments" element={<CgtUnrestrictedRoute><CgtExperimentsPage /></CgtUnrestrictedRoute>} />
+        <Route path="reports" element={<CgtUnrestrictedRoute><CgtReportsPage /></CgtUnrestrictedRoute>} />
+        <Route path="my-notebooks" element={<CgtMyNotebooksPage />} />
       </Route>
 
       {/* Notebooks — global routes (same shell) */}

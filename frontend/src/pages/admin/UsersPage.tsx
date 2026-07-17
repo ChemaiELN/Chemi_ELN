@@ -15,13 +15,7 @@ import { selectUser } from '../../store/authSlice'
 
 const { useBreakpoint } = Grid
 
-function UA({ name }: { name: string }) {
-  return (
-    <div className="w-8 h-8 rounded-full bg-gradient-to-br from-purple-400 to-purple-500 flex items-center justify-center shrink-0">
-      <span className="text-white text-xs font-bold">{name.slice(0, 2).toUpperCase()}</span>
-    </div>
-  )
-}
+const strSorter = <T,>(key: keyof T) => (a: T, b: T) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''))
 
 export default function UsersPage() {
   const qc = useQueryClient()
@@ -111,7 +105,8 @@ export default function UsersPage() {
   })
   const onToggle = useMutation({
     mutationFn: ({ id, is_active }: { id: string; is_active: boolean }) => adminApi.updateUser(id, { is_active }),
-    onSuccess: () => inv(),
+    onSuccess: (_d, { is_active }) => { inv(); msg.success(is_active ? 'User activated.' : 'User deactivated.') },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to update user status.'),
   })
   const onReset = useMutation({
     mutationFn: ({ id, pw }: { id: string; pw: string }) => adminApi.resetPassword(id, pw),
@@ -129,37 +124,43 @@ export default function UsersPage() {
       title: 'Emp #',
       dataIndex: 'emp_no',
       width: 110,
-      render: (v) => <span className="font-mono text-[13px] text-slate-600">{v}</span>,
+      sorter: strSorter('emp_no'),
+      render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
-      title: 'User',
-      key: 'user',
-      render: (_, r) => (
-        <div className="flex items-center gap-2.5 min-w-0">
-          <UA name={r.username} />
-          <div className="min-w-0">
-            <p className="text-[13px] text-slate-800 truncate flex items-center gap-1.5">
-              {r.username}
-              {r.must_reset_password && (
-                <StatusTag color="warning" className="text-[11px] px-1 py-0 leading-tight m-0">pwd reset</StatusTag>
-              )}
-            </p>
-            <p className="text-[13px] text-slate-400 truncate">{r.email}</p>
-          </div>
-        </div>
+      title: 'Username',
+      dataIndex: 'username',
+      ellipsis: true,
+      sorter: strSorter('username'),
+      render: (v, r) => (
+        <span className="text-[13px] text-slate-800 truncate flex items-center gap-1.5 min-w-0">
+          <span className="truncate">{v}</span>
+          {r.must_reset_password && (
+            <StatusTag color="warning" className="text-[11px] px-1 py-0 leading-tight m-0 shrink-0">pwd reset</StatusTag>
+          )}
+        </span>
       ),
+    },
+    {
+      title: 'Email',
+      dataIndex: 'email',
+      ellipsis: true,
+      sorter: strSorter('email'),
+      render: (v) => <span className="text-[13px] text-slate-800 truncate">{v}</span>,
     },
     {
       title: 'Role',
       key: 'role',
-      render: (_, r) => <span className="text-[13px] text-slate-700">{r.role_name ?? r.role_code}</span>,
+      sorter: (a, b) => String(a.role_name ?? a.role_code ?? '').localeCompare(String(b.role_name ?? b.role_code ?? '')),
+      render: (_, r) => <span className="text-[13px] text-slate-800">{r.role_name ?? r.role_code}</span>,
     },
     {
       title: 'Department',
       dataIndex: 'department_name',
       responsive: ['md'],
+      sorter: strSorter('department_name'),
       render: (v) => v
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -172,7 +173,7 @@ export default function UsersPage() {
       title: '',
       key: 'actions',
       width: screens.md ? 110 : 80,
-      align: 'right',
+      align: 'center',
       render: (_, r) => (
         <Space size={2}>
           <Tooltip title="Edit">
@@ -226,7 +227,7 @@ export default function UsersPage() {
             checked={includeDeactivated}
             onChange={(checked) => { setIncludeDeactivated(checked); setPage(1) }}
           />
-          <span className="text-[13px] text-slate-600">Show Deactivated Users</span>
+          <span className="text-[13px] text-slate-600">Show Deactivated Users also</span>
         </div>
       </div>
 
@@ -240,10 +241,11 @@ export default function UsersPage() {
           scroll={{ x: 'max-content' }}
           pagination={{
             current: page,
-            pageSize: 20,
+            pageSize: 10,
             onChange: (p) => setPage(p),
             showTotal: (t) => `${t} users`,
-            showSizeChanger: false,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
             size: 'small',
           }}
         />
@@ -252,6 +254,7 @@ export default function UsersPage() {
       {/* Create */}
       <Modal
         open={createOpen}
+        closable={false}
         title="New User"
         onCancel={() => setCreateOpen(false)}
         onOk={() => createForm.submit()}
@@ -271,7 +274,7 @@ export default function UsersPage() {
               <Input placeholder="jane@laurus.com" />
             </Form.Item>
           </div>
-          <p className="text-xs text-slate-400 -mt-2 mb-3">Employee # is auto-assigned. Default password: <span className="font-mono text-slate-500">password@123</span></p>
+          <p className="text-xs text-slate-400 -mt-2 mb-3">Employee # is auto-assigned. Default password: <span className="  text-slate-500">Password@123</span></p>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
             <Form.Item name="role_id" label="Role" rules={[{ required: true }]}>
               <Select
@@ -298,6 +301,7 @@ export default function UsersPage() {
       {/* Edit */}
       <Modal
         open={editTarget !== null}
+        closable={false}
         title={`Edit — ${editTarget?.username}`}
         onCancel={() => setEditTarget(null)}
         onOk={() => editForm.submit()}
@@ -353,6 +357,7 @@ export default function UsersPage() {
       {/* Reset Password */}
       <Modal
         open={resetTarget !== null}
+        closable={false}
         title={`Reset Password — ${resetTarget?.username}`}
         onCancel={() => setResetTarget(null)}
         onOk={() => resetForm.submit()}
@@ -370,8 +375,20 @@ export default function UsersPage() {
           onFinish={(v) => resetTarget && onReset.mutate({ id: resetTarget.id, pw: v.new_password })}
          
         >
-          <Form.Item name="new_password" label="New Password" rules={[{ required: true, min: 6 }]}>
-            <Input.Password placeholder="Min 6 characters" />
+          <Form.Item
+            name="new_password"
+            label="New Password"
+            rules={[
+              { required: true, message: 'Please enter a password.' },
+              { min: 6, message: 'At least 6 characters.' },
+              {
+                pattern: /^(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9]).+$/,
+                message: 'Include an uppercase letter, a number, and a special character.',
+              },
+            ]}
+            extra="At least 6 characters, with one uppercase letter, one number, and one special character."
+          >
+            <Input.Password placeholder="Min 6 chars, 1 uppercase, 1 number, 1 special" />
           </Form.Item>
           <Form.Item
             name="confirm"

@@ -23,6 +23,8 @@ from app.models import project            # noqa: F401
 from app.models import notebook           # noqa: F401
 from app.models import experiment         # noqa: F401
 from app.models import adc                # noqa: F401
+from app.models import cgt_notebook       # noqa: F401
+from app.models import cgt_experiment     # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.DATABASE_URL)

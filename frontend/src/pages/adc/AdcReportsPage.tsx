@@ -51,7 +51,7 @@ export default function AdcReportsPage() {
       key: 'full_code',
       width: 150,
       render: (v: string) => (
-        <span className="font-mono text-[13px] font-semibold text-slate-700">{v}</span>
+        <span className="text-[13px] font-semibold text-slate-700">{v}</span>
       ),
     },
     {

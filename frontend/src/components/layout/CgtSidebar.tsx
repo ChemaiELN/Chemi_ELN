@@ -2,13 +2,22 @@ import { useNavigate, useLocation } from 'react-router-dom'
 import { Menu, ConfigProvider } from 'antd'
 import type { MenuProps } from 'antd'
 import { FolderOpen, LayoutGrid, BookOpen, FlaskConical, FileText } from 'lucide-react'
+import { useAppSelector } from '../../store'
+import { selectUser } from '../../store/authSlice'
 import logo from '../../assets/logo.svg'
+import smallLogo from '../../assets/small-logo.png'
+
+// Chemists/Analysts only work within notebooks assigned to them — mirrors
+// AdcSidebar's ASSIGNMENT_RESTRICTED_ROLES gate.
+const ASSIGNMENT_RESTRICTED_ROLES = ['CHEM', 'ANALYST']
 
 type MenuItem = Required<MenuProps>['items'][number]
 
-// Placeholder nav structure — mirrors the ADC sidebar's item shape.
-// Routes are wired to placeholder pages until CGT features are built out.
-function makeCgtItems(): MenuItem[] {
+function makeCgtItems(roleCode?: string): MenuItem[] {
+  const isAssignmentRestricted = ASSIGNMENT_RESTRICTED_ROLES.includes(roleCode ?? '')
+  if (isAssignmentRestricted) {
+    return [{ key: '/cgt/my-notebooks', icon: <BookOpen size={15} />, label: 'My Notebooks' }]
+  }
   return [
     { key: '/cgt/projects',    icon: <FolderOpen size={15} />,   label: 'Projects' },
     { key: '/cgt/notebooks',   icon: <BookOpen size={15} />,     label: 'Notebooks' },
@@ -25,6 +34,7 @@ interface CgtSidebarProps {
 export default function CgtSidebar({ collapsed, onItemClick }: CgtSidebarProps) {
   const navigate = useNavigate()
   const location = useLocation()
+  const user     = useAppSelector(selectUser)
 
   const handleSelect: MenuProps['onClick'] = ({ key }) => {
     navigate(key)
@@ -32,15 +42,17 @@ export default function CgtSidebar({ collapsed, onItemClick }: CgtSidebarProps) 
   }
 
   // Highlight active nav item based on current path
-  const selectedKey = location.pathname.startsWith('/cgt/reports')
-    ? '/cgt/reports'
-    : location.pathname.startsWith('/cgt/experiments')
-      ? '/cgt/experiments'
-      : location.pathname.startsWith('/cgt/notebooks')
-        ? '/cgt/notebooks'
-        : location.pathname.startsWith('/cgt/projects')
-          ? '/cgt/projects'
-          : '/cgt'
+  const selectedKey = location.pathname.startsWith('/cgt/my-notebooks')
+    ? '/cgt/my-notebooks'
+    : location.pathname.startsWith('/cgt/reports')
+      ? '/cgt/reports'
+      : location.pathname.startsWith('/cgt/experiments')
+        ? '/cgt/experiments'
+        : location.pathname.startsWith('/cgt/notebooks')
+          ? '/cgt/notebooks'
+          : location.pathname.startsWith('/cgt/projects')
+            ? '/cgt/projects'
+            : '/cgt'
 
   const sidebarW = collapsed ? 'w-[64px]' : 'w-56'
 
@@ -50,8 +62,15 @@ export default function CgtSidebar({ collapsed, onItemClick }: CgtSidebarProps) 
       style={{ position: 'relative' }}
     >
       {/* Brand */}
-      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} py-4 border-b border-white/40 shrink-0`}>
-        <img src={logo} alt="Logo" className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'} />
+      <div
+        className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} border-b border-white/40 shrink-0`}
+        style={{ height: 52, backgroundColor: '#FEFEFA' }}
+      >
+        <img
+          src={collapsed ? smallLogo : logo}
+          alt="Logo"
+          className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'}
+        />
       </div>
 
       {/* Back to modules */}
@@ -79,7 +98,7 @@ export default function CgtSidebar({ collapsed, onItemClick }: CgtSidebarProps) 
             mode="inline"
             inlineCollapsed={collapsed}
             selectedKeys={[selectedKey]}
-            items={makeCgtItems()}
+            items={makeCgtItems(user?.role_code)}
             onClick={handleSelect}
             style={{ background: 'transparent', border: 'none', fontSize: 13, width: '100%' }}
             inlineIndent={12}

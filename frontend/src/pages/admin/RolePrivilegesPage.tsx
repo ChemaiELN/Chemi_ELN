@@ -8,6 +8,9 @@ import { adminApi, type Role } from '../../api/admin'
 import { ApiError } from '../../api/client'
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 
+const strSorter = <T,>(key: keyof T) => (a: T, b: T) => String(a[key] ?? '').localeCompare(String(b[key] ?? ''))
+const numSorter = <T,>(key: keyof T) => (a: T, b: T) => Number(a[key] ?? 0) - Number(b[key] ?? 0)
+
 export default function RolesPage() {
   const qc = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
@@ -80,27 +83,31 @@ export default function RolesPage() {
     {
       title: 'Code',
       dataIndex: 'code',
-      width: 130,
+      width: '20%',
+      sorter: strSorter('code'),
       render: (v) => (
-        <StatusTag color="purple" className="font-mono text-[13px]">{v}</StatusTag>
+        <span className="text-[13px] text-slate-800">{v}</span>
       ),
     },
     {
       title: 'Name',
       dataIndex: 'name',
+      width: '20%',
+      sorter: strSorter('name'),
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Users',
       dataIndex: 'user_count',
-      width: 70,
+      width: '20%',
       align: 'center',
-      render: (v) => <span className="text-[13px] text-slate-600">{v}</span>,
+      sorter: numSorter('user_count'),
+      render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Active',
       dataIndex: 'is_active',
-      width: 80,
+      width: '20%',
       align: 'center',
       render: (v, record) => (
         <Switch
@@ -113,8 +120,8 @@ export default function RolesPage() {
     {
       title: '',
       key: 'actions',
-      width: 80,
-      align: 'right',
+      width: '20%',
+      align: 'center',
       render: (_, record) => (
         <Space size={4}>
           <Tooltip title="Edit">
@@ -174,14 +181,15 @@ export default function RolesPage() {
           rowKey="id"
           loading={isLoading}
           size="middle"
-          scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 15, showTotal: (t) => `${t} roles` }}
+          scroll={{ x: 700 }}
+          pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: [10, 20, 50, 100], showTotal: (t) => `${t} roles` }}
         />
       </div>
 
       {/* Create */}
       <Modal
         open={createOpen}
+        closable={false}
         title="New Role"
         onCancel={() => setCreateOpen(false)}
         onOk={() => createForm.submit()}
@@ -194,7 +202,7 @@ export default function RolesPage() {
       >
         <Form form={createForm} layout="vertical" onFinish={(v) => onCreate.mutate(v)}>
           <Form.Item name="code" label="Code" rules={[{ required: true, max: 20 }]}>
-            <Input placeholder="e.g. ANALYST" className="uppercase font-mono" />
+            <Input placeholder="e.g. ANALYST" className="uppercase  " />
           </Form.Item>
           <Form.Item name="name" label="Name" rules={[{ required: true }]}>
             <Input placeholder="e.g. Analyst" />
@@ -208,6 +216,7 @@ export default function RolesPage() {
       {/* Edit */}
       <Modal
         open={editTarget !== null}
+        closable={false}
         title={`Edit — ${editTarget?.name}`}
         onCancel={() => setEditTarget(null)}
         onOk={() => editForm.submit()}

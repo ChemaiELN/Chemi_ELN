@@ -173,7 +173,7 @@ export default function NotebookOverviewPage() {
   const expColumns = [
     {
       title: 'CODE', dataIndex: 'full_code', key: 'code', width: 180,
-      render: (v: string) => <span className="font-mono text-xs font-semibold text-teal-700">{v}</span>,
+      render: (v: string) => <span className="  text-xs font-semibold text-teal-700">{v}</span>,
     },
     {
       title: 'TITLE', dataIndex: 'title', key: 'title',
@@ -216,7 +216,7 @@ export default function NotebookOverviewPage() {
       {/* Notebook title */}
       {/* <div className="mb-5">
         <div className="flex items-center gap-2 mb-1">
-          <span className="font-mono text-xs text-teal-700 bg-teal-50 px-2 py-0.5 rounded">{nb.code}</span>
+          <span className="  text-xs text-teal-700 bg-teal-50 px-2 py-0.5 rounded">{nb.code}</span>
           <Tag color={nb.status === 'ACTIVE' ? 'green' : 'default'}>{nb.status}</Tag>
         </div>
         <h1 className="text-xl lg:text-2xl font-bold text-slate-800">{nb.title}</h1>
@@ -349,7 +349,7 @@ export default function NotebookOverviewPage() {
                 <h2 className="text-sm lg:text-base font-bold text-slate-700 mb-4">Notebook Info</h2>
                 <div className="space-y-3 lg:space-y-4 text-sm lg:text-base max-w-xl">
                   {[
-                    { label: 'Notebook Code', value: <span className="font-mono text-xs font-semibold">{nb.code}</span> },
+                    { label: 'Notebook Code', value: <span className="  text-xs font-semibold">{nb.code}</span> },
                     { label: 'Title',         value: nb.title },
                     { label: 'Project',       value: nb.project_code
                       ? <span className="text-teal-600 font-medium">{nb.project_code}</span>

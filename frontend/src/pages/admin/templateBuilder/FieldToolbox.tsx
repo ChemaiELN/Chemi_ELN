@@ -46,7 +46,7 @@ function PaletteItem({ type, label }: { type: FieldType; label: string }) {
 
 export default function FieldToolbox() {
   return (
-    <div className="w-64 shrink-0 glass-card rounded-lg p-4 space-y-5 overflow-y-auto">
+    <div className="w-64 shrink-0 glass-card rounded-lg p-4 space-y-5 overflow-y-auto no-scrollbar">
       <p className="font-semibold text-sm text-slate-700">Form Elements</p>
       {FIELD_CATEGORIES.map(cat => {
         const items = FIELD_TYPE_REGISTRY.filter(d => d.category === cat)

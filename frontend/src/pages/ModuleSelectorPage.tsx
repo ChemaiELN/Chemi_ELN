@@ -18,10 +18,7 @@ export default function ModuleSelectorPage() {
     <div className="relative min-h-screen flex flex-col overflow-hidden">
 
       {/* Background */}
-      <div className="fixed inset-0 -z-20 bg-gradient-to-br from-slate-100 via-purple-50 to-indigo-100" />
-      <div className="fixed top-[-80px] left-[-80px] -z-10 w-[480px] h-[480px] bg-purple-200/50 rounded-full blur-3xl animate-blob" />
-      <div className="fixed bottom-[-60px] right-[-60px] -z-10 w-[400px] h-[400px] bg-purple-200/40 rounded-full blur-3xl animate-blob animation-delay-2000" />
-      <div className="fixed top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 -z-10 w-[350px] h-[350px] bg-indigo-200/30 rounded-full blur-3xl animate-blob animation-delay-4000" />
+      <div className="fixed inset-0 -z-20" style={{ backgroundColor: '#f4f4f8' }} />
 
       {/* Top bar */}
       <header className="glass-header px-6 py-3 flex items-center justify-between shrink-0">

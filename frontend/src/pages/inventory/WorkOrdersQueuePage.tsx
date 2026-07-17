@@ -31,7 +31,7 @@ export default function WorkOrdersQueuePage() {
 
   const columns: ColumnsType<WorkOrder> = [
     { title: 'Workorder No', ellipsis: true, dataIndex: 'workorder_no', width: 140, render: (v, r) => <a className=" text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/work-orders/${r.id}`)}>{v}</a> },
-    { title: 'Code', ellipsis: true, dataIndex: 'equipment_code', width: 130, render: v => <span className="font-mono text-[13px] text-slate-600">{v}</span> },
+    { title: 'Code', ellipsis: true, dataIndex: 'equipment_code', width: 130, render: v => <span className="  text-[13px] text-slate-600">{v}</span> },
     { title: 'Kind', ellipsis: true, dataIndex: 'kind', width: 110, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
     { title: 'Log Type', ellipsis: true, dataIndex: 'log_type', width: 120, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
     { title: 'Raised By', ellipsis: true, dataIndex: 'raised_by', width: 130 },
@@ -45,7 +45,7 @@ export default function WorkOrdersQueuePage() {
         <Select placeholder="All Kinds" allowClear style={{ minWidth: 160 }} value={kind} onChange={setKind} options={KIND_OPTIONS} />
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20 }} />
+        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10 }} />
       </div>
     </div>
   )

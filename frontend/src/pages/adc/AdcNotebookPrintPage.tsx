@@ -100,7 +100,7 @@ export default function AdcNotebookPrintPage() {
               </div>
               {exp && (
                 <div className="text-xs text-right">
-                  <p className="font-mono text-gray-600">{exp.full_code}</p>
+                  <p className=" text-gray-600">{exp.full_code}</p>
                   <p className="font-bold uppercase">{exp.status}</p>
                 </div>
               )}

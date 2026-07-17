@@ -1,8 +1,8 @@
 """Inventory – Dashboard KPIs, stock availability, expiring batches, pending actions."""
 import datetime
-from typing import Any
+from typing import Any, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy import func
 from sqlalchemy.orm import Session
 
@@ -110,10 +110,11 @@ def get_kpis(
 
 @router.get("/available-stock")
 def available_stock(
+    material_id: Optional[int] = Query(None),
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
-    rows = (
+    q = (
         db.query(
             InvMaterial.id.label("material_id"),
             InvMaterial.code,
@@ -124,10 +125,10 @@ def available_stock(
         .outerjoin(InvBatch, (InvBatch.material_id == InvMaterial.id) &
                    InvBatch.status.in_(["AVAILABLE", "PARTIALLY_CONSUMED"]))
         .filter(InvMaterial.is_active.is_(True))
-        .group_by(InvMaterial.id, InvMaterial.code, InvMaterial.name)
-        .order_by(InvMaterial.name)
-        .all()
     )
+    if material_id is not None:
+        q = q.filter(InvMaterial.id == material_id)
+    rows = q.group_by(InvMaterial.id, InvMaterial.code, InvMaterial.name).order_by(InvMaterial.name).all()
     return [
         {
             "material_id": r.material_id,

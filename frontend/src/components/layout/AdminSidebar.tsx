@@ -6,6 +6,7 @@ import {
   LayoutGrid, GitBranch, Database,
 } from 'lucide-react'
 import logo from '../../assets/logo.svg'
+import smallLogo from '../../assets/small-logo.png'
 
 type MenuItem = Required<MenuProps>['items'][number]
 
@@ -65,8 +66,15 @@ export default function AdminSidebar({ collapsed, onItemClick }: AdminSidebarPro
     <aside className={`glass-sidebar flex flex-col ${sidebarW} min-h-screen shrink-0 transition-all duration-200 overflow-hidden`}>
 
       {/* Brand */}
-      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} py-4 border-b border-white/40 shrink-0`}>
-        <img src={logo} alt="Logo" className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'} />
+      <div
+        className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} border-b border-white/40 shrink-0`}
+        style={{ height: 52, backgroundColor: '#FEFEFA' }}
+      >
+        <img
+          src={collapsed ? smallLogo : logo}
+          alt="Logo"
+          className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'}
+        />
       </div>
 
       {/* Back to modules */}

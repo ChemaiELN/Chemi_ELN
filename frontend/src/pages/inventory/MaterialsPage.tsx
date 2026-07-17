@@ -1,14 +1,19 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Space, Tooltip, Popconfirm, Collapse, Switch } from 'antd'
-import { StatusTag } from '../../components/ui/StatusTag'
-import type { ColumnsType } from 'antd/es/table'
-import { Plus, Pencil, PowerOff, Search, ChevronDown } from 'lucide-react'
-import { materialApi, consumableTypeApi, lookupApi, storageConditionApi, type Material, type ConsumableType } from '../../api/inventory'
+import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Space, Tooltip, Collapse, Switch, Upload } from 'antd'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import type { SorterResult } from 'antd/es/table/interface'
+import { Plus, Pencil, Search, ChevronDown, Download, Upload as UploadIcon } from 'lucide-react'
+import { materialApi, consumableTypeApi, lookupApi, storageConditionApi, masterTemplateApi, type Material, type ConsumableType } from '../../api/inventory'
 import { glassModalProps } from '../../utils/modalStyles'
+import { ApiError } from '../../api/client'
+
+const MATERIALS_TEMPLATE_KEY = 'materials'
 
 // Material Type options are sourced from the Lookup master (inv_general_lookup)
 // where lookup_type = 'Material Type'. Manage them under Inventory Master Data.
 const MATERIAL_TYPE_LOOKUP = 'Material Type'
+// The Consumable Type field only applies when this specific Material Type lookup value is selected.
+const CONSUMABLES_MATERIAL_TYPE = 'Consumables'
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -18,25 +23,29 @@ export default function MaterialsPage() {
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(20)
+  const [pageSize, setPageSize] = useState(10)
   const [total, setTotal] = useState(0)
+  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Material | null>(null)
   const [saving, setSaving] = useState(false)
   const [nextCode, setNextCode] = useState('')
   const [showConsumablesType, setShowConsumablesType] = useState(false)
   const [form] = Form.useForm()
+  const selectedMaterialType = Form.useWatch('material_type', form)
 
   const load = useCallback(async () => {
     setLoading(true)
     try {
       const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize }
       if (search) params.search = search
+      if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
       const { items, total } = await materialApi.listPaged(params)
       setMaterials(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, page, pageSize])
+  }, [search, page, pageSize, sortBy, sortDir])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [search])
@@ -110,12 +119,56 @@ export default function MaterialsPage() {
     finally { setSaving(false) }
   }
 
-  const handleDeactivate = async (id: number) => {
+  const toggleMaterial = async (id: number) => {
     try {
-      await materialApi.deactivate(id)
-      message.success('Material deactivated')
+      const res = await materialApi.toggle(id)
+      message.success(res.message ?? 'Updated.')
       load()
-    } catch (e: unknown) { message.error((e as Error).message) }
+    } catch (e: unknown) { message.error(e instanceof ApiError ? e.detail : 'Failed to update status.') }
+  }
+
+  const handleToggle = (r: Material) => {
+    if (r.is_active) {
+      Modal.confirm({
+        title: `Deactivate "${r.name}"?`,
+        content: 'It will no longer be usable in new stock requests or batches.',
+        okText: 'Deactivate',
+        okButtonProps: { danger: true },
+        centered: true,
+        onOk: () => toggleMaterial(r.id),
+      })
+    } else {
+      toggleMaterial(r.id)
+    }
+  }
+
+  const handleBulkUpload = async (file: File) => {
+    try {
+      const res = await materialApi.upload(file)
+      if (res.errors.length) {
+        Modal.warning({
+          title: <span className="text-slate-800">{res.created} created, {res.skipped} skipped</span>,
+          width: 560,
+          centered: true,
+          okText: 'OK',
+          okButtonProps: { style: { background: '#c084fc', borderColor: '#c084fc' } },
+          content: (
+            <div className="max-h-72 overflow-y-auto mt-2 pr-1">
+              <ul className="list-disc pl-4 space-y-1">
+                {res.errors.map((err, i) => (
+                  <li key={i} className="text-[13px] text-slate-800">{err}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+          ...glassModalProps,
+        })
+      } else {
+        message.success(`${res.created} material(s) created`)
+      }
+      load()
+    } catch (e: unknown) { message.error(e instanceof ApiError ? e.detail : 'Upload failed.') }
+    return false
   }
 
   const columns: ColumnsType<Material> = [
@@ -124,13 +177,15 @@ export default function MaterialsPage() {
       dataIndex: 'code',
       ellipsis: true,
       width: 110,
-      render: (v) => <span className="text-[13px] text-slate-600">{v}</span>,
+      sorter: true,
+      render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Name',
       dataIndex: 'name',
       ellipsis: true,
       width:200,
+      sorter: true,
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -138,8 +193,9 @@ export default function MaterialsPage() {
       dataIndex: 'material_type',
       ellipsis: true,
       width: 130,
+      sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-700">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     ...(showConsumablesType ? [{
@@ -150,7 +206,7 @@ export default function MaterialsPage() {
       render: (v: number | null) => {
         const name = ctypes.find(c => c.id === v)?.name
         return name
-          ? <span className="text-[13px] text-slate-700">{name}</span>
+          ? <span className="text-[13px] text-slate-800">{name}</span>
           : <span className="text-[13px] text-slate-300">—</span>
       },
     } as ColumnsType<Material>[number]] : []),
@@ -159,8 +215,9 @@ export default function MaterialsPage() {
       dataIndex: 'cas_no',
       ellipsis: true,
       width: 130,
+      sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -168,8 +225,9 @@ export default function MaterialsPage() {
       dataIndex: 'molecular_formula',
       ellipsis: true,
       width: 120,
+      sorter: true,
       render: (v: string | null) => v
-        ? <span className=" text-[13px] text-slate-600">{v}</span>
+        ? <span className=" text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -177,9 +235,10 @@ export default function MaterialsPage() {
       dataIndex: 'mol_weight',
       ellipsis: true,
       width: 90,
-      align: 'right',
+      align: 'left',
+      sorter: true,
       render: (v: number | null) => v != null
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -187,8 +246,9 @@ export default function MaterialsPage() {
       dataIndex: 'storage_condition',
       ellipsis: true,
       width: 130,
+      sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -196,8 +256,9 @@ export default function MaterialsPage() {
       dataIndex: 'hazard_class',
       ellipsis: true,
       width: 120,
+      sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-700">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
@@ -205,27 +266,20 @@ export default function MaterialsPage() {
       dataIndex: 'is_active',
       ellipsis: true,
       width: 90,
-      render: (v: boolean) => (
-        <StatusTag color={v ? 'success' : 'default'} className="text-[13px]">{v ? 'Active' : 'Inactive'}</StatusTag>
-      ),
+      align: 'center',
+      sorter: true,
+      render: (v: boolean, r) => <Switch size="small" checked={v} onChange={() => handleToggle(r)} />,
     },
     {
       title: '',
       key: 'actions',
       width: 80,
-      align: 'right',
+      align: 'center',
       render: (_, r) => (
         <Space size={4}>
           <Tooltip title="Edit">
             <Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} />
           </Tooltip>
-          {r.is_active && (
-            <Popconfirm title="Deactivate this material?" onConfirm={() => handleDeactivate(r.id)}>
-              <Tooltip title="Deactivate">
-                <Button type="text" size="small" danger icon={<PowerOff size={13} />} />
-              </Tooltip>
-            </Popconfirm>
-          )}
         </Space>
       ),
     },
@@ -245,6 +299,12 @@ export default function MaterialsPage() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">
           New Material
         </Button>
+        <Button icon={<Download size={14} />} onClick={() => masterTemplateApi.download(MATERIALS_TEMPLATE_KEY)}>
+          Download Template
+        </Button>
+        <Upload beforeUpload={handleBulkUpload} showUploadList={false} accept=".xlsx">
+          <Button icon={<UploadIcon size={14} />}>Bulk Upload</Button>
+        </Upload>
         <div className="flex items-center gap-2">
           <span className="text-[13px] text-slate-600">Show Consumables Type</span>
           <Switch size="small" checked={showConsumablesType} onChange={setShowConsumablesType} />
@@ -264,9 +324,19 @@ export default function MaterialsPage() {
             pageSize,
             total,
             showSizeChanger: true,
-            pageSizeOptions: [20, 50, 100],
+            pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} materials`,
-            onChange: (p, ps) => { setPage(p); setPageSize(ps) },
+          }}
+          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+            if (pagination.current) setPage(pagination.current)
+            if (pagination.pageSize) setPageSize(pagination.pageSize)
+            const s = sorter as SorterResult<Material>
+            if (s.order) {
+              setSortBy(s.field as string)
+              setSortDir(s.order === 'ascend' ? 'asc' : 'desc')
+            } else {
+              setSortBy(null)
+            }
           }}
         />
       </div>
@@ -283,7 +353,16 @@ export default function MaterialsPage() {
         destroyOnHidden
         {...glassModalProps}
       >
-        <Form form={form} layout="vertical" onFinish={handleSave}>
+        <Form
+          form={form}
+          layout="vertical"
+          onFinish={handleSave}
+          onValuesChange={(changed) => {
+            if ('material_type' in changed && changed.material_type !== CONSUMABLES_MATERIAL_TYPE) {
+              form.setFieldValue('consumable_type_id', undefined)
+            }
+          }}
+        >
           {/* Core fields */}
           <div className="grid grid-cols-2 gap-x-3">
             {!editing && (
@@ -294,7 +373,7 @@ export default function MaterialsPage() {
             <Form.Item name="name" label="Name" rules={[{ required: true }]}>
               <Input />
             </Form.Item>
-            <Form.Item name="material_type" label="Material Type">
+            <Form.Item name="material_type" label="Material Type" rules={[{ required: true, message: 'Material Type is required' }]}>
               <Select
                 allowClear
                 showSearch
@@ -302,7 +381,7 @@ export default function MaterialsPage() {
                 placeholder="Select or type"
               />
             </Form.Item>
-            <Form.Item name="cas_no" label="CAS No">
+            <Form.Item name="cas_no" label="CAS No" rules={[{ required: true, whitespace: true, message: 'CAS No is required' }]}>
               <Input placeholder="e.g. 75-05-8" />
             </Form.Item>
             <Form.Item name="molecular_formula" label="Molecular Formula">
@@ -322,9 +401,11 @@ export default function MaterialsPage() {
             <Form.Item name="hazard_class" label="Hazard Class">
               <Input placeholder="e.g. Flammable, Corrosive" />
             </Form.Item>
-            <Form.Item name="consumable_type_id" label="Consumable Type">
-              <Select allowClear options={ctypes.map(c => ({ value: c.id, label: c.name }))} />
-            </Form.Item>
+            {selectedMaterialType === CONSUMABLES_MATERIAL_TYPE && (
+              <Form.Item name="consumable_type_id" label="Consumable Type">
+                <Select allowClear options={ctypes.map(c => ({ value: c.id, label: c.name }))} />
+              </Form.Item>
+            )}
           </div>
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={2} />

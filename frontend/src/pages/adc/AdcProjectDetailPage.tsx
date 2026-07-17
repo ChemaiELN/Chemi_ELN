@@ -111,8 +111,8 @@ function OverviewTab({ project, projectId }: { project: Project; projectId: stri
 
   const nbColumns = [
     {
-      title: 'CODE', dataIndex: 'code', key: 'code', width: 120,
-      render: (v: string) => <span className="font-mono text-xs font-semibold text-slate-700">{v}</span>,
+      title: 'CODE', dataIndex: 'code', key: 'code', width: 220,
+      render: (v: string) => <span className=" text-xs font-semibold text-slate-700">{v}</span>,
     },
     {
       title: 'TITLE', dataIndex: 'title', key: 'title',

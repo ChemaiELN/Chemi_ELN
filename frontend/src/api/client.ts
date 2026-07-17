@@ -36,7 +36,20 @@ async function parseResponse<T>(res: Response): Promise<T> {
     let detail = `HTTP ${res.status}`
     try {
       const body = await res.json()
-      detail = typeof body.detail === 'string' ? body.detail : JSON.stringify(body.detail)
+      if (typeof body.detail === 'string') {
+        detail = body.detail
+      } else if (Array.isArray(body.detail)) {
+        // FastAPI/Pydantic 422 validation errors arrive as [{ loc, msg, ... }].
+        // Flatten to the human-readable messages (stripping the "Value error,"
+        // prefix Pydantic adds) instead of dumping raw JSON at the user.
+        detail =
+          body.detail
+            .map((e: { msg?: string }) => (e?.msg ?? '').replace(/^Value error,\s*/, ''))
+            .filter(Boolean)
+            .join('; ') || `HTTP ${res.status}`
+      } else if (body.detail != null) {
+        detail = JSON.stringify(body.detail)
+      }
     } catch {
       // non-JSON error body — keep the default detail
     }

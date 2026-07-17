@@ -103,7 +103,7 @@ export default function AuditTrailPage() {
       dataIndex: 'entity_ref',
       key: 'entity_ref',
       width: 150,
-      render: v => <span className="font-mono text-[13px]">{v as string ?? '—'}</span>,
+      render: v => <span className="  text-[13px]">{v as string ?? '—'}</span>,
     },
     {
       title: 'Performed By',

@@ -2,14 +2,89 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ── Self-hosted app font: Inter ─────────────────────────────────────────────
+   Primary UI font. Heavily hinted for screens, so it renders cleanly on Windows
+   (DirectWrite/ClearType) — unlike SF Pro, whose web conversions lack Windows
+   hinting and look uneven at small sizes. Four real weights → no faux bolding.
+   Served from /public/fonts, works offline on the intranet deployment. */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-500.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-600.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-700.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── SF Pro Text (kept as a fallback) ────────────────────────────────────────
+   Files live in /public/fonts (served at /fonts/… — works offline on the
+   intranet deployment). Four real weights so Tailwind's font-normal/medium/
+   semibold/bold each map to a genuine face — no faux/synthetic bolding. */
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextR.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextM.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextSB.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextB.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
 @layer base {
   *, *::before, *::after { box-sizing: border-box; }
   body {
     margin: 0;
-    font-family: 'UniversLTPro-55Roman', 'Inter', sans-serif;
+    font-family: 'Inter', 'SF Pro Text', 'UniversLTPro-55Roman', sans-serif;
     @apply antialiased;
   }
   #root { min-height: 100dvh; display: flex; flex-direction: column; }
+
+  * {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
 }
 
 @layer utilities {
@@ -23,7 +98,8 @@
     @apply bg-white/60 backdrop-blur-2xl border border-white/80 shadow-2xl shadow-violet-300/20;
   }
   .glass-sidebar {
-    @apply bg-white/25 backdrop-blur-2xl border-r border-white/40;
+    @apply backdrop-blur-2xl border-r border-white/40;
+    background-color: #FEFEFA;
   }
   .glass-header {
     @apply bg-white/40 backdrop-blur-xl border-b border-white/50;
@@ -31,6 +107,32 @@
   .glass-input {
     @apply bg-white/60 backdrop-blur-sm border border-white/80 focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition-all;
   }
+  /* Scrollable, but with the scrollbar visually hidden (scroll still works). */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Module shells (Admin / Inventory / ADC / CGT): solid #FEFEFA surface for
+   cards and tables, overriding the translucent glass look. Applied via the
+   shared .module-surface class on each shell root. */
+.module-surface .glass-card {
+  background-color: #FEFEFA;
+}
+.module-surface .ant-table,
+.module-surface .ant-table-thead > tr > th,
+.module-surface .ant-table-tbody > tr > td {
+  background-color: #FEFEFA;
+}
+
+/* Select field with a #FEFEFA background (e.g. the Template Builder category
+   picker). Targets the inner selector box, which owns the background. */
+.fefefa-select .ant-select-selector {
+  background-color: #FEFEFA !important;
 }
 
 /* Blob animation */

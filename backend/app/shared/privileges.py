@@ -113,6 +113,27 @@ def require_creator_role():
     return Depends(_dep)
 
 
+# ── Stock Request two-stage approval gate ───────────────────────────────────────
+# A chemist submits a stock request (PENDING); only HOD/TL may approve/reject it
+# at that stage. Once APPROVED, it moves into Store Incharge's queue — only that
+# role may reject/cancel/fulfill it from there.
+STORE_INCHARGE_ROLES = {"STORE_INCHARGE"}
+
+
+def require_store_incharge_role():
+    """FastAPI dependency factory — only Store Incharge may pass."""
+
+    def _dep(current_user=Depends(get_current_user)):
+        if current_user.role.code not in STORE_INCHARGE_ROLES:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="Only Store Incharge can perform this action.",
+            )
+        return current_user
+
+    return Depends(_dep)
+
+
 # ── Notebook/experiment assignment gate ─────────────────────────────────────────
 # Chemists and Analysts may only view/work on notebooks (and the experiments that
 # live inside them) they have been explicitly assigned to via NotebookPermission.
@@ -132,6 +153,28 @@ def assert_notebook_access(db: Session, user, notebook) -> None:
             NotebookPermission.notebook_id == notebook.id,
             NotebookPermission.user_id == user.id,
             NotebookPermission.can_view.is_(True),
+        )
+        .first()
+    )
+    if not assigned:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="You are not assigned to this notebook.",
+        )
+
+
+def assert_cgt_notebook_access(db: Session, user, notebook) -> None:
+    """CGT equivalent of assert_notebook_access — gates on CgtNotebookPermission."""
+    if user.role.code not in ASSIGNMENT_RESTRICTED_ROLES:
+        return
+    from app.models.cgt_notebook import CgtNotebookPermission
+
+    assigned = (
+        db.query(CgtNotebookPermission)
+        .filter(
+            CgtNotebookPermission.cgt_notebook_id == notebook.id,
+            CgtNotebookPermission.user_id == user.id,
+            CgtNotebookPermission.can_view.is_(True),
         )
         .first()
     )

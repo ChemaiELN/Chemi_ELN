@@ -39,7 +39,7 @@ export default function AdcExperimentsPage() {
       key: 'full_code',
       width: 160,
       render: (v: string) => (
-        <span className="font-mono text-[13px] font-semibold text-slate-700">{v}</span>
+        <span className=" text-[13px] font-semibold text-slate-700">{v}</span>
       ),
     },
     {
@@ -63,7 +63,7 @@ export default function AdcExperimentsPage() {
       render: (v: string, row: ExperimentListItem) => (
         <button
           onClick={() => navigate(`/notebooks/${row.notebook_id}/overview`)}
-          className="text-[13px] font-mono text-teal-600 hover:underline"
+          className="text-[13px] text-teal-600 hover:underline"
         >
           {v}
         </button>
@@ -75,7 +75,7 @@ export default function AdcExperimentsPage() {
       key: 'project_code',
       width: 120,
       render: (v: string) => (
-        <span className="text-[13px] font-mono text-slate-600">{v}</span>
+        <span className="text-[13px] text-slate-600">{v}</span>
       ),
     },
     {

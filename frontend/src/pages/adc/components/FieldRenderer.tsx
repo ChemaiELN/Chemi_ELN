@@ -1069,7 +1069,7 @@ function BufferGroupField({ value, onChange, disabled, contextData }: { value: u
                         size="small" value={buf.buffer_id} disabled={disabled}
                         placeholder="Click Generate"
                         readOnly
-                        className="flex-1 font-mono"
+                        className="flex-1  "
                         style={{ background: '#f8fafc' }}
                       />
                       {!disabled && (
@@ -1368,7 +1368,7 @@ export default function FieldRenderer({
   // Read-only auto/carried IDs
   if (type === 'auto_id' || type === 'carried_id') {
     return (
-      <span className="font-mono text-sm text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
+      <span className="  text-sm text-indigo-700 bg-indigo-50 px-2 py-0.5 rounded">
         {(value as string) || <span className="text-slate-300 italic text-xs">auto-assigned</span>}
       </span>
     )
@@ -1377,7 +1377,7 @@ export default function FieldRenderer({
   // Computed formula display
   if (type === 'formula') {
     return (
-      <span className="font-mono text-sm text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
+      <span className="  text-sm text-slate-600 bg-slate-50 px-2 py-0.5 rounded border border-slate-200">
         {(value as string | number) ?? <span className="text-slate-300 italic text-xs">calculated</span>}
         {unit && <span className="text-slate-400 ml-1 text-xs">{unit}</span>}
       </span>

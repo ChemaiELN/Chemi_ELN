@@ -7,7 +7,7 @@ export const glassModalStyles = {
     background: 'rgba(109, 40, 217, 0.10)',
   },
   content: {
-    background: 'rgba(255, 255, 255, 0.78)',
+    background: '#FEFEFA',
     backdropFilter: 'blur(28px)',
     WebkitBackdropFilter: 'blur(28px)',
     border: '1px solid rgba(255, 255, 255, 0.65)',

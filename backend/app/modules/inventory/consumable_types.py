@@ -83,7 +83,9 @@ def toggle_consumable_type(
     row.is_active = not row.is_active
     db.commit()
     db.refresh(row)
-    return row
+    out = ConsumableTypeOut.model_validate(row)
+    out.message = f"{row.name} {'activated' if row.is_active else 'deactivated'}."
+    return out
 
 
 @router.delete("/{type_id}", status_code=204)

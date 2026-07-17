@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react'
+import React, { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Table, Button, Input, Select, Modal, Form,
   InputNumber, DatePicker, message, Space, Tooltip,
@@ -7,12 +7,21 @@ import { StatusTag } from '../../components/ui/StatusTag'
 import dayjs from 'dayjs'
 import type { ColumnsType } from 'antd/es/table'
 import { Plus, CheckCircle2, XCircle, PackageCheck, Search, SignalLow, SignalMedium, SignalHigh, Signal } from 'lucide-react'
-import { stockRequestApi, materialApi, type StockRequest, type Material } from '../../api/inventory'
+import { stockRequestApi, materialApi, uomApi, dashboardApi, type StockRequest, type Material, type UomUnit } from '../../api/inventory'
+import { userApi, type UserSummary } from '../../api/adc'
 import { glassModalProps } from '../../utils/modalStyles'
+import { useAppSelector } from '../../store'
+import { selectUser } from '../../store/authSlice'
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: 'blue', APPROVED: 'cyan', FULFILLED: 'green', REJECTED: 'red', CANCELLED: 'default',
 }
+
+// Two-stage approval, mirrored from the backend gate in stock_requests.py:
+// HOD/TL approve or reject a PENDING request; Store Incharge then rejects,
+// cancels, or fulfills an APPROVED one. Nobody else sees action buttons.
+const APPROVER_ROLES = ['HOD', 'TL']
+const STORE_INCHARGE_ROLE = 'STORE_INCHARGE'
 const CRIT_ICON: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
   LOW:      { icon: <SignalLow  size={20} />, color: '#22c55e', bg: '#f0fdf4' },
   MEDIUM:   { icon: <SignalMedium size={20} />, color: '#f59e0b', bg: '#fffbeb' },
@@ -21,6 +30,10 @@ const CRIT_ICON: Record<string, { icon: React.ReactNode; color: string; bg: stri
 }
 
 export default function StockRequestsPage() {
+  const user = useAppSelector(selectUser)
+  const isApprover = APPROVER_ROLES.includes(user?.role_code ?? '')
+  const isStoreIncharge = user?.role_code === STORE_INCHARGE_ROLE
+
   const [requests, setRequests] = useState<StockRequest[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(false)
@@ -31,6 +44,29 @@ export default function StockRequestsPage() {
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
   const [remarkForm] = Form.useForm()
+
+  // Server-side search for the Material dropdown in the create modal — the
+  // materials fetched for table-name lookups are capped at 200 (backend max),
+  // so the picker needs its own live search instead of filtering that list.
+  const [materialOptions, setMaterialOptions] = useState<Material[]>([])
+  const [materialSearchLoading, setMaterialSearchLoading] = useState(false)
+  const materialSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Server-side search for the "Requested By" dropdown — same live-search
+  // pattern as Material, backed by the shared user-lookup endpoint.
+  const [userOptions, setUserOptions] = useState<UserSummary[]>([])
+  const [userSearchLoading, setUserSearchLoading] = useState(false)
+  const userSearchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Unit dropdown — sourced from the UOM master's "Mass" dimension.
+  const [unitOptions, setUnitOptions] = useState<UomUnit[]>([])
+
+  // Available-qty hint under Qty Required — sums qty_available across
+  // batches for the selected material.
+  const [availableQty, setAvailableQty] = useState<{ qty: number; batchCount: number } | null>(null)
+  const [availableQtyLoading, setAvailableQtyLoading] = useState(false)
+  const selectedMaterialId = Form.useWatch('material_id', form)
+  const qtyRequiredValue = Form.useWatch('qty_required', form)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -56,7 +92,53 @@ export default function StockRequestsPage() {
   }, [search, materials])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { materialApi.list({ active_only: true }).then(setMaterials) }, [])
+  useEffect(() => { materialApi.list({ active_only: true, limit: 200 }).then(setMaterials) }, [])
+  useEffect(() => {
+    uomApi.get('mass').then(dim => setUnitOptions(dim.units.filter(u => u.is_active)))
+  }, [])
+
+  useEffect(() => {
+    if (!selectedMaterialId) { setAvailableQty(null); return }
+    setAvailableQtyLoading(true)
+    dashboardApi.availableStock({ material_id: selectedMaterialId })
+      .then(rows => {
+        const row = rows[0]
+        setAvailableQty(row ? { qty: row.total_qty_available, batchCount: row.batch_count } : { qty: 0, batchCount: 0 })
+      })
+      .finally(() => setAvailableQtyLoading(false))
+  }, [selectedMaterialId])
+
+  const searchMaterials = useCallback((term: string) => {
+    if (materialSearchTimer.current) clearTimeout(materialSearchTimer.current)
+    materialSearchTimer.current = setTimeout(async () => {
+      setMaterialSearchLoading(true)
+      try {
+        const items = await materialApi.list({ active_only: true, search: term || undefined, limit: 50 })
+        setMaterialOptions(items)
+      } finally {
+        setMaterialSearchLoading(false)
+      }
+    }, 300)
+  }, [])
+
+  const searchUsers = useCallback((term: string) => {
+    if (userSearchTimer.current) clearTimeout(userSearchTimer.current)
+    userSearchTimer.current = setTimeout(async () => {
+      setUserSearchLoading(true)
+      try {
+        const { items } = await userApi.list({ search: term || undefined, limit: 30 })
+        setUserOptions(items)
+      } finally {
+        setUserSearchLoading(false)
+      }
+    }, 300)
+  }, [])
+
+  const openCreate = () => {
+    setCreateOpen(true)
+    searchMaterials('')
+    searchUsers('')
+  }
 
   const handleCreate = async (values: Record<string, unknown>) => {
     setSaving(true)
@@ -152,7 +234,7 @@ export default function StockRequestsPage() {
       align: 'right',
       render: (_, r) => (
         <Space size={4}>
-          {r.status === 'PENDING' && (
+          {r.status === 'PENDING' && isApprover && (
             <>
               <Tooltip title="Approve">
                 <Button type="text" size="small" icon={<CheckCircle2 size={13} />} onClick={() => startAction(r.id, 'approve')} />
@@ -162,15 +244,18 @@ export default function StockRequestsPage() {
               </Tooltip>
             </>
           )}
-          {r.status === 'APPROVED' && (
-            <Tooltip title="Fulfill">
-              <Button type="text" size="small" icon={<PackageCheck size={13} />} onClick={() => startAction(r.id, 'fulfill')} />
-            </Tooltip>
-          )}
-          {r.status !== 'CANCELLED' && r.status !== 'REJECTED' && r.status !== 'FULFILLED' && (
-            <Tooltip title="Cancel">
-              <Button type="text" size="small" danger onClick={() => startAction(r.id, 'cancel')}>✕</Button>
-            </Tooltip>
+          {r.status === 'APPROVED' && isStoreIncharge && (
+            <>
+              <Tooltip title="Fulfill">
+                <Button type="text" size="small" icon={<PackageCheck size={13} />} onClick={() => startAction(r.id, 'fulfill')} />
+              </Tooltip>
+              <Tooltip title="Reject">
+                <Button type="text" size="small" danger icon={<XCircle size={13} />} onClick={() => startAction(r.id, 'reject')} />
+              </Tooltip>
+              <Tooltip title="Cancel">
+                <Button type="text" size="small" danger onClick={() => startAction(r.id, 'cancel')}>✕</Button>
+              </Tooltip>
+            </>
           )}
         </Space>
       ),
@@ -188,7 +273,7 @@ export default function StockRequestsPage() {
           style={{ width: 300 }}
           allowClear
         />
-        <Button type="primary" icon={<Plus size={14} />} onClick={() => setCreateOpen(true)} className="rounded-md font-medium">
+        <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">
           New Request
         </Button>
       </div>
@@ -201,7 +286,7 @@ export default function StockRequestsPage() {
           size="middle"
           loading={loading}
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} requests` }}
+          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} requests` }}
         />
       </div>
 
@@ -219,14 +304,42 @@ export default function StockRequestsPage() {
       >
         <Form form={form} layout="vertical" onFinish={handleCreate}>
           <Form.Item name="material_id" label="Material" rules={[{ required: true }]}>
-            <Select showSearch optionFilterProp="label" options={materials.map(m => ({ value: m.id, label: m.name }))} />
+            <Select
+              showSearch
+              filterOption={false}
+              onSearch={searchMaterials}
+              loading={materialSearchLoading}
+              notFoundContent={materialSearchLoading ? 'Searching…' : 'No materials found'}
+              options={materialOptions.map(m => ({ value: m.id, label: `${m.name} (${m.code})` }))}
+              placeholder="Search materials by name or code…"
+            />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-3">
-            <Form.Item name="qty_required" label="Qty Required" rules={[{ required: true }]}>
+            <Form.Item
+              name="qty_required"
+              label="Qty Required"
+              rules={[{ required: true }]}
+              extra={
+                qtyRequiredValue && selectedMaterialId ? (
+                  availableQtyLoading ? (
+                    <span className="text-xs text-slate-400">Checking available stock…</span>
+                  ) : availableQty && availableQty.qty > 0 ? (
+                    <span className="text-xs text-amber-600">
+                      Qty required is already present in stock — {availableQty.qty} available across {availableQty.batchCount} batch{availableQty.batchCount !== 1 ? 'es' : ''}.
+                    </span>
+                  ) : null
+                ) : null
+              }
+            >
               <InputNumber style={{ width: '100%' }} min={0.001} />
             </Form.Item>
             <Form.Item name="unit" label="Unit" initialValue="g">
-              <Input />
+              <Select
+                showSearch
+                optionFilterProp="label"
+                options={unitOptions.map(u => ({ value: u.symbol, label: `${u.name} (${u.symbol})` }))}
+                placeholder="Select unit"
+              />
             </Form.Item>
             <Form.Item name="criticality" label="Criticality" initialValue="MEDIUM">
               <Select options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map(s => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))} />
@@ -235,7 +348,16 @@ export default function StockRequestsPage() {
               <DatePicker style={{ width: '100%' }} />
             </Form.Item>
             <Form.Item name="requested_by" label="Requested By">
-              <Input />
+              <Select
+                showSearch
+                filterOption={false}
+                onSearch={searchUsers}
+                loading={userSearchLoading}
+                notFoundContent={userSearchLoading ? 'Searching…' : 'No users found'}
+                options={userOptions.map(u => ({ value: u.username, label: `${u.username}${u.emp_no ? ` (${u.emp_no})` : ''}` }))}
+                placeholder="Search users…"
+                allowClear
+              />
             </Form.Item>
           </div>
           <Form.Item name="purpose" label="Purpose">

@@ -86,7 +86,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
         <Button type="primary" icon={<Plus size={14} />} disabled={!itemId} onClick={openAdd}>Add</Button>
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 15 }} locale={{ emptyText: itemId ? 'No usage logs' : 'Select an item first' }} />
+        <Table dataSource={rows} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10 }} locale={{ emptyText: itemId ? 'No usage logs' : 'Select an item first' }} />
       </div>
 
       <Modal title={`Add ${isEquipment ? 'Equipment' : 'Instrument'} Usage Log`} open={addOpen} closable={false} onCancel={() => setAddOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>
@@ -144,7 +144,7 @@ function TabularViewTab({ targetKind, itemId }: { targetKind: Kind; itemId: numb
         <DatePicker.RangePicker value={range} onChange={v => v && v[0] && v[1] && setRange([v[0], v[1]])} />
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={rows} columns={columns} rowKey={r => `${r.status}-${r.started_at}`} size="small" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20 }} locale={{ emptyText: itemId ? 'No history' : 'Select an item first' }} />
+        <Table dataSource={rows} columns={columns} rowKey={r => `${r.status}-${r.started_at}`} size="small" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10 }} locale={{ emptyText: itemId ? 'No history' : 'Select an item first' }} />
       </div>
     </div>
   )

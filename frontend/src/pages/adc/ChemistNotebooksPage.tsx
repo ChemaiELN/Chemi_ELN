@@ -106,7 +106,7 @@ function ExperimentsModal({
                   <FlaskConical size={13} className="text-indigo-500" />
                 </div>
                 <div className="text-left min-w-0">
-                  <p className="font-mono text-[12px] font-semibold text-slate-700 leading-tight">{exp.full_code}</p>
+                  <p className=" text-[12px] font-semibold text-slate-700 leading-tight">{exp.full_code}</p>
                   <p className="text-[12px] text-slate-500 truncate leading-tight mt-0.5">{exp.title}</p>
                 </div>
               </div>

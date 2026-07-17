@@ -115,7 +115,9 @@ def toggle_dimension(
     )
     db.commit()
     db.refresh(row)
-    return row
+    out = UomDimensionOut.model_validate(row)
+    out.message = f"{row.display_name} {'activated' if row.is_active else 'deactivated'}."
+    return out
 
 
 @router.post("/{dimension_id}/units", response_model=UomUnitOut, status_code=201)
@@ -188,4 +190,6 @@ def toggle_unit(
     )
     db.commit()
     db.refresh(row)
-    return row
+    out = UomUnitOut.model_validate(row)
+    out.message = f"{row.name} {'activated' if row.is_active else 'deactivated'}."
+    return out

@@ -56,7 +56,7 @@ export default function AdcNotebookPage() {
     {
       title: '#', key: 'idx', width: 52,
       render: (_: unknown, __: TemplateSection, i: number) => (
-        <span className="text-[13px] text-slate-400 font-mono">{i + 1}</span>
+        <span className="text-[13px] text-slate-400 ">{i + 1}</span>
       ),
     },
     {
@@ -89,7 +89,7 @@ export default function AdcNotebookPage() {
       render: (_: unknown, row: TemplateSection) => {
         const exp = expBySection.get(row.key)
         return exp
-          ? <span className="font-mono text-[12px] text-slate-600">{exp.full_code}</span>
+          ? <span className=" text-[12px] text-slate-600">{exp.full_code}</span>
           : <span className="text-slate-300 text-[13px]">—</span>
       },
     },
@@ -136,7 +136,7 @@ export default function AdcNotebookPage() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-xl font-bold text-slate-800">{nb.title}</h1>
-              <span className="font-mono text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{nb.code}</span>
+              <span className=" text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">{nb.code}</span>
               <Tag color={STATUS_COLOR[nb.status] ?? 'default'} className="text-xs">{nb.status}</Tag>
             </div>
             <p className="text-xs text-slate-400">{sections.length} section{sections.length !== 1 ? 's' : ''}</p>

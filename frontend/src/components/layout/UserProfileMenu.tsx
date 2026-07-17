@@ -11,7 +11,7 @@ import { glassModalProps } from '../../utils/modalStyles'
 const COLLAPSED_W = 52
 const EXPANDED_W = 240
 const HEIGHT = 52
-const DEFAULT_TOP = 15
+const DEFAULT_TOP = 0
 const EDGE_MARGIN = 8
 const STORAGE_KEY = 'userProfileMenu.topPos'
 

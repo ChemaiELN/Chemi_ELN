@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import {
   Table, Button, Input, Select, Modal, Form, InputNumber,
   message, Space, Tooltip, Popconfirm, Upload,
@@ -8,11 +8,13 @@ import type { ColumnsType } from 'antd/es/table'
 import { Plus, Pencil, Trash2, Search, Link2, Upload as UploadIcon, Download, X } from 'lucide-react'
 import type { UploadFile } from 'antd/es/upload'
 import {
-  mappingApi, materialApi, manufacturerApi,
+  mappingApi, materialApi, manufacturerApi, masterTemplateApi,
   type Mapping, type Material, type Manufacturer,
 } from '../../api/inventory'
-import { apiDownloadBlob } from '../../api/client'
+import { apiDownloadBlob, ApiError } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
+
+const MAPPINGS_TEMPLATE_KEY = 'mappings'
 
 export default function MappingsPage() {
   const [rows, setRows] = useState<Mapping[]>([])
@@ -42,6 +44,37 @@ export default function MappingsPage() {
   const [dsdFile, setDsdFile] = useState<UploadFile | null>(null)
   const [form] = Form.useForm()
 
+  // Dropdown-specific search results for the New/Edit Mapping modal — kept
+  // separate from `materials`/`manufacturers` (used for table name lookups)
+  // since the modal needs debounced server-side search across the FULL
+  // material/manufacturer catalogue, not just the first page loaded for the table.
+  const [materialOptions, setMaterialOptions] = useState<Material[]>([])
+  const [manufacturerOptions, setManufacturerOptions] = useState<Manufacturer[]>([])
+  const [materialSearching, setMaterialSearching] = useState(false)
+  const [manufacturerSearching, setManufacturerSearching] = useState(false)
+  const materialSearchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  const manufacturerSearchTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+
+  const searchMaterials = (q: string) => {
+    if (materialSearchTimer.current) clearTimeout(materialSearchTimer.current)
+    materialSearchTimer.current = setTimeout(async () => {
+      setMaterialSearching(true)
+      try {
+        setMaterialOptions(q ? await materialApi.list({ search: q, limit: 20 }) : materials)
+      } finally { setMaterialSearching(false) }
+    }, 300)
+  }
+
+  const searchManufacturers = (q: string) => {
+    if (manufacturerSearchTimer.current) clearTimeout(manufacturerSearchTimer.current)
+    manufacturerSearchTimer.current = setTimeout(async () => {
+      setManufacturerSearching(true)
+      try {
+        setManufacturerOptions(q ? await manufacturerApi.list({ search: q, limit: 20 }) : manufacturers)
+      } finally { setManufacturerSearching(false) }
+    }, 300)
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
@@ -51,8 +84,8 @@ export default function MappingsPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => {
-    materialApi.list({}).then(setMaterials)
-    manufacturerApi.list({}).then(setManufacturers)
+    materialApi.list({}).then(items => { setMaterials(items); setMaterialOptions(items) })
+    manufacturerApi.list({}).then(items => { setManufacturers(items); setManufacturerOptions(items) })
   }, [])
 
   const filtered = search
@@ -69,7 +102,10 @@ export default function MappingsPage() {
       })
     : rows
 
-  const openCreate = () => { setEditing(null); setDsdFile(null); form.resetFields(); setModalOpen(true) }
+  const openCreate = () => {
+    setEditing(null); setDsdFile(null); form.resetFields(); setModalOpen(true)
+    setMaterialOptions(materials); setManufacturerOptions(manufacturers)
+  }
   const openEdit = (r: Mapping) => {
     setEditing(r)
     setDsdFile(null)
@@ -82,6 +118,17 @@ export default function MappingsPage() {
       min_order_qty: r.min_order_qty,
     })
     setModalOpen(true)
+    // The dropdown is disabled while editing, but still needs its current
+    // selection present as an option to render the label — fetch it directly
+    // in case it falls outside the default first page loaded for the table.
+    setMaterialOptions(materials)
+    if (!materials.some(m => m.id === r.material_id)) {
+      materialApi.get(r.material_id).then(m => setMaterialOptions(prev => [m, ...prev]))
+    }
+    setManufacturerOptions(manufacturers)
+    if (!manufacturers.some(m => m.id === r.manufacturer_id)) {
+      manufacturerApi.get(r.manufacturer_id).then(m => setManufacturerOptions(prev => [m, ...prev]))
+    }
   }
 
   const handleSave = async (values: Record<string, unknown>) => {
@@ -114,62 +161,106 @@ export default function MappingsPage() {
     catch (e: unknown) { message.error((e as Error).message) }
   }
 
+  const handleBulkUpload = async (file: File) => {
+    try {
+      const res = await mappingApi.upload(file)
+      if (res.errors.length) {
+        Modal.warning({
+          title: <span className="text-slate-800">{res.created} created, {res.skipped} skipped</span>,
+          width: 560,
+          centered: true,
+          okText: 'OK',
+          okButtonProps: { style: { background: '#c084fc', borderColor: '#c084fc' } },
+          content: (
+            <div className="max-h-72 overflow-y-auto mt-2 pr-1">
+              <ul className="list-disc pl-4 space-y-1">
+                {res.errors.map((err, i) => (
+                  <li key={i} className="text-[13px] text-slate-800">{err}</li>
+                ))}
+              </ul>
+            </div>
+          ),
+          ...glassModalProps,
+        })
+      } else {
+        message.success(`${res.created} mapping(s) created`)
+      }
+      load()
+    } catch (e: unknown) { message.error(e instanceof ApiError ? e.detail : 'Upload failed.') }
+    return false
+  }
+
   const matName = (id: number) => materials.find(m => m.id === id)?.name ?? `#${id}`
   const mfrName = (id: number) => manufacturers.find(m => m.id === id)?.name ?? `#${id}`
+
+  const COL_WIDTH = 150
+
+  const strSorter = (get: (r: Mapping) => string) => (a: Mapping, b: Mapping) => get(a).localeCompare(get(b))
+  const numSorter = (key: 'lead_time_days' | 'min_order_qty') => (a: Mapping, b: Mapping) =>
+    (a[key] ?? -Infinity) - (b[key] ?? -Infinity)
 
   const columns: ColumnsType<Mapping> = [
     {
       title: 'Material',
       dataIndex: 'material_id',
       ellipsis: true,
-      render: (v) => <span className="text-[13px] text-slate-800 font-medium">{matName(v)}</span>,
+      width: COL_WIDTH,
+      sorter: strSorter(r => matName(r.material_id)),
+      render: (v) => <span className="text-[13px] text-slate-800">{matName(v)}</span>,
     },
     {
       title: 'Manufacturer',
       dataIndex: 'manufacturer_id',
       ellipsis: true,
-      render: (v) => <span className="text-[13px] text-slate-700">{mfrName(v)}</span>,
+      width: COL_WIDTH,
+      sorter: strSorter(r => mfrName(r.manufacturer_id)),
+      render: (v) => <span className="text-[13px] text-slate-800">{mfrName(v)}</span>,
     },
     {
       title: 'Catalogue No',
       dataIndex: 'catalogue_no',
       ellipsis: true,
-      width: 150,
+      width: COL_WIDTH,
+      sorter: strSorter(r => r.catalogue_no ?? ''),
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Grade',
       dataIndex: 'technical_grade',
       ellipsis: true,
-      width: 120,
+      width: COL_WIDTH,
+      sorter: strSorter(r => r.technical_grade ?? ''),
       render: (v: string | null) => v
-        ? <StatusTag color="blue">{v}</StatusTag>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Lead Time',
       dataIndex: 'lead_time_days',
       ellipsis: true,
-      width: 110,
+      width: COL_WIDTH,
+      sorter: numSorter('lead_time_days'),
       render: (v: number | null) => v != null
-        ? <span className="text-[13px] text-slate-600">{v} days</span>
+        ? <span className="text-[13px] text-slate-800">{v} days</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'Min Order Qty',
       dataIndex: 'min_order_qty',
       ellipsis: true,
-      width: 120,
+      width: COL_WIDTH,
+      sorter: numSorter('min_order_qty'),
       render: (v: number | null) => v != null
-        ? <span className="text-[13px] text-slate-600">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-300">—</span>,
     },
     {
       title: 'SDS File',
       dataIndex: 'dsd_file_path',
-      width: 110,
+      width: COL_WIDTH,
+      align: 'center',
       render: (v: string | null, r) => v ? (
         <Space size={4}>
           <Tooltip title="Download SDS">
@@ -186,8 +277,8 @@ export default function MappingsPage() {
     {
       title: '',
       key: 'actions',
-      width: 80,
-      align: 'right',
+      width: COL_WIDTH,
+      align: 'center',
       render: (_, r) => (
         <Space size={4}>
           <Tooltip title="Edit">
@@ -217,6 +308,12 @@ export default function MappingsPage() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">
           New Mapping
         </Button>
+        <Button icon={<Download size={14} />} onClick={() => masterTemplateApi.download(MAPPINGS_TEMPLATE_KEY)}>
+          Download Template
+        </Button>
+        <Upload beforeUpload={handleBulkUpload} showUploadList={false} accept=".xlsx">
+          <Button icon={<UploadIcon size={14} />}>Bulk Upload</Button>
+        </Upload>
       </div>
 
       <div className="glass-card rounded-lg overflow-hidden">
@@ -227,7 +324,7 @@ export default function MappingsPage() {
           size="middle"
           loading={loading}
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} mappings` }}
+          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} mappings` }}
         />
       </div>
 
@@ -247,19 +344,25 @@ export default function MappingsPage() {
           <Form.Item name="material_id" label="Material" rules={[{ required: true }]}>
             <Select
               showSearch
-              optionFilterProp="label"
+              filterOption={false}
+              onSearch={searchMaterials}
+              loading={materialSearching}
+              notFoundContent={materialSearching ? 'Searching…' : 'No materials found'}
               placeholder="Select material"
               disabled={!!editing}
-              options={materials.map(m => ({ value: m.id, label: m.name }))}
+              options={materialOptions.map(m => ({ value: m.id, label: m.name }))}
             />
           </Form.Item>
           <Form.Item name="manufacturer_id" label="Manufacturer" rules={[{ required: true }]}>
             <Select
               showSearch
-              optionFilterProp="label"
+              filterOption={false}
+              onSearch={searchManufacturers}
+              loading={manufacturerSearching}
+              notFoundContent={manufacturerSearching ? 'Searching…' : 'No manufacturers found'}
               placeholder="Select manufacturer"
               disabled={!!editing}
-              options={manufacturers.map(m => ({ value: m.id, label: m.name }))}
+              options={manufacturerOptions.map(m => ({ value: m.id, label: m.name }))}
             />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-3">

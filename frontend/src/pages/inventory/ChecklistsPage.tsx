@@ -77,7 +77,7 @@ export default function ChecklistsPage() {
   const columns: ColumnsType<Checklist> = [
     { title: 'Sl No', ellipsis: true, key: 'sl', width: 60, render: (_, __, i) => <span className="text-[13px] text-slate-500">{i + 1}</span> },
     { title: 'Checklist Name', ellipsis: true, dataIndex: 'name', render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800 font-medium" onClick={() => navigate(`/inventory/checklists/${r.id}`)}>{v}</a> },
-    { title: 'Version', ellipsis: true, dataIndex: 'version', width: 80, render: v => <span className="font-mono text-[13px] text-slate-600">{v}</span> },
+    { title: 'Version', ellipsis: true, dataIndex: 'version', width: 80, render: v => <span className="  text-[13px] text-slate-600">{v}</span> },
     { title: 'Checklist Type', ellipsis: true, dataIndex: 'checklist_type', width: 150, render: v => <span className="text-[13px] text-slate-700">{label(v)}</span> },
     { title: 'Log Type', ellipsis: true, dataIndex: 'log_type', width: 110, render: v => <span className="text-[13px] text-slate-600">{label(v)}</span> },
     { title: 'Target', ellipsis: true, dataIndex: 'target_kind', width: 110, render: v => <span className="text-[13px] text-slate-600">{label(v)}</span> },
@@ -106,7 +106,7 @@ export default function ChecklistsPage() {
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">Add Checklist</Button>
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
-        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 20, showSizeChanger: false, showTotal: t => `${t} items` }} />
+        <Table dataSource={items} columns={columns} rowKey="id" size="middle" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} items` }} />
       </div>
 
       <Modal title={editing ? 'Edit Checklist' : 'Add Checklist'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={520} centered destroyOnHidden {...glassModalProps}>

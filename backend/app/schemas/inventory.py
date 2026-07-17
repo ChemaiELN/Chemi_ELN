@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, field_validator, model_validator
 
 
 # ── Shared ────────────────────────────────────────────────────────────────────
@@ -42,6 +42,7 @@ class StorageConditionOut(_OrmBase):
     description: Optional[str] = None
     sort_order: int
     is_active: bool
+    message: Optional[str] = None
 
 
 # ── Consumable Types (read-only in B2, seeded) ────────────────────────────────
@@ -51,14 +52,15 @@ class ConsumableTypeOut(_OrmBase):
     description: Optional[str] = None
     sort_order: int
     is_active: bool
+    message: Optional[str] = None
 
 
 # ── Materials ─────────────────────────────────────────────────────────────────
 class MaterialCreate(BaseModel):
     code: Optional[str] = None  # ignored — backend always auto-generates the code
     name: str
-    material_type: Optional[str] = None
-    cas_no: Optional[str] = None
+    material_type: str
+    cas_no: str
     molecular_formula: Optional[str] = None
     mol_weight: Optional[Decimal] = None
     storage_condition: Optional[str] = None
@@ -66,6 +68,13 @@ class MaterialCreate(BaseModel):
     description: Optional[str] = None
     department_id: Optional[UUID] = None
     consumable_type_id: Optional[int] = None
+
+    @field_validator("material_type", "cas_no")
+    @classmethod
+    def _required_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("This field is required.")
+        return v.strip()
 
 
 class MaterialUpdate(BaseModel):
@@ -79,6 +88,13 @@ class MaterialUpdate(BaseModel):
     description: Optional[str] = None
     department_id: Optional[UUID] = None
     consumable_type_id: Optional[int] = None
+
+    @field_validator("material_type", "cas_no")
+    @classmethod
+    def _not_blank_if_provided(cls, v: Optional[str]) -> Optional[str]:
+        if v is not None and not v.strip():
+            raise ValueError("This field cannot be blank.")
+        return v.strip() if v is not None else v
 
 
 class ChemicalPropsOut(_OrmBase):
@@ -139,11 +155,24 @@ class MaterialOut(_OrmBase):
     updated_at: datetime.datetime
     chemical_props: Optional[ChemicalPropsOut] = None
     formulation_props: Optional[FormulationPropsOut] = None
+    message: Optional[str] = None
 
 
 class MaterialListOut(BaseModel):
     items: list[MaterialOut]
     total: int
+
+
+class MaterialUploadResult(BaseModel):
+    created: int
+    skipped: int
+    errors: list[str]
+
+
+class ManufacturerUploadResult(BaseModel):
+    created: int
+    skipped: int
+    errors: list[str]
 
 
 # ── Manufacturers ─────────────────────────────────────────────────────────────
@@ -181,6 +210,12 @@ class ManufacturerOut(_OrmBase):
     is_active: bool
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    message: Optional[str] = None
+
+
+class ManufacturerListOut(BaseModel):
+    items: list[ManufacturerOut]
+    total: int
 
 
 # ── Mappings ──────────────────────────────────────────────────────────────────
@@ -213,6 +248,12 @@ class MappingOut(_OrmBase):
     updated_at: datetime.datetime
 
 
+class MappingUploadResult(BaseModel):
+    created: int
+    skipped: int
+    errors: list[str]
+
+
 # ── Equipment / Instrument / Column Types (shared shape) ──────────────────────
 class TypeCreate(BaseModel):
     code: str
@@ -233,6 +274,7 @@ class TypeOut(_OrmBase):
     description: Optional[str] = None
     is_active: bool
     created_at: datetime.datetime
+    message: Optional[str] = None
 
 
 class ColumnTypeCreate(BaseModel):
@@ -263,6 +305,7 @@ class ColumnTypeOut(_OrmBase):
     pore_size_angstrom: Optional[Decimal] = None
     is_active: bool
     created_at: datetime.datetime
+    message: Optional[str] = None
 
 
 # ── Equipment Catalogue ───────────────────────────────────────────────────────
@@ -517,6 +560,7 @@ class MeasurementMasterOut(_OrmBase):
     uom: Optional[str] = None
     is_active: bool
     created_at: datetime.datetime
+    message: Optional[str] = None
 
 
 # ── Log Mapping (Phase 3) ─────────────────────────────────────────────────────
@@ -686,6 +730,7 @@ class SparePartOut(_OrmBase):
     description: Optional[str] = None
     is_active: bool
     created_at: datetime.datetime
+    message: Optional[str] = None
 
 
 # ── Work Orders (Phase 5) ─────────────────────────────────────────────────────
@@ -904,9 +949,10 @@ class BatchPackOut(_OrmBase):
 
 # ── Batches ───────────────────────────────────────────────────────────────────
 class BatchCreate(BaseModel):
-    batch_no: Optional[str] = None  # ignored — backend always auto-generates the batch number
+    batch_no: str
     material_id: int
     manufacturer_id: Optional[int] = None
+    stock_request_id: Optional[int] = None  # if set, the linked request is atomically marked FULFILLED
     qty_received: Decimal
     unit: str = "g"
     measuring_unit: Optional[str] = None
@@ -929,6 +975,13 @@ class BatchCreate(BaseModel):
     received_by: Optional[str] = None
     received_at: Optional[datetime.datetime] = None
     remarks: Optional[str] = None
+
+    @field_validator("batch_no")
+    @classmethod
+    def _batch_no_required_not_blank(cls, v: str) -> str:
+        if not v or not v.strip():
+            raise ValueError("This field is required.")
+        return v.strip()
 
 
 class BatchUpdate(BaseModel):
@@ -960,6 +1013,7 @@ class BatchOut(_OrmBase):
     batch_no: str
     material_id: int
     manufacturer_id: Optional[int] = None
+    stock_request_id: Optional[int] = None
     qty_received: Decimal
     qty_available: Decimal
     unit: str
@@ -1119,6 +1173,7 @@ class LookupOut(_OrmBase):
     created_by: Optional[str] = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+    message: Optional[str] = None
 
 
 # ── UOM Master ────────────────────────────────────────────────────────────────
@@ -1153,6 +1208,7 @@ class UomUnitOut(_OrmBase):
     name: str
     sort_order: int
     is_active: bool
+    message: Optional[str] = None
 
 
 class UomDimensionOut(_OrmBase):
@@ -1163,6 +1219,7 @@ class UomDimensionOut(_OrmBase):
     sort_order: int
     is_active: bool
     units: list[UomUnitOut] = []
+    message: Optional[str] = None
 
 
 # ── Consumable Types (full CRUD) ───────────────────────────────────────────────
@@ -1208,20 +1265,26 @@ class TestMethodOut(_OrmBase):
     id: int
     test_name_id: int
     method_name: str
+    is_active: bool = True
+    message: Optional[str] = None
 
 
 class TestNameOut(_OrmBase):
     id: int
     test_type_id: int
     name: str
+    is_active: bool = True
     methods: list[TestMethodOut] = []
+    message: Optional[str] = None
 
 
 class TestTypeOut(_OrmBase):
     id: int
     type_key: str
     name: str
+    is_active: bool = True
     names: list[TestNameOut] = []
+    message: Optional[str] = None
 
 
 # ── Dashboard ─────────────────────────────────────────────────────────────────

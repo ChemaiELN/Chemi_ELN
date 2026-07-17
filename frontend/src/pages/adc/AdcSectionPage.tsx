@@ -392,7 +392,7 @@ export default function AdcSectionPage() {
             <div className="flex items-center gap-2 mb-1">
               {exp && (
                 <>
-                  <span className="font-mono text-xs text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">{exp.full_code}</span>
+                  <span className=" text-xs text-indigo-700 bg-indigo-50 px-1.5 py-0.5 rounded">{exp.full_code}</span>
                   <Tag color={STATUS_COLOR[exp.status]}>{exp.status}</Tag>
                 </>
               )}

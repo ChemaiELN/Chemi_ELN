@@ -90,6 +90,24 @@ def make_type_router(
         row.is_active = False
         db.commit()
         db.refresh(row)
-        return row
+        out = schema_out.model_validate(row)
+        out.message = f"{getattr(row, 'name', row)} deactivated."
+        return out
+
+    @router.patch("/{item_id}/toggle", response_model=schema_out)
+    def toggle(
+        item_id: int,
+        db: Session = Depends(get_db),
+        _: Any = Depends(get_current_user),
+    ):
+        row = db.get(model, item_id)
+        if not row:
+            raise HTTPException(404, "Not found.")
+        row.is_active = not row.is_active
+        db.commit()
+        db.refresh(row)
+        out = schema_out.model_validate(row)
+        out.message = f"{getattr(row, 'name', row)} {'activated' if row.is_active else 'deactivated'}."
+        return out
 
     return router

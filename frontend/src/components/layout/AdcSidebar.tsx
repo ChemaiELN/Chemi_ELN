@@ -5,6 +5,7 @@ import { FolderOpen, LayoutGrid, BookOpen, FlaskConical, FileText } from 'lucide
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import logo from '../../assets/logo.svg'
+import smallLogo from '../../assets/small-logo.png'
 
 // Chemists/Analysts only work within notebooks assigned to them — they get
 // the restricted "My Notebooks" view instead of the full Projects/Notebooks
@@ -65,8 +66,15 @@ export default function AdcSidebar({ collapsed, onItemClick }: AdcSidebarProps) 
       style={{ position: 'relative' }}
     >
       {/* Brand */}
-      <div className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} py-4 border-b border-white/40 shrink-0`}>
-        <img src={logo} alt="Logo" className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'} />
+      <div
+        className={`flex items-center ${collapsed ? 'justify-center px-2' : 'px-4'} border-b border-white/40 shrink-0`}
+        style={{ height: 52, backgroundColor: '#FEFEFA' }}
+      >
+        <img
+          src={collapsed ? smallLogo : logo}
+          alt="Logo"
+          className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'}
+        />
       </div>
 
       {/* Back to modules */}

@@ -26,13 +26,13 @@ export default function InventoryShell() {
   const isMobile = !screens.md
   const isTablet = screens.md && !screens.lg
 
-  const [collapsed, setCollapsed] = useState(false)
+  // Start collapsed; the user expands manually via the edge toggle.
+  const [collapsed, setCollapsed] = useState(true)
   const [drawerOpen, setDrawerOpen] = useState(false)
 
   useEffect(() => {
     if (isTablet) setCollapsed(true)
-    else if (screens.lg) setCollapsed(false)
-  }, [isTablet, screens.lg])
+  }, [isTablet])
 
   useEffect(() => {
     if (!isMobile) setDrawerOpen(false)
@@ -44,12 +44,9 @@ export default function InventoryShell() {
   }
 
   return (
-    <div className="relative min-h-screen flex overflow-hidden">
+    <div className="module-surface relative h-screen flex overflow-hidden">
       {/* Background */}
-      <div className="fixed inset-0 -z-20 bg-gradient-to-br from-violet-100 via-purple-50 to-indigo-100" />
-      <div className="fixed top-[-100px] left-[-100px] -z-10 w-[500px] h-[500px] bg-violet-200/50 rounded-full blur-3xl animate-blob" />
-      <div className="fixed top-10 right-[-80px] -z-10 w-[400px] h-[400px] bg-purple-200/40 rounded-full blur-3xl animate-blob animation-delay-2000" />
-      <div className="fixed bottom-[-80px] left-1/2 -z-10 w-[450px] h-[450px] bg-indigo-200/30 rounded-full blur-3xl animate-blob animation-delay-4000" />
+      <div className="fixed inset-0 -z-20" style={{ backgroundColor: '#f4f4f8' }} />
 
       {/* Desktop/Tablet Sidebar */}
       {!isMobile && (
@@ -78,7 +75,7 @@ export default function InventoryShell() {
             wrapper: { width: 224, boxShadow: '4px 0 24px rgba(139,92,246,0.15)' },
           }}
         >
-          <div className="absolute inset-0 bg-gradient-to-br from-violet-100/90 via-purple-50/80 to-indigo-100/90 backdrop-blur-2xl" />
+          <div className="absolute inset-0 backdrop-blur-2xl" style={{ backgroundColor: '#f4f4f8' }} />
           <div className="relative h-full">
             <Sidebar collapsed={false} onItemClick={() => setDrawerOpen(false)} />
           </div>

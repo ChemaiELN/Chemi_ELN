@@ -72,4 +72,6 @@ def toggle_measurement(
     row.is_active = not row.is_active
     db.commit()
     db.refresh(row)
-    return row
+    out = MeasurementMasterOut.model_validate(row)
+    out.message = f"{row.name} {'activated' if row.is_active else 'deactivated'}."
+    return out

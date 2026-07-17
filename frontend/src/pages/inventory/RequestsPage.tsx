@@ -72,18 +72,18 @@ function PlannedTab({ targetKind, calibrationSource }: { targetKind: Kind; calib
   const columns: ColumnsType<RequestItem> = [
     { title: isEquipment ? 'Equipment Code' : 'Instrument Code', dataIndex: 'equipment_code', ellipsis: true, width: 150, render: v => <span className="  text-[13px] text-slate-700">{v}</span> },
     { title: 'Schedule Type', dataIndex: 'schedule_type', ellipsis: true, width: 120, render: v => <span className="text-[13px] text-slate-600">{String(v).replace(/_/g, ' ')}</span> },
-    { title: 'Due Date', dataIndex: 'due_date', ellipsis: true, width: 110 },
-    { title: 'Planned Date', dataIndex: 'planned_date', ellipsis: true, width: 120, render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Due Date', dataIndex: 'due_date', ellipsis: true, width: 110, render: v => v ? dayjs(v).format('DD/MM/YYYY') : <span className="text-slate-800">NA</span> },
+    { title: 'Planned Date', dataIndex: 'planned_date', ellipsis: true, width: 120, render: v => v ? dayjs(v).format('DD/MM/YYYY') : <span className="text-slate-800">NA</span> },
     ...(isEquipment
-      ? [{ title: 'Tolerance Days', dataIndex: 'tolerance_days', ellipsis: true, width: 120, render: (v: number | null) => v ?? <span className="text-slate-300">—</span> }]
+      ? [{ title: 'Tolerance Days', dataIndex: 'tolerance_days', ellipsis: true, width: 120, render: (v: number | null) => v ?? <span className="text-slate-800">NA</span> }]
       : [
-          { title: 'Alert Limit', dataIndex: 'alert_limit', ellipsis: true, width: 110, render: (v: number | null) => v ?? <span className="text-slate-300">—</span> },
-          { title: 'Deviation Limit', dataIndex: 'deviation_limit', ellipsis: true, width: 120, render: (v: number | null) => v ?? <span className="text-slate-300">—</span> },
+          { title: 'Alert Limit', dataIndex: 'alert_limit', ellipsis: true, width: 110, render: (v: number | null) => v ?? <span className="text-slate-800">NA</span> },
+          { title: 'Deviation Limit', dataIndex: 'deviation_limit', ellipsis: true, width: 120, render: (v: number | null) => v ?? <span className="text-slate-800">NA</span> },
         ]),
     { title: 'No. of Days', dataIndex: 'days_label', ellipsis: true, width: 140 },
-    { title: 'Current Status', dataIndex: 'current_status', ellipsis: true, width: 150, render: v => v ? <StatusTag color="default">{String(v).replace(/_/g, ' ')}</StatusTag> : '—' },
+    { title: 'Current Status', dataIndex: 'current_status', ellipsis: true, width: 150, render: v => v ? <StatusTag color="default">{String(v).replace(/_/g, ' ')}</StatusTag> : 'NA' },
     {
-      title: 'Action', key: 'a', width: 140, render: (_, r) => (
+      title: 'Actions', key: 'a', width: 140, render: (_, r) => (
         <div className="flex gap-2">
           <Button size="small" onClick={() => { setPlanTarget(r); form.resetFields() }}>Plan</Button>
           <Button size="small" type="primary" onClick={() => confirmRaise(r)}>Raise</Button>
@@ -103,7 +103,7 @@ function PlannedTab({ targetKind, calibrationSource }: { targetKind: Kind; calib
 
       <Modal title="Planned Request" open={!!planTarget} closable={false} onCancel={() => setPlanTarget(null)} onOk={() => form.submit()} confirmLoading={saving} width={420} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={savePlan}>
-          <Form.Item name="planned_date" label="Planned Date" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="planned_date" label="Planned Date" rules={[{ required: true }]}><DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" /></Form.Item>
         </Form>
       </Modal>
 
@@ -148,7 +148,7 @@ function DirectPickTab({ targetKind, kind }: { targetKind: Kind; kind: 'UNPLANNE
     { title: 'Name', dataIndex: 'name', ellipsis: true },
     { title: 'Status', dataIndex: 'status', ellipsis: true, width: 150, render: v => <StatusTag color="default">{String(v).replace(/_/g, ' ')}</StatusTag> },
     {
-      title: 'Action', key: 'a', width: 100, render: (_, r) => (
+      title: 'Actions', key: 'a', width: 100, render: (_, r) => (
         <Button size="small" type="primary" disabled={r.has_open_request} onClick={() => raise(r)}>
           {r.has_open_request ? 'Pending' : 'Raise'}
         </Button>

@@ -6,11 +6,13 @@ import {
 } from 'antd'
 import type { UploadFile } from 'antd/es/upload'
 import { StatusTag } from '../../components/ui/StatusTag'
-import type { ColumnsType } from 'antd/es/table'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import type { SorterResult } from 'antd/es/table/interface'
 import { Plus, Eye, Zap, Search, Pencil, Upload as UploadIcon, FileCheck, History, MessageSquare } from 'lucide-react'
 import dayjs from 'dayjs'
-import { batchApi, materialApi, manufacturerApi, mappingApi, uomApi, type Batch, type BatchEvent, type Material, type Manufacturer, type UomUnit } from '../../api/inventory'
+import { batchApi, manufacturerApi, type Batch, type BatchEvent, type Manufacturer } from '../../api/inventory'
 import { glassModalProps } from '../../utils/modalStyles'
+import NewBatchModal from './NewBatchModal'
 
 const API_BASE =
   (typeof window !== 'undefined' && (window as { __APP_CONFIG__?: { API_URL?: string } }).__APP_CONFIG__?.API_URL) ||
@@ -44,30 +46,10 @@ const STATUS_COLOR: Record<string, string> = {
   EXPIRED: 'red', QUARANTINE: 'orange',
 }
 
-// Measuring Unit / Measuring Unit Value only apply to materials under this Material Type.
-const ANTIBODY_MATERIAL_TYPE = 'Antibody Materials'
-
-type FlatRow = Batch & {
-  _packSku: string | null
-  _rowKey: string
-}
-
-function flattenBatches(batches: Batch[]): FlatRow[] {
-  const result: FlatRow[] = []
-  for (const b of batches) {
-    if (b.packs && b.packs.length > 0) {
-      b.packs.forEach((p) => {
-        result.push({ ...b, _packSku: p.inhouse_batch_no, _rowKey: `${b.id}-${p.id}` })
-      })
-    } else {
-      const sku = b.inhouse_batch_no && b.pack_type
-        ? `${b.inhouse_batch_no}/${b.pack_type[0].toUpperCase()}1`
-        : null
-      result.push({ ...b, _packSku: sku, _rowKey: `${b.id}` })
-    }
-  }
-  return result
-}
+// Rows come back pre-expanded one-per-pack from the backend
+// (?expand_packs=1): `pack_sku`/`row_key` are populated per row, so no
+// client-side flattening is needed here.
+type FlatRow = Batch
 
 const EVENT_STYLES: Record<string, { background: string; color: string }> = {
   RECEIVED: { background: '#d1fae5', color: '#065f46' },
@@ -91,10 +73,16 @@ function formatEventLabel(eventType: string) {
 
 export default function BatchesPage() {
   const [batches, setBatches] = useState<Batch[]>([])
-  const [materials, setMaterials] = useState<Material[]>([])
   const [manufacturers, setManufacturers] = useState<Manufacturer[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const searchDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [total, setTotal] = useState(0)
+  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
 
   const [createOpen, setCreateOpen] = useState(false)
   const [issueOpen, setIssueOpen] = useState(false)
@@ -107,143 +95,38 @@ export default function BatchesPage() {
   const [historyEvents, setHistoryEvents] = useState<BatchEvent[]>([])
   const [historyLoading, setHistoryLoading] = useState(false)
 
-  const [inhouseLoading, setInhouseLoading] = useState(false)
-  const [massUnits, setMassUnits] = useState<UomUnit[]>([])
-  const [coaFile, setCoaFile] = useState<UploadFile | null>(null)
   const [editOpen, setEditOpen] = useState(false)
   const [editBatch, setEditBatch] = useState<Batch | null>(null)
   const [editCoaFile, setEditCoaFile] = useState<UploadFile | null>(null)
   const [editSaving, setEditSaving] = useState(false)
-  const [materialSearchLoading, setMaterialSearchLoading] = useState(false)
-  const materialSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
-  // Manufacturer options in the New Batch modal are restricted to whatever's
-  // actually mapped to the selected Material (via Manufacturer Mapping), not
-  // the full manufacturer list.
-  const [manufacturerOptions, setManufacturerOptions] = useState<Manufacturer[]>([])
-  const [manufacturerSearchLoading, setManufacturerSearchLoading] = useState(false)
-  const [selectedMaterialId, setSelectedMaterialId] = useState<number | null>(null)
-  const [selectedMaterialType, setSelectedMaterialType] = useState<string | null>(null)
-  const manufacturerSearchTimeout = useRef<ReturnType<typeof setTimeout> | null>(null)
   const [form] = Form.useForm()
   const [issueForm] = Form.useForm()
   const [editForm] = Form.useForm()
 
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value)
+    if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current)
+    searchDebounceTimer.current = setTimeout(() => setSearch(value), 300)
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await batchApi.list({})
-      if (search) {
-        const term = search.toLowerCase()
-        setBatches(data.filter(b => {
-          const matName = b.material_name ?? ''
-          const mfrName = b.manufacturer_name ?? ''
-          return (
-            b.batch_no.toLowerCase().includes(term) ||
-            (b.inhouse_batch_no ?? '').toLowerCase().includes(term) ||
-            matName.toLowerCase().includes(term) ||
-            mfrName.toLowerCase().includes(term) ||
-            (b.status ?? '').toLowerCase().includes(term) ||
-            (b.location ?? '').toLowerCase().includes(term) ||
-            (b.gr_date ?? '').toLowerCase().includes(term)
-          )
-        }))
-      } else {
-        setBatches(data)
-      }
+      const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize, expand_packs: 1 }
+      if (search) params.search = search
+      if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      const { items, total } = await batchApi.listPaged(params)
+      setBatches(items)
+      setTotal(total)
     } finally { setLoading(false) }
-  }, [search])
+  }, [search, page, pageSize, sortBy, sortDir])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { materialApi.list({ active_only: true }).then(setMaterials) }, [])
+  useEffect(() => { setPage(1) }, [search])
+  useEffect(() => () => { if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
 
-  // Server-side search for the Material picker: the initial load above only fetches the
-  // backend's default page (50 rows), so materials past that page never show up locally.
-  // Debounce-query the backend as the user types and merge hits into `materials` so both
-  // the dropdown options and the id->name lookups elsewhere on this page stay in sync.
-  const handleMaterialSearch = useCallback((value: string) => {
-    if (materialSearchTimeout.current) clearTimeout(materialSearchTimeout.current)
-    if (!value) return
-    materialSearchTimeout.current = setTimeout(async () => {
-      setMaterialSearchLoading(true)
-      try {
-        const results = await materialApi.list({ active_only: true, search: value, limit: 50 })
-        setMaterials(prev => {
-          const merged = [...prev]
-          for (const m of results) {
-            if (!merged.some(x => x.id === m.id)) merged.push(m)
-          }
-          return merged
-        })
-      } finally {
-        setMaterialSearchLoading(false)
-      }
-    }, 300)
-  }, [])
-  useEffect(() => {
-    uomApi.get('mass')
-      .then(dim => setMassUnits(dim.units.filter(u => u.is_active)))
-      .catch(() => setMassUnits([]))
-  }, [])
-
-  const openCreate = () => {
-    form.resetFields()
-    setCoaFile(null)
-    setCreateOpen(true)
-    setSelectedMaterialId(null)
-    setSelectedMaterialType(null)
-    setManufacturerOptions([])
-  }
-
-  // Loads the manufacturers actually mapped to `materialId` (via Manufacturer
-  // Mapping), optionally narrowed by a name filter. Resolves ids to full
-  // Manufacturer records using the already-loaded `manufacturers` list where
-  // possible, falling back to a direct fetch for ids outside that page.
-  const loadMappedManufacturers = useCallback(async (materialId: number, nameFilter?: string) => {
-    setManufacturerSearchLoading(true)
-    try {
-      const mappings = await mappingApi.list({ material_id: materialId })
-      const ids = [...new Set(mappings.map(m => m.manufacturer_id))]
-      const known = manufacturers.filter(m => ids.includes(m.id))
-      const missingIds = ids.filter(id => !known.some(m => m.id === id))
-      const fetched = missingIds.length
-        ? (await Promise.all(missingIds.map(id => manufacturerApi.get(id).catch(() => null)))).filter((m): m is Manufacturer => !!m)
-        : []
-      let opts = [...known, ...fetched]
-      if (nameFilter) opts = opts.filter(m => m.name.toLowerCase().includes(nameFilter.toLowerCase()))
-      setManufacturerOptions(opts)
-    } finally {
-      setManufacturerSearchLoading(false)
-    }
-  }, [manufacturers])
-
-  const handleManufacturerSearch = (value: string) => {
-    if (!selectedMaterialId) return
-    if (manufacturerSearchTimeout.current) clearTimeout(manufacturerSearchTimeout.current)
-    manufacturerSearchTimeout.current = setTimeout(() => {
-      loadMappedManufacturers(selectedMaterialId, value)
-    }, 300)
-  }
-
-  const handleMaterialChange = async (materialId: number) => {
-    form.setFieldValue('inhouse_batch_no', '')
-    form.setFieldValue('manufacturer_id', undefined)
-    setSelectedMaterialId(materialId)
-    loadMappedManufacturers(materialId)
-    const mat = materials.find(m => m.id === materialId)
-    setSelectedMaterialType(mat?.material_type ?? null)
-    if (mat?.material_type !== ANTIBODY_MATERIAL_TYPE) {
-      form.setFieldValue('measuring_unit', undefined)
-      form.setFieldValue('measuring_unit_value', undefined)
-    }
-    if (!mat?.material_type) return
-    setInhouseLoading(true)
-    try {
-      const res = await batchApi.nextInhouseNo(mat.material_type)
-      form.setFieldValue('inhouse_batch_no', res.inhouse_batch_no)
-    } catch { /* leave blank */ }
-    finally { setInhouseLoading(false) }
-  }
+  const openCreate = () => setCreateOpen(true)
 
   const openDetail = (batch: Batch) => {
     setSelectedBatch(batch)
@@ -260,27 +143,6 @@ export default function BatchesPage() {
     } finally { setHistoryLoading(false) }
   }
 
-  const handleCreate = async (values: Record<string, unknown>) => {
-    setSaving(true)
-    try {
-      const payload = {
-        ...values,
-        mfg_date: values.mfg_date ? dayjs(values.mfg_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
-        expiry_date: values.expiry_date ? dayjs(values.expiry_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
-        retest_date: values.retest_date ? dayjs(values.retest_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
-        gr_date: values.gr_date ?? null,
-        received_at: values.received_at ? dayjs(values.received_at as dayjs.Dayjs).toISOString() : null,
-      }
-      const created = await batchApi.create(payload)
-      if (coaFile?.originFileObj) {
-        await batchApi.uploadCoa(created.id, coaFile.originFileObj as File)
-      }
-      message.success('Batch created')
-      setCreateOpen(false); form.resetFields(); setCoaFile(null); load()
-    } catch (e: unknown) { message.error((e as Error).message) }
-    finally { setSaving(false) }
-  }
-
   const openEdit = (batch: Batch) => {
     setEditBatch(batch)
     setEditCoaFile(null)
@@ -293,7 +155,6 @@ export default function BatchesPage() {
       invoice_no: batch.invoice_no,
       po_no: batch.po_no,
       price: batch.price,
-      iso_type: batch.iso_type,
       clone: batch.clone,
       remarks: batch.remarks,
     })
@@ -331,11 +192,10 @@ export default function BatchesPage() {
     finally { setSaving(false) }
   }
 
-  const flatRows = flattenBatches(batches)
+  const flatRows: FlatRow[] = batches
 
   const strSorter = (get: (r: FlatRow) => string | null | undefined) => (a: FlatRow, b: FlatRow) =>
     (get(a) ?? '').localeCompare(get(b) ?? '')
-  const numSorter = (get: (r: FlatRow) => number) => (a: FlatRow, b: FlatRow) => get(a) - get(b)
 
   const columns: ColumnsType<FlatRow> = [
     {
@@ -343,7 +203,7 @@ export default function BatchesPage() {
       dataIndex: 'batch_no',
       ellipsis: true,
       width: 140,
-      sorter: strSorter(r => r.batch_no),
+      sorter: true,
       render: (v) => <span className=" text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -351,20 +211,20 @@ export default function BatchesPage() {
       dataIndex: 'inhouse_batch_no',
       ellipsis: true,
       width: 160,
-      sorter: strSorter(r => r.inhouse_batch_no),
+      sorter: true,
       render: (v) => v
         ? <span className=" text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'SKU / Pack ID',
       key: 'sku',
       ellipsis: true,
       width: 200,
-      sorter: strSorter(r => r._packSku),
-      render: (_, r) => r._packSku
-        ? <span className=" text-[12px] text-slate-800">{r._packSku}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+      sorter: strSorter(r => r.pack_sku),
+      render: (_, r) => r.pack_sku
+        ? <span className=" text-[12px] text-slate-800">{r.pack_sku}</span>
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Material',
@@ -384,25 +244,23 @@ export default function BatchesPage() {
       render: (_: unknown, r: FlatRow) => (
         r.manufacturer_name
           ? <span className="text-[13px] text-slate-800">{r.manufacturer_name}</span>
-          : <span className="text-[13px] text-slate-300">—</span>
+          : <span className="text-[13px] text-slate-800">NA</span>
       ),
     },
     {
       title: 'Qty Available',
-      key: 'qty',
+      dataIndex: 'qty_available',
       width: 160,
-      sorter: numSorter(r => Number(r.qty_available)),
+      sorter: true,
       render: (_, r) => {
         const pct = r.qty_received > 0 ? Math.round((Number(r.qty_available) / Number(r.qty_received)) * 100) : 0
         const color = pct > 50 ? '#22c55e' : pct > 20 ? '#f59e0b' : '#ef4444'
         return (
-          <div className="w-full">
-            <div className="flex justify-between text-[11px] text-slate-500 mb-0.5">
-              <span>{r.qty_available} {r.unit}</span>
-              <span className="text-slate-400">/ {r.qty_received}</span>
+          <Tooltip title={`${r.qty_available} / ${r.qty_received} ${r.unit}`}>
+            <div className="w-full">
+              <Progress percent={pct} showInfo={false} strokeColor={color} trailColor="#e2e8f0" size={['100%', 5]} />
             </div>
-            <Progress percent={pct} showInfo={false} strokeColor={color} trailColor="#e2e8f0" size={['100%', 5]} />
-          </div>
+          </Tooltip>
         )
       },
     },
@@ -424,50 +282,50 @@ export default function BatchesPage() {
             </Button>
           </Tooltip>
         )
-        : <span className="text-[12px] text-slate-300 pl-1">No</span>,
+        : <span className="text-[12px] text-slate-800 pl-1">No</span>,
     },
     {
       title: 'Expiry',
       dataIndex: 'expiry_date',
       ellipsis: true,
       width: 110,
-      sorter: strSorter(r => r.expiry_date),
+      sorter: true,
       render: (v) => v
-        ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        ? <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span>
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Mfg Date',
       dataIndex: 'mfg_date',
       ellipsis: true,
       width: 110,
-      sorter: strSorter(r => r.mfg_date),
+      sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        ? <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span>
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'GR Date',
       dataIndex: 'gr_date',
       ellipsis: true,
       width: 110,
-      sorter: strSorter(r => r.gr_date),
+      sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        ? <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span>
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Status',
       dataIndex: 'status',
       ellipsis: true,
       width: 150,
-      sorter: strSorter(r => r.status),
+      sorter: true,
       render: (v: string) => (
         <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag>
       ),
     },
     {
-      title: '',
+      title: 'Actions',
       key: 'actions',
       width: 120,
       align: 'center',
@@ -501,8 +359,8 @@ export default function BatchesPage() {
       <div className="glass-card rounded-lg px-4 py-3 mb-4 flex flex-wrap gap-2 items-center">
         <Input
           prefix={<Search size={13} className="text-slate-400" />}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={e => handleSearchChange(e.target.value)}
           placeholder="Search batch / inhouse / material / manufacturer / status…"
           style={{ width: 340 }}
           allowClear
@@ -516,161 +374,41 @@ export default function BatchesPage() {
         <Table
           dataSource={flatRows}
           columns={columns}
-          rowKey="_rowKey"
+          rowKey="row_key"
           size="middle"
           loading={loading}
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} batches` }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            showTotal: t => `${t} batches`,
+          }}
+          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+            if (pagination.current) setPage(pagination.current)
+            if (pagination.pageSize) setPageSize(pagination.pageSize)
+            const s = sorter as SorterResult<FlatRow>
+            if (s.order && typeof s.field === 'string') {
+              setSortBy(s.field)
+              setSortDir(s.order === 'ascend' ? 'asc' : 'desc')
+            } else if (s.order) {
+              // Client-side-only sorters (SKU, Material, Manufacturer) have no
+              // server column — leave the current server sort/order alone.
+            } else {
+              setSortBy(null)
+            }
+          }}
           onRow={r => ({ onClick: () => openDetail(r), style: { cursor: 'pointer' } })}
         />
       </div>
 
-      {/* Create Modal */}
-      <Modal
-        title="New Batch"
+      <NewBatchModal
         open={createOpen}
-        onCancel={() => { setCreateOpen(false); form.resetFields(); setCoaFile(null); setInhouseLoading(false) }}
-        onOk={() => form.submit()}
-        confirmLoading={saving}
-        width={740}
-        centered
-        destroyOnHidden
-         closable={false}
-        {...glassModalProps}
-        styles={{
-          ...glassModalProps.styles,
-          body: {
-            ...glassModalProps.styles?.body,
-            maxHeight: '65vh',
-            overflowY: 'auto',
-          },
-        }}
-      >
-        <Form form={form} layout="vertical" onFinish={handleCreate}>
-          <div className="grid grid-cols-3 gap-x-3">
-            <Form.Item name="batch_no" label="MFG Batch No" rules={[{ required: true, whitespace: true, message: 'MFG Batch No is required' }]}>
-              <Input placeholder="e.g. MCE/26/013" />
-            </Form.Item>
-            <Form.Item name="material_id" label="Material" rules={[{ required: true }]}>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                onSearch={handleMaterialSearch}
-                loading={materialSearchLoading}
-                notFoundContent={materialSearchLoading ? 'Searching…' : undefined}
-                options={materials.map(m => ({ value: m.id, label: m.name }))}
-                onChange={handleMaterialChange}
-              />
-            </Form.Item>
-            <Form.Item name="manufacturer_id" label="Manufacturer">
-              <Select
-                allowClear
-                showSearch
-                filterOption={false}
-                onSearch={handleManufacturerSearch}
-                loading={manufacturerSearchLoading}
-                disabled={!selectedMaterialId}
-                placeholder={selectedMaterialId ? 'Select manufacturer' : 'Select a material first'}
-                notFoundContent={manufacturerSearchLoading ? 'Searching…' : 'No manufacturers mapped to this material'}
-                options={manufacturerOptions.map(m => ({ value: m.id, label: m.name }))}
-              />
-            </Form.Item>
-            <Form.Item name="qty_received" label="Qty Received per Pack" rules={[{ required: true }]}>
-              <InputNumber style={{ width: '100%' }} min={0} />
-            </Form.Item>
-            <Form.Item name="unit" label="Unit" initialValue="g" rules={[{ required: true }]}>
-              <Select
-                showSearch
-                optionFilterProp="label"
-                options={massUnits.map(u => ({ value: u.symbol, label: u.name ? `${u.symbol} — ${u.name}` : u.symbol }))}
-              />
-            </Form.Item>
-            <Form.Item name="inhouse_batch_no" label="Inhouse Batch No">
-              <Input readOnly disabled={inhouseLoading} placeholder={inhouseLoading ? 'Generating…' : 'Select a material first'} className="bg-slate-50 cursor-not-allowed" />
-            </Form.Item>
-            {selectedMaterialType === ANTIBODY_MATERIAL_TYPE && (
-              <>
-                <Form.Item name="measuring_unit" label="Measuring Unit">
-                  <Select allowClear options={[
-                    { value: 'molarity', label: 'Molarity' },
-                    { value: 'concentration', label: 'Concentration' },
-                    { value: 'percentage', label: 'Percentage' },
-                    { value: 'ipa', label: 'IPA' },
-                  ]} />
-                </Form.Item>
-                <Form.Item name="measuring_unit_value" label="Measuring Unit Value">
-                  <InputNumber style={{ width: '100%' }} min={0} />
-                </Form.Item>
-              </>
-            )}
-            <Form.Item name="mfg_date" label="Mfg Date">
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="expiry_date" label="Expiry Date">
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="retest_date" label="Retest Date">
-              <DatePicker style={{ width: '100%' }} />
-            </Form.Item>
-            <Form.Item name="gr_date" label="GR Date" initialValue={dayjs().format('YYYY-MM-DD')}>
-              <Input readOnly className="bg-slate-50 cursor-not-allowed" />
-            </Form.Item>
-            <Form.Item name="location" label="Storage Location">
-              <Input />
-            </Form.Item>
-            <Form.Item name="invoice_no" label="Invoice No">
-              <Input />
-            </Form.Item>
-            <Form.Item name="po_no" label="PO No">
-              <Input />
-            </Form.Item>
-            <Form.Item name="pack_type" label="Pack Type">
-              <Input placeholder="e.g. Bottle, Drum" />
-            </Form.Item>
-            <Form.Item name="pack_mode" label="Pack Mode">
-              <Select allowClear options={[
-                { value: 'SINGLE', label: 'Single' },
-                { value: 'MULTI', label: 'Multi' },
-              ]} />
-            </Form.Item>
-            <Form.Item name="price" label="Price">
-              <InputNumber style={{ width: '100%' }} min={0} prefix="₹" />
-            </Form.Item>
-            <Form.Item name="iso_type" label="ISO Type">
-              <Input />
-            </Form.Item>
-            <Form.Item name="clone" label="Clone / Variant">
-              <Input />
-            </Form.Item>
-            <Form.Item name="include_pack" label="Generate Packs?" initialValue={false}>
-              <Select options={[{ value: false, label: 'No' }, { value: true, label: 'Yes' }]} />
-            </Form.Item>
-            <Form.Item noStyle shouldUpdate={(prev, cur) => prev.include_pack !== cur.include_pack}>
-              {({ getFieldValue }) =>
-                getFieldValue('include_pack') ? (
-                  <Form.Item name="pack_number" label="Number of Packs" rules={[{ required: true }]}>
-                    <InputNumber style={{ width: '100%' }} min={1} max={26} />
-                  </Form.Item>
-                ) : null
-              }
-            </Form.Item>
-          </div>
-          <Form.Item name="remarks" label="Remarks">
-            <Input.TextArea rows={2} />
-          </Form.Item>
-          <Form.Item label="COA Attachment">
-            <Upload
-              maxCount={1}
-              beforeUpload={() => false}
-              fileList={coaFile ? [coaFile] : []}
-              onChange={({ fileList }) => setCoaFile(fileList[fileList.length - 1] ?? null)}
-              accept=".pdf,.doc,.docx,.xlsx,.xls,.jpg,.jpeg,.png"
-            >
-              <Button icon={<UploadIcon size={13} />}>Upload COA File</Button>
-            </Upload>
-          </Form.Item>
-        </Form>
-      </Modal>
+        onClose={() => setCreateOpen(false)}
+        onCreated={load}
+      />
 
       {/* Edit Modal */}
       <Modal
@@ -694,13 +432,13 @@ export default function BatchesPage() {
               <Input />
             </Form.Item>
             <Form.Item name="mfg_date" label="Mfg Date">
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
             <Form.Item name="expiry_date" label="Expiry Date">
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
             <Form.Item name="retest_date" label="Retest Date">
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
             <Form.Item name="invoice_no" label="Invoice No">
               <Input />
@@ -710,9 +448,6 @@ export default function BatchesPage() {
             </Form.Item>
             <Form.Item name="price" label="Price">
               <InputNumber style={{ width: '100%' }} min={0} prefix="₹" />
-            </Form.Item>
-            <Form.Item name="iso_type" label="ISO Type">
-              <Input />
             </Form.Item>
             <Form.Item name="clone" label="Clone / Variant">
               <Input />
@@ -784,16 +519,16 @@ export default function BatchesPage() {
             {/* Info grid */}
             <div className="bg-white rounded-xl border border-slate-200 p-4 grid grid-cols-2 gap-x-4 gap-y-3">
               {[
-                ['Inhouse Batch', selectedBatch.inhouse_batch_no ?? '—'],
+                ['Inhouse Batch', selectedBatch.inhouse_batch_no ?? 'NA'],
                 ['Status', selectedBatch.status],
                 ['Qty Received', `${selectedBatch.qty_received} ${selectedBatch.unit}`],
                 ['Qty Available', `${selectedBatch.qty_available} ${selectedBatch.unit}`],
-                ['Expiry Date', selectedBatch.expiry_date ?? '—'],
-                ['Mfg Date', selectedBatch.mfg_date ?? '—'],
-                ['GR Date', selectedBatch.gr_date ?? '—'],
+                ['Expiry Date', selectedBatch.expiry_date ? dayjs(selectedBatch.expiry_date).format('DD/MM/YYYY') : 'NA'],
+                ['Mfg Date', selectedBatch.mfg_date ? dayjs(selectedBatch.mfg_date).format('DD/MM/YYYY') : 'NA'],
+                ['GR Date', selectedBatch.gr_date ? dayjs(selectedBatch.gr_date).format('DD/MM/YYYY') : 'NA'],
                 ['Packs', String(selectedBatch.packs.length)],
-                ['Location', selectedBatch.location ?? '—'],
-                ['Invoice No', selectedBatch.invoice_no ?? '—'],
+                ['Location', selectedBatch.location ?? 'NA'],
+                ['Invoice No', selectedBatch.invoice_no ?? 'NA'],
               ].map(([k, v]) => (
                 <div key={k}>
                   <p className="text-[10px] font-semibold text-slate-400 uppercase tracking-wider mb-0.5">{k}</p>
@@ -865,7 +600,7 @@ export default function BatchesPage() {
                       </div>
 
                       <div className="font-normal leading-3 text-left mt-[4px]" style={{ color: '#344054', fontSize: 8 }}>
-                        {new Date(e.performed_at).toLocaleString()}
+                        {dayjs(e.performed_at).format('DD/MM/YYYY HH:mm')}
                       </div>
 
                       {comment && (

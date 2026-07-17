@@ -1,20 +1,28 @@
 import { Input, InputNumber, DatePicker, Select, Checkbox, Radio, Switch, Upload } from 'antd'
 import { Paperclip, Image as ImageIcon } from 'lucide-react'
 import type { TemplateField } from './types'
-import { useInventoryOptions } from './useInventoryOptions'
+import InventorySelect from './InventorySelect'
 
 // Renders a single field exactly as an end user would see it — used by both
 // the design canvas (non-interactive, for layout preview) and the real
 // Preview modal (interactive, respects required/readOnly/hidden).
-export default function FieldPreview({ field, interactive = false, bare = false }: { field: TemplateField; interactive?: boolean; bare?: boolean }) {
-  // Resolves static or inventory-backed options; a no-op fetch for static fields.
-  const { options: dropdownOptions, loading: optionsLoading } = useInventoryOptions(field)
-
+// `value`/`onChange` are optional — pass them (Preview modal) to get a
+// controlled field whose edits actually stick and can drive autofill, same
+// as the real CGT runtime form; omit them (design canvas) for the old
+// uncontrolled/defaultValue-only rendering.
+export default function FieldPreview({ field, interactive = false, bare = false, value, onChange }: {
+  field: TemplateField
+  interactive?: boolean
+  bare?: boolean
+  value?: unknown
+  onChange?: (value: unknown) => void
+}) {
   if (field.hidden && !interactive) {
     return <div className="text-xs text-slate-400 italic border border-dashed border-slate-200 rounded px-2 py-1.5">Hidden field: {field.label}</div>
   }
   if (field.hidden && interactive) return null
 
+  const controlled = interactive && onChange !== undefined
   const commonProps = { placeholder: field.placeholder, disabled: field.readOnly || !interactive }
 
   const control = (() => {
@@ -24,33 +32,64 @@ export default function FieldPreview({ field, interactive = false, bare = false 
       case 'SPACER':
         return <div className="h-6" />
       case 'SINGLE_LINE_TEXT':
-        return <Input {...commonProps} defaultValue={field.defaultValue} maxLength={field.maxLength} />
+        return controlled
+          ? <Input {...commonProps} value={(value as string) ?? ''} maxLength={field.maxLength} onChange={e => onChange!(e.target.value)} />
+          : <Input {...commonProps} defaultValue={field.defaultValue} maxLength={field.maxLength} />
       case 'MULTI_LINE_TEXT':
-        return <Input.TextArea {...commonProps} rows={3} defaultValue={field.defaultValue} maxLength={field.maxLength} />
+        return controlled
+          ? <Input.TextArea {...commonProps} rows={3} value={(value as string) ?? ''} maxLength={field.maxLength} onChange={e => onChange!(e.target.value)} />
+          : <Input.TextArea {...commonProps} rows={3} defaultValue={field.defaultValue} maxLength={field.maxLength} />
       case 'NUMBER':
-        return <InputNumber {...commonProps} className="w-full" defaultValue={field.defaultValue ? Number(field.defaultValue) : undefined} min={field.minValue} max={field.maxValue} />
+        return controlled
+          ? <InputNumber {...commonProps} className="w-full" value={value as number | null | undefined} min={field.minValue} max={field.maxValue} onChange={v => onChange!(v)} />
+          : <InputNumber {...commonProps} className="w-full" defaultValue={field.defaultValue ? Number(field.defaultValue) : undefined} min={field.minValue} max={field.maxValue} />
       case 'DATE':
         return <DatePicker className="w-full" disabled={field.readOnly || !interactive} />
       case 'DATE_TIME':
         return <DatePicker showTime className="w-full" disabled={field.readOnly || !interactive} />
       case 'YES_NO':
-        return <Switch disabled={field.readOnly || !interactive} defaultChecked={field.defaultValue === 'true'} />
+        return controlled
+          ? <Switch disabled={field.readOnly || !interactive} checked={value === true || value === 'true'} onChange={c => onChange!(c)} />
+          : <Switch disabled={field.readOnly || !interactive} defaultChecked={field.defaultValue === 'true'} />
       case 'DROPDOWN':
-        return (
+        return field.optionsMode === 'inventory' && field.inventorySource ? (
+          <InventorySelect field={field} value={controlled ? value : undefined} onChange={controlled ? onChange! : () => {}} disabled={field.readOnly || !interactive} allowClear />
+        ) : controlled ? (
           <Select
             className="w-full"
             placeholder={field.placeholder ?? 'Select…'}
             disabled={field.readOnly || !interactive}
-            loading={optionsLoading}
             showSearch
             optionFilterProp="label"
-            options={dropdownOptions}
+            value={value as string | undefined}
+            onChange={v => onChange!(v)}
+            allowClear
+            options={(field.options ?? []).map(o => ({ value: o, label: o }))}
+          />
+        ) : (
+          <Select
+            className="w-full"
+            placeholder={field.placeholder ?? 'Select…'}
+            disabled={field.readOnly || !interactive}
+            showSearch
+            optionFilterProp="label"
+            options={(field.options ?? []).map(o => ({ value: o, label: o }))}
           />
         )
       case 'CHECKBOX':
-        return <Checkbox disabled={field.readOnly || !interactive} defaultChecked={field.defaultValue === 'true'}>{field.placeholder || 'Yes'}</Checkbox>
+        return controlled
+          ? <Checkbox disabled={field.readOnly || !interactive} checked={value === true || value === 'true'} onChange={e => onChange!(e.target.checked)}>{field.placeholder || 'Yes'}</Checkbox>
+          : <Checkbox disabled={field.readOnly || !interactive} defaultChecked={field.defaultValue === 'true'}>{field.placeholder || 'Yes'}</Checkbox>
       case 'CHECKLIST':
-        return (
+        return controlled ? (
+          <Checkbox.Group
+            disabled={field.readOnly || !interactive}
+            options={(field.options ?? []).map(o => ({ value: o, label: o }))}
+            value={(value as string[]) ?? []}
+            onChange={v => onChange!(v)}
+            className="flex flex-col gap-1"
+          />
+        ) : (
           <Checkbox.Group
             disabled={field.readOnly || !interactive}
             options={(field.options ?? []).map(o => ({ value: o, label: o }))}
@@ -59,7 +98,10 @@ export default function FieldPreview({ field, interactive = false, bare = false 
         )
       case 'RADIO':
         return (
-          <Radio.Group disabled={field.readOnly || !interactive}>
+          <Radio.Group
+            disabled={field.readOnly || !interactive}
+            {...(controlled ? { value, onChange: (e: { target: { value: unknown } }) => onChange!(e.target.value) } : {})}
+          >
             <div className="flex flex-col gap-1">
               {(field.options ?? []).map(o => <Radio key={o} value={o}>{o}</Radio>)}
             </div>

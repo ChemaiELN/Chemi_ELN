@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import dayjs from 'dayjs'
 import {
   Button, Spin, Empty, Table, Modal, Form, Input, Radio, Checkbox, InputNumber, Select,
   message, Space,
@@ -21,7 +22,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div>
       <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-0.5">{label}</p>
-      <p className="text-[13px] text-slate-800">{value ?? <span className="text-slate-300">—</span>}</p>
+      <p className="text-[13px] text-slate-800">{value ?? <span className="text-slate-800">NA</span>}</p>
     </div>
   )
 }
@@ -55,7 +56,7 @@ function ChecklistTable({ wo, editable, onChanged }: { wo: WorkOrderDetail; edit
 
   const renderObservation = (item: ChecklistItem) => {
     const v = values[item.id]?.observation ?? ''
-    if (!editable) return <span className="text-[13px] text-slate-600">{v || '—'}</span>
+    if (!editable) return <span className="text-[13px] text-slate-600">{v || 'NA'}</span>
     if (item.data_type === 'SINGLE_SELECTION' || item.data_type === 'MULTIPLE_SELECTION') {
       const options = item.options ?? []
       return (
@@ -86,13 +87,13 @@ function ChecklistTable({ wo, editable, onChanged }: { wo: WorkOrderDetail; edit
       title: 'Comments', key: 'comment', width: 160, render: (_, r) => r.instruction_type === 'HEADING' ? null : (
         editable
           ? <Input value={values[r.id]?.comment ?? ''} onChange={e => setVal(r.id, { comment: e.target.value })} onBlur={e => saveRow(r.id, { comment: e.target.value })} />
-          : <span className="text-[13px] text-slate-600">{values[r.id]?.comment || '—'}</span>
+          : <span className="text-[13px] text-slate-600">{values[r.id]?.comment || 'NA'}</span>
       ),
     },
     {
       title: 'Done By (Sign & Date)', ellipsis: true, key: 'doneBy', width: 200, render: (_, r) => {
         const res = resultFor(r.id)
-        return res?.done_by ? <span className="text-[12px] text-slate-500">{res.done_by} ({new Date(res.done_at!).toLocaleString()})</span> : null
+        return res?.done_by ? <span className="text-[12px] text-slate-500">{res.done_by} ({dayjs(res.done_at!).format('DD/MM/YYYY HH:mm')})</span> : null
       },
     },
   ]
@@ -190,14 +191,14 @@ function CalibrationReferenceTable({ wo, editable, onChanged }: { wo: WorkOrderD
   })
 
   const columns: ColumnsType<CalibrationReference> = [
-    { title: 'Measurement', ellipsis: true, dataIndex: 'measurement_name', render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Reference Inst. ID', ellipsis: true, dataIndex: 'reference_inst_id', width: 140, render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Measurement', ellipsis: true, dataIndex: 'measurement_name', render: v => v ?? <span className="text-slate-800">NA</span> },
+    { title: 'Reference Inst. ID', ellipsis: true, dataIndex: 'reference_inst_id', width: 140, render: v => v ?? <span className="text-slate-800">NA</span> },
     { title: 'Reference Reading', ellipsis: true, dataIndex: 'reference_reading', width: 130 },
     { title: 'Instrument Reading', ellipsis: true, dataIndex: 'instrument_reading', width: 130 },
-    { title: 'Variance (%)', ellipsis: true, dataIndex: 'variance_pct', width: 110, render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 90, render: v => v ? <StatusTag color={v === 'PASS' ? 'green' : 'red'}>{v}</StatusTag> : <span className="text-slate-300">—</span> },
-    { title: 'Done By (Sign & Date)', ellipsis: true, dataIndex: 'done_by', width: 190, render: (v, r) => v ? <span className="text-[12px] text-slate-500">{v} ({new Date(r.done_at!).toLocaleString()})</span> : null },
-    ...(editable ? [{ title: '', key: 'a', width: 50, render: (_: unknown, r: CalibrationReference) => <Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => del(r)} /> }] : []),
+    { title: 'Variance (%)', ellipsis: true, dataIndex: 'variance_pct', width: 110, render: v => v ?? <span className="text-slate-800">NA</span> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 90, render: v => v ? <StatusTag color={v === 'PASS' ? 'green' : 'red'}>{v}</StatusTag> : <span className="text-slate-800">NA</span> },
+    { title: 'Done By (Sign & Date)', ellipsis: true, dataIndex: 'done_by', width: 190, render: (v, r) => v ? <span className="text-[12px] text-slate-500">{v} ({dayjs(r.done_at!).format('DD/MM/YYYY HH:mm')})</span> : null },
+    ...(editable ? [{ title: 'Actions', key: 'a', width: 50, render: (_: unknown, r: CalibrationReference) => <Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => del(r)} /> }] : []),
   ]
 
   return (
@@ -321,10 +322,10 @@ export default function WorkOrderExecutionPage() {
       </div>
 
       <div className="glass-card rounded-lg p-4 grid grid-cols-2 md:grid-cols-4 gap-4">
-        <Field label="Raised By" value={wo.raised_by ? `${wo.raised_by} (${wo.raised_at ? new Date(wo.raised_at).toLocaleString() : ''})` : null} />
-        <Field label="Started By" value={wo.started_by ? `${wo.started_by} (${wo.started_at ? new Date(wo.started_at).toLocaleString() : ''})` : null} />
-        <Field label="Verified By" value={wo.verified_by ? `${wo.verified_by} (${wo.verified_at ? new Date(wo.verified_at).toLocaleString() : ''})` : null} />
-        <Field label="Approved By" value={wo.approved_by ? `${wo.approved_by} (${wo.approved_at ? new Date(wo.approved_at).toLocaleString() : ''})` : null} />
+        <Field label="Raised By" value={wo.raised_by ? `${wo.raised_by} (${wo.raised_at ? dayjs(wo.raised_at).format('DD/MM/YYYY HH:mm') : ''})` : null} />
+        <Field label="Started By" value={wo.started_by ? `${wo.started_by} (${wo.started_at ? dayjs(wo.started_at).format('DD/MM/YYYY HH:mm') : ''})` : null} />
+        <Field label="Verified By" value={wo.verified_by ? `${wo.verified_by} (${wo.verified_at ? dayjs(wo.verified_at).format('DD/MM/YYYY HH:mm') : ''})` : null} />
+        <Field label="Approved By" value={wo.approved_by ? `${wo.approved_by} (${wo.approved_at ? dayjs(wo.approved_at).format('DD/MM/YYYY HH:mm') : ''})` : null} />
         {wo.checklist_name && <Field label="Checklist" value={wo.checklist_name} />}
         {wo.remarks && <Field label="Remarks" value={wo.remarks} />}
         {isBreakdown && wo.breakdown_description && <Field label="Breakdown Description" value={wo.breakdown_description} />}
@@ -353,7 +354,7 @@ export default function WorkOrderExecutionPage() {
           <Space orientation="vertical" size={4} className="w-full">
             {wo.signatures.map(s => (
               <p key={s.id} className="text-[13px] text-slate-600">
-                <span className="font-medium">{s.signing_for}</span>: {s.name} — {s.comments} <span className="text-slate-400">({new Date(s.completed_on).toLocaleString()})</span>
+                <span className="font-medium">{s.signing_for}</span>: {s.name} — {s.comments} <span className="text-slate-400">({dayjs(s.completed_on).format('DD/MM/YYYY HH:mm')})</span>
               </p>
             ))}
           </Space>

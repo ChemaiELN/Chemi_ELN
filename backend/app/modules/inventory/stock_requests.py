@@ -11,6 +11,7 @@ from app.schemas.inventory import (
     StockRequestAction,
     StockRequestCreate,
     StockRequestEventOut,
+    StockRequestListOut,
     StockRequestOut,
     StockRequestUpdate,
 )
@@ -18,6 +19,15 @@ from app.shared.inv_audit import write_inv_audit
 from app.shared.privileges import require_creator_role, require_store_incharge_role
 
 router = APIRouter(prefix="/inventory/stock-requests", tags=["inventory-stock-requests"])
+
+# Whitelist of columns the Stock Requests table UI is allowed to sort by.
+SORTABLE_COLUMNS = {
+    "request_no": InvStockRequest.request_no,
+    "qty_required": InvStockRequest.qty_required,
+    "criticality": InvStockRequest.criticality,
+    "status": InvStockRequest.status,
+    "created_at": InvStockRequest.created_at,
+}
 
 
 def _user_ref(user) -> str:
@@ -53,13 +63,16 @@ def _add_event(db, request_id: int, event_type: str, performed_by: str, remarks:
     ))
 
 
-@router.get("", response_model=list[StockRequestOut])
+@router.get("", response_model=StockRequestListOut)
 def list_requests(
+    search: Optional[str] = Query(None),
     status: Optional[str] = Query(None),
     criticality: Optional[str] = Query(None),
     material_id: Optional[int] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: str = Query("desc"),
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
@@ -70,7 +83,21 @@ def list_requests(
         q = q.filter(InvStockRequest.criticality == criticality)
     if material_id is not None:
         q = q.filter(InvStockRequest.material_id == material_id)
-    return q.order_by(InvStockRequest.id.desc()).offset(skip).limit(limit).all()
+    if search:
+        term = f"%{search}%"
+        q = q.join(InvMaterial, InvStockRequest.material_id == InvMaterial.id).filter(
+            InvStockRequest.request_no.ilike(term)
+            | InvStockRequest.status.ilike(term)
+            | InvStockRequest.criticality.ilike(term)
+            | InvStockRequest.requested_by.ilike(term)
+            | InvStockRequest.unit.ilike(term)
+            | InvMaterial.name.ilike(term)
+        )
+    total = q.count()
+    sort_col = SORTABLE_COLUMNS.get(sort_by, InvStockRequest.id)
+    order_clause = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+    items = q.order_by(order_clause).offset(skip).limit(limit).all()
+    return {"items": items, "total": total}
 
 
 @router.post("", response_model=StockRequestOut, status_code=201)

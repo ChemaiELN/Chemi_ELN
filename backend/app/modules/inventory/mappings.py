@@ -9,18 +9,30 @@ from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
 from app.models.inventory import InvManufacturerMapping, InvMaterial, InvManufacturer
-from app.schemas.inventory import MappingCreate, MappingOut, MappingUpdate, MappingUploadResult
+from app.schemas.inventory import MappingCreate, MappingListOut, MappingOut, MappingUpdate, MappingUploadResult
 from app.shared.files import ALLOWED_DOC_EXTS, delete_file, save_upload, validate_upload
 
 router = APIRouter(prefix="/inventory/mappings", tags=["inventory-mappings"])
 
+# Whitelist of columns the Mappings table UI is allowed to sort by.
+SORTABLE_COLUMNS = {
+    "catalogue_no": InvManufacturerMapping.catalogue_no,
+    "technical_grade": InvManufacturerMapping.technical_grade,
+    "lead_time_days": InvManufacturerMapping.lead_time_days,
+    "min_order_qty": InvManufacturerMapping.min_order_qty,
+    "created_at": InvManufacturerMapping.created_at,
+}
 
-@router.get("", response_model=list[MappingOut])
+
+@router.get("", response_model=MappingListOut)
 def list_mappings(
+    search: Optional[str] = Query(None),
     material_id: Optional[int] = Query(None),
     manufacturer_id: Optional[int] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: str = Query("desc"),
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
@@ -29,7 +41,23 @@ def list_mappings(
         q = q.filter(InvManufacturerMapping.material_id == material_id)
     if manufacturer_id is not None:
         q = q.filter(InvManufacturerMapping.manufacturer_id == manufacturer_id)
-    return q.offset(skip).limit(limit).all()
+    if search:
+        term = f"%{search}%"
+        q = (
+            q.outerjoin(InvMaterial, InvManufacturerMapping.material_id == InvMaterial.id)
+            .outerjoin(InvManufacturer, InvManufacturerMapping.manufacturer_id == InvManufacturer.id)
+            .filter(
+                InvManufacturerMapping.catalogue_no.ilike(term)
+                | InvManufacturerMapping.technical_grade.ilike(term)
+                | InvMaterial.name.ilike(term)
+                | InvManufacturer.name.ilike(term)
+            )
+        )
+    total = q.count()
+    sort_col = SORTABLE_COLUMNS.get(sort_by, InvManufacturerMapping.id)
+    order_clause = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+    items = q.order_by(order_clause).offset(skip).limit(limit).all()
+    return {"items": items, "total": total}
 
 
 @router.post("", response_model=MappingOut, status_code=201)

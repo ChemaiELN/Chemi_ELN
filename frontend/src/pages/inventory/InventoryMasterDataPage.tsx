@@ -95,13 +95,13 @@ function ChemicalsTab() {
 
   const columns: ColumnsType<LookupChemical> = [
     { title: 'Chemical Name', dataIndex: 'chemical_name', ellipsis: true, sorter: strSorter('chemical_name'), render: v => <span className="font-medium text-slate-800">{v}</span> },
-    { title: 'CAS No.', dataIndex: 'cas_no', ellipsis: true, responsive: ['lg'], sorter: strSorter('cas_no'), render: v => <span className="  text-xs text-slate-800">{v ?? '—'}</span> },
-    { title: 'Formula', dataIndex: 'formula', ellipsis: true, responsive: ['md'], sorter: strSorter('formula'), render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Mol. Wt', dataIndex: 'mol_wt', ellipsis: true, align: 'right', responsive: ['lg'], sorter: numSorter('mol_wt'), render: v => v != null ? <span className="text-slate-800">{Number(v).toFixed(2)}</span> : <span className="text-slate-300">—</span> },
-    { title: 'Purity%', dataIndex: 'purity_pct', ellipsis: true, align: 'right', responsive: ['lg'], sorter: numSorter('purity_pct'), render: v => v != null ? <span className="text-slate-800">{v}%</span> : <span className="text-slate-300">—</span> },
-    { title: 'Vendor', dataIndex: 'vendor_name', ellipsis: true, responsive: ['md'], sorter: strSorter('vendor_name'), render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'CAS No.', dataIndex: 'cas_no', ellipsis: true, responsive: ['lg'], sorter: strSorter('cas_no'), render: v => <span className="  text-xs text-slate-800">{v ?? 'NA'}</span> },
+    { title: 'Formula', dataIndex: 'formula', ellipsis: true, responsive: ['md'], sorter: strSorter('formula'), render: v => v ?? <span className="text-slate-800">NA</span> },
+    { title: 'Mol. Wt', dataIndex: 'mol_wt', ellipsis: true, align: 'right', responsive: ['lg'], sorter: numSorter('mol_wt'), render: v => v != null ? <span className="text-slate-800">{Number(v).toFixed(2)}</span> : <span className="text-slate-800">NA</span> },
+    { title: 'Purity%', dataIndex: 'purity_pct', ellipsis: true, align: 'right', responsive: ['lg'], sorter: numSorter('purity_pct'), render: v => v != null ? <span className="text-slate-800">{v}%</span> : <span className="text-slate-800">NA</span> },
+    { title: 'Vendor', dataIndex: 'vendor_name', ellipsis: true, responsive: ['md'], sorter: strSorter('vendor_name'), render: v => v ?? <span className="text-slate-800">NA</span> },
     { title: 'Active', dataIndex: 'is_active', align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={c => toggle.mutate({ id: r.id, is_active: c })} /> },
-    { title: '', key: 'actions', align: 'center', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
+    { title: 'Actions', key: 'actions', align: 'center', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
   ]
 
   return (
@@ -160,11 +160,11 @@ function AdminInstrumentsTab() {
   const columns: ColumnsType<LookupInstrument> = [
     { title: 'Code', dataIndex: 'instrument_code', ellipsis: true, sorter: strSorter('instrument_code'), render: v => <StatusTag color="purple" className="  text-xs">{v}</StatusTag> },
     { title: 'Name', dataIndex: 'instrument_name', ellipsis: true, sorter: strSorter('instrument_name'), render: v => <span className="font-medium text-slate-800">{v}</span> },
-    { title: 'Type', dataIndex: 'instrument_type', ellipsis: true, responsive: ['md'], sorter: strSorter('instrument_type'), render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Maintenance', dataIndex: 'maintenance_status', ellipsis: true, responsive: ['lg'], sorter: strSorter('maintenance_status'), render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-300">—</span> },
-    { title: 'Calibration', dataIndex: 'calibration_status', ellipsis: true, responsive: ['lg'], sorter: strSorter('calibration_status'), render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-300">—</span> },
+    { title: 'Type', dataIndex: 'instrument_type', ellipsis: true, responsive: ['md'], sorter: strSorter('instrument_type'), render: v => v ?? <span className="text-slate-800">NA</span> },
+    { title: 'Maintenance', dataIndex: 'maintenance_status', ellipsis: true, responsive: ['lg'], sorter: strSorter('maintenance_status'), render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-800">NA</span> },
+    { title: 'Calibration', dataIndex: 'calibration_status', ellipsis: true, responsive: ['lg'], sorter: strSorter('calibration_status'), render: v => v ? <StatusTag color={statusColor(v)}>{v}</StatusTag> : <span className="text-slate-800">NA</span> },
     { title: 'Active', dataIndex: 'is_active', align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={c => toggle.mutate({ id: r.id, is_active: c })} /> },
-    { title: '', key: 'actions', align: 'center', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
+    { title: 'Actions', key: 'actions', align: 'center', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
   ]
 
   return (
@@ -222,7 +222,7 @@ function SitesTab() {
     { title: 'Code', dataIndex: 'code', ellipsis: true, sorter: strSorter('code'), render: v => <StatusTag color="purple" className="  text-xs font-bold">{v}</StatusTag> },
     { title: 'Name', dataIndex: 'name', ellipsis: true, sorter: strSorter('name'), render: v => <span className="font-medium text-slate-800">{v}</span> },
     { title: 'Active', dataIndex: 'is_active', align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={c => toggle.mutate({ id: r.id, is_active: c })} /> },
-    { title: '', key: 'actions', align: 'center', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
+    { title: 'Actions', key: 'actions', align: 'center', render: (_, r) => <Space size={4}><Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip><Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => confirmDel(r)} /></Tooltip></Space> },
   ]
 
   const filtered = data.filter(r => matchesSearch(search, r.code, r.name))
@@ -289,7 +289,7 @@ function ConsumableTypesTab() {
       render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => consumableTypeApi.toggle(r.id), load)} />,
     },
     {
-      title: '', key: 'actions', align: 'center',
+      title: 'Actions', key: 'actions', align: 'center',
       render: (_, r) => (
         <Space size={4}>
           <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>
@@ -362,7 +362,7 @@ function EquipTypeTab({ api, label }: { api: typeof equipmentTypeApi; label: str
       render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => api.toggle(r.id), load)} />,
     },
     {
-      title: '', key: 'actions', align: 'center',
+      title: 'Actions', key: 'actions', align: 'center',
       render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>,
     },
   ]
@@ -423,15 +423,15 @@ function ColumnTypesTab() {
   const columns: ColumnsType<ColumnType> = [
     { title: 'Code', dataIndex: 'code', ellipsis: true, sorter: strSorter('code'), render: v => <StatusTag color="purple" className="  text-[13px]">{v}</StatusTag> },
     { title: 'Name', dataIndex: 'name', ellipsis: true, sorter: strSorter('name'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Length (mm)', dataIndex: 'length_mm', ellipsis: true, sorter: numSorter('length_mm'), render: v => v != null ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Particle (µm)', dataIndex: 'particle_size_um', ellipsis: true, sorter: numSorter('particle_size_um'), render: v => v != null ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Pore (Å)', dataIndex: 'pore_size_angstrom', ellipsis: true, sorter: numSorter('pore_size_angstrom'), render: v => v != null ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Length (mm)', dataIndex: 'length_mm', ellipsis: true, sorter: numSorter('length_mm'), render: v => v != null ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Particle (µm)', dataIndex: 'particle_size_um', ellipsis: true, sorter: numSorter('particle_size_um'), render: v => v != null ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Pore (Å)', dataIndex: 'pore_size_angstrom', ellipsis: true, sorter: numSorter('pore_size_angstrom'), render: v => v != null ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     {
       title: 'Active', dataIndex: 'is_active', align: 'center',
       render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => columnTypeApi.toggle(r.id), load)} />,
     },
     {
-      title: '', key: 'actions', align: 'center',
+      title: 'Actions', key: 'actions', align: 'center',
       render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>,
     },
   ]
@@ -603,7 +603,7 @@ function LookupTab() {
     { title: 'Code', dataIndex: 'lookup_code', ellipsis: true, sorter: strSorter('lookup_code'), render: v => <span className="  text-[13px] text-slate-800">{v}</span> },
     { title: 'Active', dataIndex: 'is_active', align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => lookupApi.toggle(r.id), load)} /> },
     {
-      title: '', key: 'actions', align: 'center',
+      title: 'Actions', key: 'actions', align: 'center',
       render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>,
     },
   ]
@@ -815,7 +815,7 @@ function StorageMasterTab() {
     Modal.confirm({ title: `Delete "${r.label}"?`, okText: 'Delete', okButtonProps: { danger: true }, centered: true, styles: glassModalStyles, onOk: () => del.mutate(r.id) })
 
   const tempDisplay = (r: StorageCondition) => {
-    if (r.temperature_min == null && r.temperature_max == null) return <span className="text-slate-300">—</span>
+    if (r.temperature_min == null && r.temperature_max == null) return <span className="text-slate-800">NA</span>
     if (r.temperature_min != null && r.temperature_max != null)
       return <span className="  text-[13px] text-slate-800">{r.temperature_min} to {r.temperature_max} {r.temperature_unit}</span>
     if (r.temperature_min != null)
@@ -829,7 +829,7 @@ function StorageMasterTab() {
     { title: 'Sort', dataIndex: 'sort_order', ellipsis: true, align: 'center', sorter: numSorter('sort_order'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     { title: 'Active', dataIndex: 'is_active', align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={() => toggle.mutate(r.id)} /> },
     {
-      title: '', key: 'actions', align: 'center',
+      title: 'Actions', key: 'actions', align: 'center',
       render: (_, r) => (
         <Space size={4}>
           <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>
@@ -926,9 +926,9 @@ function MeasurementMasterTab() {
     { title: 'Sl No', key: 'sl', ellipsis: true, render: (_, __, i) => <span className="text-[13px] text-slate-800">{i + 1}</span> },
     { title: 'Measurement Name', dataIndex: 'name', ellipsis: true, sorter: strSorter('name'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     { title: 'Data Type', dataIndex: 'data_type', ellipsis: true, sorter: strSorter('data_type'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'UOM', dataIndex: 'uom', ellipsis: true, sorter: strSorter('uom'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-slate-300">—</span> },
+    { title: 'UOM', dataIndex: 'uom', ellipsis: true, sorter: strSorter('uom'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-slate-800">NA</span> },
     { title: 'Active', dataIndex: 'is_active', align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => measurementMasterApi.toggle(r.id), load)} /> },
-    { title: 'Action', key: 'a', align: 'center', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip> },
+    { title: 'Actions', key: 'a', align: 'center', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip> },
   ]
 
   const filtered = items.filter(r => matchesSearch(search, r.name, r.data_type, r.uom))
@@ -987,9 +987,9 @@ function SparePartsTab() {
   const columns: ColumnsType<SparePart> = [
     { title: 'Part Code', dataIndex: 'part_code', ellipsis: true, sorter: strSorter('part_code'), render: v => <span className="  text-[13px] text-slate-800">{v}</span> },
     { title: 'Name', dataIndex: 'name', ellipsis: true, sorter: strSorter('name'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Description', dataIndex: 'description', ellipsis: true, sorter: strSorter('description'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-slate-300">—</span> },
+    { title: 'Description', dataIndex: 'description', ellipsis: true, sorter: strSorter('description'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-slate-800">NA</span> },
     { title: 'Active', dataIndex: 'is_active', align: 'center', render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => sparePartApi.toggle(r.id), load)} /> },
-    { title: 'Action', key: 'a', align: 'center', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip> },
+    { title: 'Actions', key: 'a', align: 'center', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip> },
   ]
 
   const filtered = items.filter(r => matchesSearch(search, r.part_code, r.name, r.description))

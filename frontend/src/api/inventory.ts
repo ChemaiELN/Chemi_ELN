@@ -4,7 +4,7 @@ import { apiDelete, apiDownloadBlob, apiGet, apiPatch, apiPost, apiPut, apiUploa
 export interface ConsumableType { id: number; name: string; description: string | null; sort_order: number; is_active: boolean; message?: string | null }
 export interface ChemicalProps { purity_pct: number | null; grade: string | null; appearance: string | null; solubility: string | null; boiling_pt: number | null; melting_pt: number | null; flash_pt: number | null; density: number | null; ph_range: string | null }
 export interface FormulationProps { role: string | null; concentration: number | null; units: string | null; function: string | null; compatibility_notes: string | null }
-export interface Material { id: number; code: string; name: string; material_type: string | null; cas_no: string | null; molecular_formula: string | null; mol_weight: number | null; storage_condition: string | null; hazard_class: string | null; description: string | null; is_active: boolean; department_id: string | null; consumable_type_id: number | null; created_at: string; updated_at: string; chemical_props: ChemicalProps | null; formulation_props: FormulationProps | null; message?: string | null }
+export interface Material { id: number; code: string; name: string; material_type: string | null; cas_no: string | null; molecular_formula: string | null; mol_weight: number | null; storage_condition: string | null; hazard_class: string | null; iso_type: string | null; description: string | null; is_active: boolean; department_id: string | null; consumable_type_id: number | null; created_at: string; updated_at: string; chemical_props: ChemicalProps | null; formulation_props: FormulationProps | null; message?: string | null }
 export interface Manufacturer { id: number; code: string; name: string; country: string | null; contact_person: string | null; email: string | null; phone: string | null; website: string | null; address: string | null; is_active: boolean; created_at: string; updated_at: string; message?: string | null }
 export interface Mapping { id: number; material_id: number; manufacturer_id: number; catalogue_no: string | null; technical_grade: string | null; lead_time_days: number | null; min_order_qty: number | null; dsd_file_path: string | null; created_at: string; updated_at: string }
 
@@ -20,10 +20,12 @@ export interface Batch {
   // extended fields
   measuring_unit_value: number | null; pack_type: string | null; pack_mode: string | null
   location: string | null; invoice_no: string | null; po_no: string | null
-  clone: string | null; iso_type: string | null; price: number | null
+  clone: string | null; price: number | null
   received_by: string | null; received_at: string | null; remarks: string | null
   coa_filename: string | null; other_docs_filename: string | null
   material_name: string | null; manufacturer_name: string | null
+  // Only set when the list endpoint is called with expand_packs=1 (one row per pack).
+  pack_sku: string | null; row_key: string | null
 }
 export interface BatchEvent { id: number; batch_id: number; event_type: string; qty: number | null; ref_no: string | null; module: string | null; issued_to: string | null; purpose: string | null; project_code: string | null; performed_by: string; performed_at: string; remarks: string | null }
 export interface StockRequestEvent { id: number; request_id: number; event_type: string; performed_by: string; performed_at: string; remarks: string | null }
@@ -112,7 +114,13 @@ export const storageConditionApi = {
 export const batchApi = {
   nextBatchNo: () => apiGet<{ batch_no: string }>('/api/inventory/batches/next-batch-no'),
   nextInhouseNo: (materialType: string) => apiGet<{ inhouse_batch_no: string }>('/api/inventory/batches/next-inhouse-no', { material_type: materialType }),
-  list: (params?: Record<string, unknown>) => apiGet<Batch[]>('/api/inventory/batches', params),
+  // Back-compat: unwraps the paginated response and returns just the page of items
+  // (used by pickers/dropdowns elsewhere that don't need a total count).
+  list: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Batch[]; total: number }>('/api/inventory/batches', params).then(r => r.items),
+  // Server-side pagination: returns { items, total } so the caller can size a Table's pagination.
+  listPaged: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Batch[]; total: number }>('/api/inventory/batches', params),
   get: (id: number) => apiGet<Batch>(`/api/inventory/batches/${id}`),
   create: (body: unknown) => apiPost<Batch>('/api/inventory/batches', body),
   update: (id: number, body: unknown) => apiPatch<Batch>(`/api/inventory/batches/${id}`, body),
@@ -128,7 +136,13 @@ export const batchApi = {
 
 // ── Stock Requests ────────────────────────────────────────────────────────────
 export const stockRequestApi = {
-  list: (params?: Record<string, unknown>) => apiGet<StockRequest[]>('/api/inventory/stock-requests', params),
+  // Back-compat: unwraps the paginated response and returns just the page of items
+  // (used by pickers/dropdowns elsewhere that don't need a total count).
+  list: (params?: Record<string, unknown>) =>
+    apiGet<{ items: StockRequest[]; total: number }>('/api/inventory/stock-requests', params).then(r => r.items),
+  // Server-side pagination: returns { items, total } so the caller can size a Table's pagination.
+  listPaged: (params?: Record<string, unknown>) =>
+    apiGet<{ items: StockRequest[]; total: number }>('/api/inventory/stock-requests', params),
   get: (id: number) => apiGet<StockRequest>(`/api/inventory/stock-requests/${id}`),
   create: (body: unknown) => apiPost<StockRequest>('/api/inventory/stock-requests', body),
   update: (id: number, body: unknown) => apiPatch<StockRequest>(`/api/inventory/stock-requests/${id}`, body),
@@ -235,7 +249,13 @@ export const materialApi = {
 }
 
 export const mappingApi = {
-  list: (params?: Record<string, unknown>) => apiGet<Mapping[]>('/api/inventory/mappings', params),
+  // Back-compat: unwraps the paginated response and returns just the page of items
+  // (used by pickers/dropdowns elsewhere that don't need a total count).
+  list: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Mapping[]; total: number }>('/api/inventory/mappings', params).then(r => r.items),
+  // Server-side pagination: returns { items, total } so the caller can size a Table's pagination.
+  listPaged: (params?: Record<string, unknown>) =>
+    apiGet<{ items: Mapping[]; total: number }>('/api/inventory/mappings', params),
   create: (body: unknown) => apiPost<Mapping>('/api/inventory/mappings', body),
   update: (id: number, body: unknown) => apiPatch<Mapping>(`/api/inventory/mappings/${id}`, body),
   delete: (id: number) => apiDelete<void>(`/api/inventory/mappings/${id}`),

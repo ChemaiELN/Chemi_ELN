@@ -81,10 +81,10 @@ export default function ChecklistsPage() {
     { title: 'Checklist Type', ellipsis: true, dataIndex: 'checklist_type', width: 150, render: v => <span className="text-[13px] text-slate-700">{label(v)}</span> },
     { title: 'Log Type', ellipsis: true, dataIndex: 'log_type', width: 110, render: v => <span className="text-[13px] text-slate-600">{label(v)}</span> },
     { title: 'Target', ellipsis: true, dataIndex: 'target_kind', width: 110, render: v => <span className="text-[13px] text-slate-600">{label(v)}</span> },
-    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 100, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 100, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 200, render: v => <StatusTag color={CHECKLIST_STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{CHECKLIST_STATUS_LABEL[v] ?? v}</StatusTag> },
     {
-      title: 'Action', key: 'actions', width: 110, align: 'right', render: (_, r) => (
+      title: 'Actions', key: 'actions', width: 110, align: 'right', render: (_, r) => (
         <Space size={4}>
           <Tooltip title={r.status === 'DRAFT' ? 'Edit' : 'Only DRAFT can be edited'}>
             <Button type="text" size="small" icon={<Pencil size={13} />} disabled={r.status !== 'DRAFT'} onClick={() => openEdit(r)} />

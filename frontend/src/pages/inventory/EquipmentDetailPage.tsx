@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import dayjs from 'dayjs'
 import { Tabs, Button, Spin, Empty, Table, Modal, message } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
 import { ArrowLeft, QrCode } from 'lucide-react'
@@ -17,7 +18,7 @@ function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="py-2 px-1">
       <p className="text-[11px] uppercase tracking-wide text-slate-400 mb-0.5">{label}</p>
-      <p className="text-[13px] text-slate-800">{value ?? <span className="text-slate-300">—</span>}</p>
+      <p className="text-[13px] text-slate-800">{value ?? <span className="text-slate-800">NA</span>}</p>
     </div>
   )
 }
@@ -33,10 +34,10 @@ function AuditTab({ entityId }: { entityId: number }) {
   const columns: ColumnsType<AuditTrailEntry> = [
     { title: 'Event', ellipsis: true, dataIndex: 'event_type', width: 210, render: v => <span className="text-[13px] font-medium text-slate-700">{v.replace(/_/g, ' ')}</span> },
     { title: 'By', ellipsis: true, dataIndex: 'performed_by', width: 140, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
-    { title: 'When', ellipsis: true, dataIndex: 'performed_at', width: 170, render: v => <span className="text-[13px] text-slate-600">{new Date(v).toLocaleString()}</span> },
-    { title: 'Old', ellipsis: true, dataIndex: 'old_value', render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-300">—</span> },
-    { title: 'New', ellipsis: true, dataIndex: 'new_value', render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-300">—</span> },
-    { title: 'Details', ellipsis: true, dataIndex: 'details', render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-300">—</span> },
+    { title: 'When', ellipsis: true, dataIndex: 'performed_at', width: 170, render: v => <span className="text-[13px] text-slate-600">{dayjs(v).format('DD/MM/YYYY HH:mm')}</span> },
+    { title: 'Old', ellipsis: true, dataIndex: 'old_value', render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-500">NA</span> },
+    { title: 'New', ellipsis: true, dataIndex: 'new_value', render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-500">NA</span> },
+    { title: 'Details', ellipsis: true, dataIndex: 'details', render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-500">NA</span> },
   ]
   return <Table dataSource={rows} columns={columns} rowKey="id" size="small" loading={loading} pagination={{ pageSize: 10 }} scroll={{ x: 'max-content' }} />
 }

@@ -165,6 +165,7 @@ export default function Header({ onToggle, isMobile = false, breadcrumbs = [] }:
         cancelText="Cancel"
         okButtonProps={{ danger: true }}
         centered
+        closable={false}
         {...glassModalProps}
       >
         <p className="text-sm text-slate-600">Are you sure you want to sign out?</p>

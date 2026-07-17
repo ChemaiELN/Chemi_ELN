@@ -9,12 +9,13 @@ from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
 
 from app.dependencies import get_current_user, get_db
-from app.models.inventory import InvBatch, InvBatchEvent, InvBatchPack, InvBatchNoCounter, InvBatchNumberCounter, InvStockRequest, InvStockRequestEvent
+from app.models.inventory import InvBatch, InvBatchEvent, InvBatchPack, InvBatchNoCounter, InvBatchNumberCounter, InvManufacturer, InvMaterial, InvStockRequest, InvStockRequestEvent
 from app.schemas.inventory import (
     BatchAllocateRequest,
     BatchCreate,
     BatchEventOut,
     BatchIssueRequest,
+    BatchListOut,
     BatchOut,
     BatchUpdate,
 )
@@ -23,6 +24,17 @@ from app.shared.inv_audit import write_inv_audit
 from app.modules.inventory._qty_ledger import deduct_qty
 
 router = APIRouter(prefix="/inventory/batches", tags=["inventory-batches"])
+
+# Whitelist of columns the Batches table UI is allowed to sort by.
+SORTABLE_COLUMNS = {
+    "batch_no": InvBatch.batch_no,
+    "inhouse_batch_no": InvBatch.inhouse_batch_no,
+    "qty_available": InvBatch.qty_available,
+    "expiry_date": InvBatch.expiry_date,
+    "mfg_date": InvBatch.mfg_date,
+    "gr_date": InvBatch.gr_date,
+    "status": InvBatch.status,
+}
 
 
 def _user_ref(user) -> str:
@@ -155,7 +167,7 @@ def next_inhouse_no(
     return {"inhouse_batch_no": f"{prefix}/{year}/{next_seq}"}
 
 
-@router.get("", response_model=list[BatchOut])
+@router.get("", response_model=BatchListOut)
 def list_batches(
     material_id: Optional[int] = Query(None),
     status: Optional[str] = Query(None),
@@ -163,6 +175,9 @@ def list_batches(
     search: Optional[str] = Query(None),
     skip: int = Query(0, ge=0),
     limit: int = Query(50, le=200),
+    sort_by: Optional[str] = Query(None),
+    sort_dir: str = Query("desc"),
+    expand_packs: bool = Query(False),
     db: Session = Depends(get_db),
     _: Any = Depends(get_current_user),
 ):
@@ -175,10 +190,79 @@ def list_batches(
         q = q.filter(InvBatch.category == category)
     if search:
         term = f"%{search}%"
-        q = q.filter(
-            InvBatch.batch_no.ilike(term) | InvBatch.inhouse_batch_no.ilike(term)
+        q = (
+            q.outerjoin(InvMaterial, InvBatch.material_id == InvMaterial.id)
+            .outerjoin(InvManufacturer, InvBatch.manufacturer_id == InvManufacturer.id)
+            .filter(
+                InvBatch.batch_no.ilike(term)
+                | InvBatch.inhouse_batch_no.ilike(term)
+                | InvBatch.status.ilike(term)
+                | InvBatch.location.ilike(term)
+                | InvMaterial.name.ilike(term)
+                | InvManufacturer.name.ilike(term)
+            )
         )
-    return q.order_by(InvBatch.id.desc()).offset(skip).limit(limit).all()
+    sort_col = SORTABLE_COLUMNS.get(sort_by, InvBatch.id)
+    order_clause = sort_col.desc() if sort_dir == "desc" else sort_col.asc()
+
+    if not expand_packs:
+        total = q.count()
+        items = q.order_by(order_clause).offset(skip).limit(limit).all()
+        return {"items": items, "total": total}
+
+    # Row-level pagination: the Batches table UI shows one row per pack (a
+    # batch with 3 packs renders as 3 rows), so skip/limit/total must operate
+    # on that expanded row count — not the raw batch count — or the pager's
+    # page count and the actually-fetched rows drift out of sync as packs
+    # are added over time.
+    ordered_batch_ids = [bid for (bid,) in q.order_by(order_clause).with_entities(InvBatch.id).all()]
+    packs = (
+        db.query(InvBatchPack)
+        .filter(InvBatchPack.batch_id.in_(ordered_batch_ids))
+        .order_by(InvBatchPack.batch_id, InvBatchPack.seq_no)
+        .all()
+    )
+    packs_by_batch: dict[int, list[InvBatchPack]] = {}
+    for p in packs:
+        packs_by_batch.setdefault(p.batch_id, []).append(p)
+
+    row_index: list[tuple[int, Optional[int]]] = []
+    for bid in ordered_batch_ids:
+        bp = packs_by_batch.get(bid)
+        if bp:
+            row_index.extend((bid, p.id) for p in bp)
+        else:
+            row_index.append((bid, None))
+
+    total = len(row_index)
+    page_slice = row_index[skip: skip + limit]
+
+    batch_ids_needed = {bid for bid, _ in page_slice}
+    pack_ids_needed = {pid for _, pid in page_slice if pid is not None}
+    batches_by_id = (
+        {b.id: b for b in db.query(InvBatch).filter(InvBatch.id.in_(batch_ids_needed)).all()}
+        if batch_ids_needed else {}
+    )
+    packs_by_id = (
+        {p.id: p for p in db.query(InvBatchPack).filter(InvBatchPack.id.in_(pack_ids_needed)).all()}
+        if pack_ids_needed else {}
+    )
+
+    items = []
+    for bid, pid in page_slice:
+        batch = batches_by_id[bid]
+        out = BatchOut.model_validate(batch)
+        pack = packs_by_id.get(pid) if pid is not None else None
+        if pack is not None:
+            sku = pack.inhouse_batch_no
+        elif batch.inhouse_batch_no and batch.pack_type:
+            sku = f"{batch.inhouse_batch_no}/{batch.pack_type[0].upper()}1"
+        else:
+            sku = None
+        row_key = f"{batch.id}-{pack.id}" if pack is not None else f"{batch.id}"
+        items.append(out.model_copy(update={"pack_sku": sku, "row_key": row_key}))
+
+    return {"items": items, "total": total}
 
 
 @router.post("", response_model=BatchOut, status_code=201)

@@ -20,17 +20,43 @@ export interface SourceColumn {
   label: string
 }
 
+export interface FetchOpts {
+  lookupType?: string
+  search?: string            // honored only when serverSearch is true
+}
+export interface FetchOneOpts {
+  value: unknown
+  valueField: string
+  lookupType?: string
+}
+
 export interface InventorySourceDef {
   key: InventorySourceKey
   label: string
   needsLookupType?: boolean          // 'lookup' only — requires a lookup_type to be chosen
+  // true → the backend supports a `search` param, so we query per keystroke
+  // (debounced). false → load once (server caps well above realistic size) and
+  // filter in the browser.
+  serverSearch?: boolean
   defaultValueField: string
   defaultLabelField: string
-  columns: SourceColumn[]            // selectable as value/label; also the future autofill attribute list
-  fetch: (opts?: { lookupType?: string }) => Promise<Record<string, unknown>[]>
+  columns: SourceColumn[]            // selectable as value/label; also the autofill attribute list
+  fetch: (opts?: FetchOpts) => Promise<Record<string, unknown>[]>
+  // Resolve a single row by its stored value — used to show a label on reload
+  // and to feed autofill for server-search sources.
+  fetchOne: (opts: FetchOneOpts) => Promise<Record<string, unknown> | null>
 }
 
-const LIST_PARAMS = { active_only: true, limit: 200 }
+// Client-side sources load a full page; their endpoints cap at 500.
+const CLIENT_LIMIT = 500
+// Server-search sources: a small page for browsing, a slightly larger page when
+// a search term narrows results.
+const SEARCH_PAGE = 50
+const BROWSE_PAGE = 50
+
+function findByValue(rows: Record<string, unknown>[], valueField: string, value: unknown) {
+  return rows.find(r => String(r[valueField]) === String(value)) ?? null
+}
 
 export const INVENTORY_SOURCES: Record<InventorySourceKey, InventorySourceDef> = {
   materials: {
@@ -46,12 +72,22 @@ export const INVENTORY_SOURCES: Record<InventorySourceKey, InventorySourceDef> =
       { key: 'mol_weight', label: 'Molecular Weight' },
       { key: 'storage_condition', label: 'Storage Condition' },
       { key: 'hazard_class', label: 'Hazard Class' },
+      { key: 'iso_type', label: 'ISO Type' },
     ],
-    fetch: () => materialApi.list(LIST_PARAMS) as Promise<Record<string, unknown>[]>,
+    serverSearch: true,
+    fetch: (opts) => materialApi.list({
+      active_only: true,
+      limit: opts?.search ? SEARCH_PAGE : BROWSE_PAGE,
+      ...(opts?.search ? { search: opts.search } : {}),
+    }) as Promise<Record<string, unknown>[]>,
+    fetchOne: ({ value, valueField }) =>
+      materialApi.list({ active_only: true, limit: 20, search: String(value) })
+        .then(rows => findByValue(rows as Record<string, unknown>[], valueField, value)),
   },
   manufacturers: {
     key: 'manufacturers',
     label: 'Manufacturers',
+    serverSearch: true,
     defaultValueField: 'code',
     defaultLabelField: 'name',
     columns: [
@@ -59,7 +95,14 @@ export const INVENTORY_SOURCES: Record<InventorySourceKey, InventorySourceDef> =
       { key: 'name', label: 'Name' },
       { key: 'country', label: 'Country' },
     ],
-    fetch: () => manufacturerApi.list(LIST_PARAMS) as Promise<Record<string, unknown>[]>,
+    fetch: (opts) => manufacturerApi.list({
+      active_only: true,
+      limit: opts?.search ? SEARCH_PAGE : BROWSE_PAGE,
+      ...(opts?.search ? { search: opts.search } : {}),
+    }) as Promise<Record<string, unknown>[]>,
+    fetchOne: ({ value, valueField }) =>
+      manufacturerApi.list({ active_only: true, limit: 20, search: String(value) })
+        .then(rows => findByValue(rows as Record<string, unknown>[], valueField, value)),
   },
   uom: {
     key: 'uom',
@@ -70,10 +113,16 @@ export const INVENTORY_SOURCES: Record<InventorySourceKey, InventorySourceDef> =
       { key: 'symbol', label: 'Symbol' },
       { key: 'name', label: 'Name' },
     ],
-    // UOM is nested dimension→units; flatten to a single list of units.
+    // UOM is nested dimension→units; flatten to a single list of units. Small,
+    // bounded set — loaded once and filtered client-side.
     fetch: async () => {
-      const dims = await uomApi.list({ active_only: true })
+      const dims = await uomApi.list({ active_only: true, limit: CLIENT_LIMIT })
       return dims.flatMap(d => d.units ?? []) as unknown as Record<string, unknown>[]
+    },
+    fetchOne: async ({ value, valueField }) => {
+      const dims = await uomApi.list({ active_only: true, limit: CLIENT_LIMIT })
+      const units = dims.flatMap(d => d.units ?? []) as unknown as Record<string, unknown>[]
+      return findByValue(units, valueField, value)
     },
   },
   lookup: {
@@ -87,7 +136,10 @@ export const INVENTORY_SOURCES: Record<InventorySourceKey, InventorySourceDef> =
       { key: 'lookup_value', label: 'Value' },
     ],
     fetch: (opts) =>
-      lookupApi.list({ lookup_type: opts?.lookupType, active_only: true }) as Promise<Record<string, unknown>[]>,
+      lookupApi.list({ lookup_type: opts?.lookupType, active_only: true, limit: CLIENT_LIMIT }) as Promise<Record<string, unknown>[]>,
+    fetchOne: ({ value, valueField, lookupType }) =>
+      lookupApi.list({ lookup_type: lookupType, active_only: true, limit: CLIENT_LIMIT })
+        .then(rows => findByValue(rows as Record<string, unknown>[], valueField, value)),
   },
 }
 

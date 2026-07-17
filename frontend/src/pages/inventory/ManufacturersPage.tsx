@@ -144,7 +144,7 @@ export default function ManufacturersPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Contact Person',
@@ -154,7 +154,7 @@ export default function ManufacturersPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Email',
@@ -164,7 +164,7 @@ export default function ManufacturersPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Phone',
@@ -174,7 +174,7 @@ export default function ManufacturersPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Status',
@@ -186,7 +186,7 @@ export default function ManufacturersPage() {
       render: (v: boolean, r: Manufacturer) => <Switch size="small" checked={v} onChange={() => handleToggle(r)} />,
     },
     {
-      title: '',
+      title: 'Actions',
       key: 'actions',
       width: 80,
       align: 'center',

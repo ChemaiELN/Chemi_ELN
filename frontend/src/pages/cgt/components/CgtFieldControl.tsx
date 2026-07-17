@@ -2,7 +2,7 @@ import { Input, InputNumber, DatePicker, Select, Checkbox, Radio } from 'antd'
 import { Paperclip } from 'lucide-react'
 import dayjs from 'dayjs'
 import type { TemplateField } from '../../admin/templateBuilder/types'
-import { useInventoryOptions } from '../../admin/templateBuilder/useInventoryOptions'
+import InventorySelect from '../../admin/templateBuilder/InventorySelect'
 
 // Renders ONE runtime control for a TemplateField (the same JSON shape the
 // CGT Template Builder produces — section -> screen -> field, with `id`/`name`
@@ -23,8 +23,6 @@ export default function CgtFieldControl({ field, value, onChange, disabled }: {
   const locked = !!field.autoFill && !field.autoFill.editable
   const dis = disabled || locked
   const commonProps = { placeholder: field.placeholder, disabled: dis }
-  // Static or inventory-backed dropdown options (no-op fetch for static fields).
-  const { options: dropdownOptions, loading: optionsLoading } = useInventoryOptions(field)
 
   switch (field.type) {
     case 'SECTION_HEADING':
@@ -61,13 +59,14 @@ export default function CgtFieldControl({ field, value, onChange, disabled }: {
         />
       )
     case 'DROPDOWN':
-      return (
+      return field.optionsMode === 'inventory' && field.inventorySource ? (
+        <InventorySelect field={field} value={value} onChange={onChange} disabled={dis} allowClear />
+      ) : (
         <Select
           className="w-full" placeholder={field.placeholder ?? 'Select…'} disabled={dis}
           value={(value as string) || undefined}
           onChange={v => onChange(v)}
-          options={dropdownOptions}
-          loading={optionsLoading}
+          options={(field.options ?? []).map(o => ({ value: o, label: o }))}
           showSearch
           optionFilterProp="label"
           allowClear

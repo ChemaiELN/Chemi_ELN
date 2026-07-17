@@ -67,6 +67,7 @@ class InvMaterial(Base):
     mol_weight          = Column(Numeric(12, 4), nullable=True)
     storage_condition   = Column(String(200), nullable=True)
     hazard_class        = Column(String(100), nullable=True)
+    iso_type            = Column(String(50), nullable=True)  # Antibody Materials only
     description         = Column(Text, nullable=True)
     is_active           = Column(Boolean, nullable=False, default=True)
     department_id       = Column(UUID(as_uuid=True), ForeignKey("departments.id", ondelete="SET NULL"), nullable=True)
@@ -209,7 +210,6 @@ class InvBatch(Base):
     invoice_no           = Column(String(100), nullable=True)
     po_no                = Column(String(100), nullable=True)
     clone                = Column(String(200), nullable=True)
-    iso_type             = Column(String(50), nullable=True)
     price                = Column(Numeric(14, 4), nullable=True)
     received_by          = Column(String(200), nullable=True)
     received_at          = Column(DateTime, nullable=True)

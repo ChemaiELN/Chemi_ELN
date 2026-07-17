@@ -1,7 +1,7 @@
 import { useNavigate, useLocation } from 'react-router-dom'
 import { Menu, ConfigProvider } from 'antd'
 import type { MenuProps } from 'antd'
-import { FolderOpen, LayoutGrid, BookOpen, FlaskConical, FileText } from 'lucide-react'
+import { FolderOpen, BookOpen, FlaskConical, FileText } from 'lucide-react'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import logo from '../../assets/logo.svg'
@@ -76,16 +76,6 @@ export default function AdcSidebar({ collapsed, onItemClick }: AdcSidebarProps) 
           className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'}
         />
       </div>
-
-      {/* Back to modules */}
-      <button
-        onClick={() => navigate('/')}
-        className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2 px-4'} py-2.5 mx-2 mt-2 rounded-xl text-slate-500 hover:text-indigo-600 hover:bg-white/50 transition-colors text-xs font-medium`}
-        title="All Modules"
-      >
-        <LayoutGrid size={14} className="shrink-0" />
-        {!collapsed && <span>All Modules</span>}
-      </button>
 
       {/* Navigation */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden py-1">

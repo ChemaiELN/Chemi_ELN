@@ -138,13 +138,13 @@ function EquipmentTab() {
   const columns: ColumnsType<EquipmentCatalogue> = [
     { title: 'Equipment Code', ellipsis: true, dataIndex: 'asset_id', width: 150, render: (v, r) => <a className=" text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/equipment/${r.id}`)}>{v}</a> },
     { title: 'Name', ellipsis: true, dataIndex: 'name', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Type', ellipsis: true, dataIndex: 'equipment_type_id', width: 130, render: v => { const t = equipTypes.find(x => x.id === v); return t ? <span className="text-[13px] text-slate-600">{t.name}</span> : <span className="text-[13px] text-slate-300">—</span> } },
-    { title: 'Location', ellipsis: true, dataIndex: 'location', width: 130, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 110, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 120, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Type', ellipsis: true, dataIndex: 'equipment_type_id', width: 130, render: v => { const t = equipTypes.find(x => x.id === v); return t ? <span className="text-[13px] text-slate-600">{t.name}</span> : <span className="text-[13px] text-slate-600">NA</span> } },
+    { title: 'Location', ellipsis: true, dataIndex: 'location', width: 130, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
+    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 110, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
+    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 120, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 150, render: v => <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{String(v).replace(/_/g, ' ')}</StatusTag> },
     {
-      title: 'Action', key: 'actions', width: 140, align: 'right', render: (_, r) => (
+      title: 'Actions', key: 'actions', width: 140, align: 'right', render: (_, r) => (
         <Space size={2}>
           <Tooltip title="View"><Button type="text" size="small" icon={<Eye size={14} />} onClick={() => navigate(`/inventory/equipment/${r.id}`)} /></Tooltip>
           <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>
@@ -193,12 +193,12 @@ function EquipmentTab() {
                   <Select options={EQUIP_STATUS_OPTIONS} />
                 </Form.Item>
                 <Form.Item name="last_maintenance_date" label="Last Maintenance Date">
-                  <DatePicker style={{ width: '100%' }} />
+                  <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                 </Form.Item>
               </>
             )}
             <Form.Item name="next_maintenance_date" label="Next Maintenance Date">
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
             <Form.Item name="description" label="Description" className="col-span-2"><Input.TextArea rows={2} /></Form.Item>
           </div>
@@ -287,13 +287,13 @@ function InstrumentTab() {
   const columns: ColumnsType<InstrumentCatalogue> = [
     { title: 'Instrument Code', ellipsis: true, dataIndex: 'asset_id', width: 150, render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/instruments/${r.id}`)}>{v}</a> },
     { title: 'Name', ellipsis: true, dataIndex: 'name', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Type', ellipsis: true, dataIndex: 'instrument_type_id', width: 140, render: v => { const t = instrTypes.find(x => x.id === v); return t ? <span className="text-[13px] text-slate-600">{t.name}</span> : <span className="text-[13px] text-slate-300">—</span> } },
-    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 120, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 110, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Type', ellipsis: true, dataIndex: 'instrument_type_id', width: 140, render: v => { const t = instrTypes.find(x => x.id === v); return t ? <span className="text-[13px] text-slate-600">{t.name}</span> : <span className="text-[13px] text-slate-600">NA</span> } },
+    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 120, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
+    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 110, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
     { title: 'Calibration', ellipsis: true, dataIndex: 'calibration_status', width: 110, render: v => <StatusTag color={MAINT_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag> },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 150, render: v => <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{String(v).replace(/_/g, ' ')}</StatusTag> },
     {
-      title: 'Action', key: 'actions', width: 140, align: 'right', render: (_, r) => (
+      title: 'Actions', key: 'actions', width: 140, align: 'right', render: (_, r) => (
         <Space size={2}>
           <Tooltip title="View"><Button type="text" size="small" icon={<Eye size={14} />} onClick={() => navigate(`/inventory/instruments/${r.id}`)} /></Tooltip>
           <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>
@@ -347,12 +347,12 @@ function InstrumentTab() {
                   <Select options={INSTR_STATUS_OPTIONS} />
                 </Form.Item>
                 <Form.Item name="last_calibration_date" label="Last Calibration Date">
-                  <DatePicker style={{ width: '100%' }} />
+                  <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
                 </Form.Item>
               </>
             )}
             <Form.Item name="next_calibration_date" label="Next Calibration Date">
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
             <Form.Item name="description" label="Description" className="col-span-2"><Input.TextArea rows={2} /></Form.Item>
           </div>
@@ -411,13 +411,13 @@ function ColumnTab() {
   const columns: ColumnsType<ColumnCatalogue> = [
     { title: 'Column ID', ellipsis: true, dataIndex: 'column_id', width: 130, render: v => <StatusTag color="cyan" className="  text-[13px]">{v}</StatusTag> },
     { title: 'Name', ellipsis: true, dataIndex: 'name', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Serial No', ellipsis: true, dataIndex: 'serial_no', width: 130, render: v => v ? <span className="  text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Lot No', ellipsis: true, dataIndex: 'lot_no', width: 120, render: v => v ? <span className="  text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Serial No', ellipsis: true, dataIndex: 'serial_no', width: 130, render: v => v ? <span className="  text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
+    { title: 'Lot No', ellipsis: true, dataIndex: 'lot_no', width: 120, render: v => v ? <span className="  text-[13px] text-slate-600">{v}</span> : <span className="text-[13px] text-slate-600">NA</span> },
     { title: 'Max Inj.', ellipsis: true, dataIndex: 'max_injections', width: 100, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
     { title: 'Used', ellipsis: true, dataIndex: 'cumulative_injections', width: 80, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
     { title: 'Remaining', ellipsis: true, dataIndex: 'injections_remaining', width: 100, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 110, render: v => <StatusTag color={COL_STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag> },
-    { title: '', key: 'actions', width: 60, align: 'right', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip> },
+    { title: 'Actions', key: 'actions', width: 60, align: 'right', render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip> },
   ]
 
   return (

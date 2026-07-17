@@ -65,6 +65,7 @@ class MaterialCreate(BaseModel):
     mol_weight: Optional[Decimal] = None
     storage_condition: Optional[str] = None
     hazard_class: Optional[str] = None
+    iso_type: Optional[str] = None
     description: Optional[str] = None
     department_id: Optional[UUID] = None
     consumable_type_id: Optional[int] = None
@@ -85,6 +86,7 @@ class MaterialUpdate(BaseModel):
     mol_weight: Optional[Decimal] = None
     storage_condition: Optional[str] = None
     hazard_class: Optional[str] = None
+    iso_type: Optional[str] = None
     description: Optional[str] = None
     department_id: Optional[UUID] = None
     consumable_type_id: Optional[int] = None
@@ -147,6 +149,7 @@ class MaterialOut(_OrmBase):
     mol_weight: Optional[Decimal] = None
     storage_condition: Optional[str] = None
     hazard_class: Optional[str] = None
+    iso_type: Optional[str] = None
     description: Optional[str] = None
     is_active: bool
     department_id: Optional[UUID] = None
@@ -246,6 +249,11 @@ class MappingOut(_OrmBase):
     dsd_file_path: Optional[str] = None
     created_at: datetime.datetime
     updated_at: datetime.datetime
+
+
+class MappingListOut(BaseModel):
+    items: list[MappingOut]
+    total: int
 
 
 class MappingUploadResult(BaseModel):
@@ -970,7 +978,6 @@ class BatchCreate(BaseModel):
     invoice_no: Optional[str] = None
     po_no: Optional[str] = None
     clone: Optional[str] = None
-    iso_type: Optional[str] = None
     price: Optional[Decimal] = None
     received_by: Optional[str] = None
     received_at: Optional[datetime.datetime] = None
@@ -1001,7 +1008,6 @@ class BatchUpdate(BaseModel):
     invoice_no: Optional[str] = None
     po_no: Optional[str] = None
     clone: Optional[str] = None
-    iso_type: Optional[str] = None
     price: Optional[Decimal] = None
     received_by: Optional[str] = None
     received_at: Optional[datetime.datetime] = None
@@ -1036,7 +1042,6 @@ class BatchOut(_OrmBase):
     invoice_no: Optional[str] = None
     po_no: Optional[str] = None
     clone: Optional[str] = None
-    iso_type: Optional[str] = None
     price: Optional[Decimal] = None
     received_by: Optional[str] = None
     received_at: Optional[datetime.datetime] = None
@@ -1048,6 +1053,11 @@ class BatchOut(_OrmBase):
     packs: list[BatchPackOut] = []
     manufacturer_name: Optional[str] = None
     material_name: Optional[str] = None
+    # Populated only when the Batches table list endpoint is asked to paginate
+    # at the pack-row level (?expand_packs=1) — the specific pack SKU and a
+    # stable row identity for this expanded row. Always null otherwise.
+    pack_sku: Optional[str] = None
+    row_key: Optional[str] = None
 
     @model_validator(mode='before')
     @classmethod
@@ -1060,6 +1070,11 @@ class BatchOut(_OrmBase):
             if mat is not None:
                 data.__dict__['material_name'] = getattr(mat, 'name', None)
         return data
+
+
+class BatchListOut(BaseModel):
+    items: list[BatchOut]
+    total: int
 
 
 class BatchIssueRequest(BaseModel):
@@ -1150,6 +1165,11 @@ class StockRequestOut(_OrmBase):
     created_at: datetime.datetime
     updated_at: datetime.datetime
     events: list[StockRequestEventOut] = []
+
+
+class StockRequestListOut(BaseModel):
+    items: list[StockRequestOut]
+    total: int
 
 
 # ── General Lookup ────────────────────────────────────────────────────────────

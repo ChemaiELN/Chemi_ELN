@@ -4,7 +4,8 @@ import {
   message, Space, Tooltip, Popconfirm, Upload,
 } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
-import type { ColumnsType } from 'antd/es/table'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import type { SorterResult } from 'antd/es/table/interface'
 import { Plus, Pencil, Trash2, Search, Link2, Upload as UploadIcon, Download, X } from 'lucide-react'
 import type { UploadFile } from 'antd/es/upload'
 import {
@@ -21,7 +22,14 @@ export default function MappingsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
   const [manufacturers, setManufacturers] = useState<Manufacturer[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const searchDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [total, setTotal] = useState(0)
+  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [modalOpen, setModalOpen] = useState(false)
 
   const handleDownloadSds = async (r: Mapping) => {
@@ -75,32 +83,31 @@ export default function MappingsPage() {
     }, 300)
   }
 
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value)
+    if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current)
+    searchDebounceTimer.current = setTimeout(() => setSearch(value), 300)
+  }
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      setRows(await mappingApi.list({}))
+      const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize }
+      if (search) params.search = search
+      if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      const { items, total } = await mappingApi.listPaged(params)
+      setRows(items)
+      setTotal(total)
     } finally { setLoading(false) }
-  }, [])
+  }, [search, page, pageSize, sortBy, sortDir])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [search])
+  useEffect(() => () => { if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current) }, [])
   useEffect(() => {
-    materialApi.list({}).then(items => { setMaterials(items); setMaterialOptions(items) })
-    manufacturerApi.list({}).then(items => { setManufacturers(items); setManufacturerOptions(items) })
+    materialApi.list({ limit: 200 }).then(items => { setMaterials(items); setMaterialOptions(items) })
+    manufacturerApi.list({ limit: 200 }).then(items => { setManufacturers(items); setManufacturerOptions(items) })
   }, [])
-
-  const filtered = search
-    ? rows.filter(r => {
-        const mat = materials.find(m => m.id === r.material_id)?.name ?? ''
-        const mfr = manufacturers.find(m => m.id === r.manufacturer_id)?.name ?? ''
-        const q = search.toLowerCase()
-        return (
-          mat.toLowerCase().includes(q) ||
-          mfr.toLowerCase().includes(q) ||
-          (r.catalogue_no ?? '').toLowerCase().includes(q) ||
-          (r.technical_grade ?? '').toLowerCase().includes(q)
-        )
-      })
-    : rows
 
   const openCreate = () => {
     setEditing(null); setDsdFile(null); form.resetFields(); setModalOpen(true)
@@ -196,8 +203,6 @@ export default function MappingsPage() {
   const COL_WIDTH = 150
 
   const strSorter = (get: (r: Mapping) => string) => (a: Mapping, b: Mapping) => get(a).localeCompare(get(b))
-  const numSorter = (key: 'lead_time_days' | 'min_order_qty') => (a: Mapping, b: Mapping) =>
-    (a[key] ?? -Infinity) - (b[key] ?? -Infinity)
 
   const columns: ColumnsType<Mapping> = [
     {
@@ -221,40 +226,40 @@ export default function MappingsPage() {
       dataIndex: 'catalogue_no',
       ellipsis: true,
       width: COL_WIDTH,
-      sorter: strSorter(r => r.catalogue_no ?? ''),
+      sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Grade',
       dataIndex: 'technical_grade',
       ellipsis: true,
       width: COL_WIDTH,
-      sorter: strSorter(r => r.technical_grade ?? ''),
+      sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Lead Time',
       dataIndex: 'lead_time_days',
       ellipsis: true,
       width: COL_WIDTH,
-      sorter: numSorter('lead_time_days'),
+      sorter: true,
       render: (v: number | null) => v != null
         ? <span className="text-[13px] text-slate-800">{v} days</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Min Order Qty',
       dataIndex: 'min_order_qty',
       ellipsis: true,
       width: COL_WIDTH,
-      sorter: numSorter('min_order_qty'),
+      sorter: true,
       render: (v: number | null) => v != null
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'SDS File',
@@ -272,10 +277,10 @@ export default function MappingsPage() {
             </Tooltip>
           </Popconfirm> */}
         </Space>
-      ) : <span className="text-[13px] text-slate-300">—</span>,
+      ) : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
-      title: '',
+      title: 'Actions',
       key: 'actions',
       width: COL_WIDTH,
       align: 'center',
@@ -299,8 +304,8 @@ export default function MappingsPage() {
       <div className="glass-card rounded-lg px-4 py-3 mb-4 flex flex-wrap gap-2 items-center">
         <Input
           prefix={<Search size={13} className="text-slate-400" />}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={e => handleSearchChange(e.target.value)}
           placeholder="Search material / manufacturer / catalogue / grade…"
           style={{ width: 340 }}
           allowClear
@@ -318,13 +323,31 @@ export default function MappingsPage() {
 
       <div className="glass-card rounded-lg overflow-hidden">
         <Table
-          dataSource={filtered}
+          dataSource={rows}
           columns={columns}
           rowKey="id"
           size="middle"
           loading={loading}
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} mappings` }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            showTotal: t => `${t} mappings`,
+          }}
+          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+            if (pagination.current) setPage(pagination.current)
+            if (pagination.pageSize) setPageSize(pagination.pageSize)
+            const s = sorter as SorterResult<Mapping>
+            if (s.order && typeof s.field === 'string') {
+              setSortBy(s.field)
+              setSortDir(s.order === 'ascend' ? 'asc' : 'desc')
+            } else if (!s.order) {
+              setSortBy(null)
+            }
+          }}
         />
       </div>
 

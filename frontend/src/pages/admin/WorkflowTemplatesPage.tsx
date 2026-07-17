@@ -1070,7 +1070,7 @@ export default function WorkflowTemplatesPage() {
 
         <WorkflowProcessCard
           icon={Dna}
-          title="CGT Plasmid Process"
+          title="CGT Process"
           description="Cell and Gene Therapy plasmid workflow — production sections & templates"
           items={['Plasmid Design', 'Fermentation', 'Purification', 'Quality Control']}
           accent="teal"

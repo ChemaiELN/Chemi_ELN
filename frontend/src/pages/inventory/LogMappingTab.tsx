@@ -66,17 +66,17 @@ export default function LogMappingTab({ targetKind, targetId }: { targetKind: Ta
 
   const isInstrument = targetKind === 'INSTRUMENT'
   const columns: ColumnsType<LogMapping> = [
-    { title: 'Checklist Name', ellipsis: true, dataIndex: 'checklist_name', render: (v, r) => v ? <span className="text-[13px] text-slate-800">{v} <span className="text-slate-400">({r.checklist_version})</span></span> : <span className="text-slate-300">—</span> },
+    { title: 'Checklist Name', ellipsis: true, dataIndex: 'checklist_name', render: (v, r) => v ? <span className="text-[13px] text-slate-800">{v} <span className="text-slate-400">({r.checklist_version})</span></span> : <span className="text-slate-800">NA</span> },
     ...(isInstrument
       ? [
-          { title: 'Alert Limit', ellipsis: true, dataIndex: 'alert_limit', width: 120, render: (v: number | null) => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
-          { title: 'Deviation Limit', ellipsis: true, dataIndex: 'deviation_limit', width: 130, render: (v: number | null) => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
+          { title: 'Alert Limit', ellipsis: true, dataIndex: 'alert_limit', width: 120, render: (v: number | null) => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
+          { title: 'Deviation Limit', ellipsis: true, dataIndex: 'deviation_limit', width: 130, render: (v: number | null) => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
         ]
       : [
-          { title: 'Tolerance Days', ellipsis: true, dataIndex: 'tolerance_days', width: 140, render: (v: number | null) => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
+          { title: 'Tolerance Days', ellipsis: true, dataIndex: 'tolerance_days', width: 140, render: (v: number | null) => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
         ]),
     {
-      title: 'Action', key: 'actions', width: 90, align: 'right', render: (_, r) => (
+      title: 'Actions', key: 'actions', width: 90, align: 'right', render: (_, r) => (
         <Space size={2}>
           <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>
           <Tooltip title="Remove"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => del(r)} /></Tooltip>

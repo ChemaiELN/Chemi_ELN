@@ -1,17 +1,19 @@
-import React, { useState, useEffect, useCallback, useRef } from 'react'
+import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react'
 import {
   Table, Button, Input, Select, Modal, Form,
   InputNumber, DatePicker, message, Space, Tooltip,
 } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
 import dayjs from 'dayjs'
-import type { ColumnsType } from 'antd/es/table'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
+import type { SorterResult } from 'antd/es/table/interface'
 import { Plus, CheckCircle2, XCircle, PackageCheck, Search, SignalLow, SignalMedium, SignalHigh, Signal } from 'lucide-react'
 import { stockRequestApi, materialApi, uomApi, dashboardApi, type StockRequest, type Material, type UomUnit } from '../../api/inventory'
 import { userApi, type UserSummary } from '../../api/adc'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
+import NewBatchModal, { type FulfillingRequest } from './NewBatchModal'
 
 const STATUS_COLOR: Record<string, string> = {
   PENDING: 'blue', APPROVED: 'cyan', FULFILLED: 'green', REJECTED: 'red', CANCELLED: 'default',
@@ -34,13 +36,21 @@ export default function StockRequestsPage() {
   const isApprover = APPROVER_ROLES.includes(user?.role_code ?? '')
   const isStoreIncharge = user?.role_code === STORE_INCHARGE_ROLE
 
+  const [fulfillTarget, setFulfillTarget] = useState<FulfillingRequest | null>(null)
   const [requests, setRequests] = useState<StockRequest[]>([])
   const [materials, setMaterials] = useState<Material[]>([])
   const [loading, setLoading] = useState(false)
+  const [searchInput, setSearchInput] = useState('')
   const [search, setSearch] = useState('')
+  const searchDebounceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(10)
+  const [total, setTotal] = useState(0)
+  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [createOpen, setCreateOpen] = useState(false)
   const [remarkOpen, setRemarkOpen] = useState(false)
-  const [remarkAction, setRemarkAction] = useState<{ id: number; action: 'approve' | 'reject' | 'fulfill' | 'cancel' } | null>(null)
+  const [remarkAction, setRemarkAction] = useState<{ id: number; action: 'approve' | 'reject' | 'cancel' } | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
   const [remarkForm] = Form.useForm()
@@ -68,30 +78,41 @@ export default function StockRequestsPage() {
   const selectedMaterialId = Form.useWatch('material_id', form)
   const qtyRequiredValue = Form.useWatch('qty_required', form)
 
+  const handleSearchChange = (value: string) => {
+    setSearchInput(value)
+    if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current)
+    searchDebounceTimer.current = setTimeout(() => setSearch(value), 300)
+  }
+
+  const needsAction = useCallback((r: StockRequest) =>
+    (isApprover && r.status === 'PENDING') || (isStoreIncharge && r.status === 'APPROVED'),
+  [isApprover, isStoreIncharge])
+
+  // With no explicit column sort chosen, surface rows the current user needs
+  // to act on at the top of the (already server-paginated) page, instead of
+  // relying on a highlight color to draw attention to them.
+  const displayedRequests = useMemo(() => {
+    if (sortBy) return requests
+    const actionable = requests.filter(needsAction)
+    const rest = requests.filter(r => !needsAction(r))
+    return [...actionable, ...rest]
+  }, [requests, sortBy, needsAction])
+
   const load = useCallback(async () => {
     setLoading(true)
     try {
-      const data = await stockRequestApi.list({})
-      if (search) {
-        const term = search.toLowerCase()
-        setRequests(data.filter(r => {
-          const matName = materials.find(m => m.id === r.material_id)?.name ?? ''
-          return (
-            r.request_no.toLowerCase().includes(term) ||
-            matName.toLowerCase().includes(term) ||
-            r.criticality.toLowerCase().includes(term) ||
-            r.status.toLowerCase().includes(term) ||
-            (r.requested_by ?? '').toLowerCase().includes(term) ||
-            (r.unit ?? '').toLowerCase().includes(term)
-          )
-        }))
-      } else {
-        setRequests(data)
-      }
+      const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize }
+      if (search) params.search = search
+      if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      const { items, total } = await stockRequestApi.listPaged(params)
+      setRequests(items)
+      setTotal(total)
     } finally { setLoading(false) }
-  }, [search, materials])
+  }, [search, page, pageSize, sortBy, sortDir])
 
   useEffect(() => { load() }, [load])
+  useEffect(() => { setPage(1) }, [search])
+  useEffect(() => () => { if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current) }, [])
   useEffect(() => { materialApi.list({ active_only: true, limit: 200 }).then(setMaterials) }, [])
   useEffect(() => {
     uomApi.get('mass').then(dim => setUnitOptions(dim.units.filter(u => u.is_active)))
@@ -161,7 +182,6 @@ export default function StockRequestsPage() {
       const { id, action } = remarkAction
       if (action === 'approve') await stockRequestApi.approve(id, values)
       else if (action === 'reject') await stockRequestApi.reject(id, values)
-      else if (action === 'fulfill') await stockRequestApi.fulfill(id, values)
       else await stockRequestApi.cancel(id, values)
       message.success(`Request ${action}d`)
       setRemarkOpen(false); remarkForm.resetFields(); load()
@@ -169,7 +189,7 @@ export default function StockRequestsPage() {
     finally { setSaving(false) }
   }
 
-  const startAction = (id: number, action: 'approve' | 'reject' | 'fulfill' | 'cancel') => {
+  const startAction = (id: number, action: 'approve' | 'reject' | 'cancel') => {
     setRemarkAction({ id, action })
     setRemarkOpen(true)
   }
@@ -179,13 +199,15 @@ export default function StockRequestsPage() {
       title: 'Request No',
       dataIndex: 'request_no',
       ellipsis: true,
-      width: 140,
-      render: (v) => <span className=" text-[13px] text-slate-700">{v}</span>,
+      width: 150,
+      sorter: true,
+      render: (v) => <span className=" text-[13px] text-slate-800">{v}</span>,
     },
     {
       title: 'Material',
       key: 'material',
       ellipsis: true,
+      width: 150,
       render: (_, r) => {
         const name = materials.find(m => m.id === r.material_id)?.name
         return <span className="text-[13px] text-slate-800">{name ?? r.material_id}</span>
@@ -193,19 +215,21 @@ export default function StockRequestsPage() {
     },
     {
       title: 'Qty Required',
-      key: 'qty',
+      dataIndex: 'qty_required',
       ellipsis: true,
-      width: 120,
-      render: (_, r) => <span className="text-[13px] text-slate-600">{r.qty_required} {r.unit}</span>,
+      width: 150,
+      sorter: true,
+      render: (_, r) => <span className="text-[13px] text-slate-800">{r.qty_required} {r.unit}</span>,
     },
     {
       title: 'Criticality',
       dataIndex: 'criticality',
-      width: 110,
+      width: 150,
       align: 'center',
+      sorter: true,
       render: (v: string) => {
         const cfg = CRIT_ICON[v]
-        if (!cfg) return <span className="text-[13px] text-slate-500">{v}</span>
+        if (!cfg) return <span className="text-[13px] text-slate-800">{v}</span>
         return (
           <Tooltip title={v.charAt(0) + v.slice(1).toLowerCase()}>
             <span className="inline-flex items-center" style={{ color: cfg.color }}>{cfg.icon}</span>
@@ -217,21 +241,23 @@ export default function StockRequestsPage() {
       title: 'Status',
       dataIndex: 'status',
       ellipsis: true,
-      width: 110,
+      width: 150,
+      sorter: true,
       render: (v: string) => <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag>,
     },
     {
       title: 'Created',
       dataIndex: 'created_at',
       ellipsis: true,
-      width: 120,
-      render: (v: string) => <span className="text-[13px] text-slate-600">{new Date(v).toLocaleDateString()}</span>,
+      width: 150,
+      sorter: true,
+      render: (v: string) => <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span>,
     },
     {
-      title: '',
+      title: 'Actions',
       key: 'actions',
-      width: 120,
-      align: 'right',
+      width: 150,
+      align: 'center',
       render: (_, r) => (
         <Space size={4}>
           {r.status === 'PENDING' && isApprover && (
@@ -246,8 +272,19 @@ export default function StockRequestsPage() {
           )}
           {r.status === 'APPROVED' && isStoreIncharge && (
             <>
-              <Tooltip title="Fulfill">
-                <Button type="text" size="small" icon={<PackageCheck size={13} />} onClick={() => startAction(r.id, 'fulfill')} />
+              <Tooltip title="Fulfill (create batch)">
+                <Button
+                  type="text"
+                  size="small"
+                  icon={<PackageCheck size={13} />}
+                  onClick={() => setFulfillTarget({
+                    id: r.id,
+                    material_id: r.material_id,
+                    qty_required: r.qty_required,
+                    unit: r.unit,
+                    request_no: r.request_no,
+                  })}
+                />
               </Tooltip>
               <Tooltip title="Reject">
                 <Button type="text" size="small" danger icon={<XCircle size={13} />} onClick={() => startAction(r.id, 'reject')} />
@@ -267,8 +304,8 @@ export default function StockRequestsPage() {
       <div className="glass-card rounded-lg px-4 py-3 mb-4 flex flex-wrap gap-2 items-center">
         <Input
           prefix={<Search size={13} className="text-slate-400" />}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
+          value={searchInput}
+          onChange={e => handleSearchChange(e.target.value)}
           placeholder="Search request no / material / status…"
           style={{ width: 300 }}
           allowClear
@@ -280,15 +317,40 @@ export default function StockRequestsPage() {
 
       <div className="glass-card rounded-lg overflow-hidden">
         <Table
-          dataSource={requests}
+          dataSource={displayedRequests}
           columns={columns}
           rowKey="id"
           size="middle"
           loading={loading}
           scroll={{ x: 'max-content' }}
-          pagination={{ pageSize: 10, showSizeChanger: false, showTotal: t => `${t} requests` }}
+          pagination={{
+            current: page,
+            pageSize,
+            total,
+            showSizeChanger: true,
+            pageSizeOptions: [10, 20, 50, 100],
+            showTotal: t => `${t} requests`,
+          }}
+          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+            if (pagination.current) setPage(pagination.current)
+            if (pagination.pageSize) setPageSize(pagination.pageSize)
+            const s = sorter as SorterResult<StockRequest>
+            if (s.order) {
+              setSortBy(s.field as string)
+              setSortDir(s.order === 'ascend' ? 'asc' : 'desc')
+            } else {
+              setSortBy(null)
+            }
+          }}
         />
       </div>
+
+      <NewBatchModal
+        open={!!fulfillTarget}
+        onClose={() => setFulfillTarget(null)}
+        onCreated={load}
+        fulfillingRequest={fulfillTarget}
+      />
 
       <Modal
         title="New Stock Request"
@@ -345,7 +407,7 @@ export default function StockRequestsPage() {
               <Select options={['LOW', 'MEDIUM', 'HIGH', 'CRITICAL'].map(s => ({ value: s, label: s.charAt(0) + s.slice(1).toLowerCase() }))} />
             </Form.Item>
             <Form.Item name="required_by_date" label="Required By Date">
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
             <Form.Item name="requested_by" label="Requested By">
               <Select

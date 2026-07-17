@@ -129,10 +129,21 @@
   background-color: #FEFEFA;
 }
 
+
 /* Select field with a #FEFEFA background (e.g. the Template Builder category
    picker). Targets the inner selector box, which owns the background. */
 .fefefa-select .ant-select-selector {
   background-color: #FEFEFA !important;
+}
+
+/* Disabled inputs/selects: keep the readable black text (AntD's default
+   disabled color is a faded grey) while leaving the disabled background
+   and cursor styling untouched. */
+.ant-input[disabled],
+.ant-input-disabled,
+.ant-select-disabled .ant-select-selection-item,
+.ant-input-number-disabled .ant-input-number-input {
+  color: rgba(0, 0, 0, 0.88) !important;
 }
 
 /* Blob animation */

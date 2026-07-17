@@ -19,17 +19,24 @@ function KpiCard({
 }: { label: string; value: number; icon: React.ElementType; bg: string; iconColor: string; sub?: string; onClick?: () => void }) {
   return (
     <div
-      className={`glass-card rounded-lg p-4 lg:p-5 flex items-center gap-3 lg:gap-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
+      className={`group relative overflow-hidden glass-card rounded-lg p-4 lg:p-5 flex items-center gap-3 lg:gap-4 ${onClick ? 'cursor-pointer hover:shadow-md transition-shadow' : ''}`}
       onClick={onClick}
       role={onClick ? 'button' : undefined}
     >
-      <div className={`w-10 h-10 lg:w-12 lg:h-12 rounded-lg flex items-center justify-center shrink-0 ${bg}`}>
-        <Icon size={18} className={`${iconColor} lg:w-5 lg:h-5`} />
+      <div className={`absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-out ${bg}`} />
+      <div className={`relative w-10 h-10 lg:w-12 lg:h-12 rounded-lg flex items-center justify-center shrink-0 ${bg}`}>
+        <div
+          className="absolute inset-0 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity duration-300 ease-out"
+          style={{ backgroundColor: '#FEFEFA' }}
+        />
+        <Icon size={18} className={`relative ${iconColor} lg:w-5 lg:h-5`} />
       </div>
-      <div className="min-w-0">
+      <div className="relative min-w-0">
         <p className="text-2xl lg:text-3xl font-bold text-slate-800 leading-none">{value}</p>
-        <p className="text-xs lg:text-sm text-slate-500 mt-0.5 leading-tight">{label}</p>
-        {sub && <p className="text-[10px] lg:text-xs text-slate-400 mt-0.5">{sub}</p>}
+        <p className="text-xs lg:text-sm text-slate-500 mt-0.5 leading-tight truncate">
+          {label}
+          {sub && <span className="text-[10px] lg:text-xs text-slate-400"> · {sub}</span>}
+        </p>
       </div>
     </div>
   )
@@ -86,7 +93,7 @@ export default function InventoryDashboard() {
     { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 140 },
     { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140 },
     { title: 'Qty Available', ellipsis: true, dataIndex: 'qty_available', key: 'qty_available', width: 110, render: (v: number, r: ExpiringBatch) => `${v} ${r.unit}` },
-    { title: 'Expiry Date', ellipsis: true, dataIndex: 'expiry_date', key: 'expiry_date', width: 120 },
+    { title: 'Expiry Date', ellipsis: true, dataIndex: 'expiry_date', key: 'expiry_date', width: 120, render: (v: string) => dayjs(v).format('DD/MM/YYYY') },
     {
       title: 'Days Remaining',
       ellipsis: true,
@@ -103,15 +110,15 @@ export default function InventoryDashboard() {
     { title: 'Type', ellipsis: true, dataIndex: 'type', key: 'type', width: 120 },
     { title: 'Reference No', ellipsis: true, dataIndex: 'reference_no', key: 'reference_no', width: 160 },
     { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 130, render: (v: string) => <StatusTag color="gold">{v.replaceAll('_', ' ')}</StatusTag> },
-    { title: 'Raised By', ellipsis: true, dataIndex: 'raised_by', key: 'raised_by', width: 140, render: (v: string | null) => v ?? '—' },
-    { title: 'Age', ellipsis: true, dataIndex: 'age_days', key: 'age_days', width: 100, render: (v: number | null) => v != null ? `${v} day${v !== 1 ? 's' : ''}` : '—' },
+    { title: 'Raised By', ellipsis: true, dataIndex: 'raised_by', key: 'raised_by', width: 140, render: (v: string | null) => v ?? 'NA' },
+    { title: 'Age', ellipsis: true, dataIndex: 'age_days', key: 'age_days', width: 100, render: (v: number | null) => v != null ? `${v} day${v !== 1 ? 's' : ''}` : 'NA' },
   ]
 
   const dueColumns = [
     { title: 'Type', ellipsis: true, dataIndex: 'type', key: 'type', width: 110, render: (v: string) => <StatusTag color={v === 'Calibration' ? 'blue' : 'purple'}>{v}</StatusTag> },
     { title: 'Asset Code', ellipsis: true, dataIndex: 'asset_code', key: 'asset_code', width: 130 },
     { title: 'Asset Name', ellipsis: true, dataIndex: 'asset_name', key: 'asset_name', width: 180 },
-    { title: 'Due Date', ellipsis: true, dataIndex: 'due_date', key: 'due_date', width: 120 },
+    { title: 'Due Date', ellipsis: true, dataIndex: 'due_date', key: 'due_date', width: 120, render: (v: string) => dayjs(v).format('DD/MM/YYYY') },
     {
       title: 'Days Until Due', ellipsis: true, dataIndex: 'days_until_due', key: 'days_until_due', width: 130,
       render: (v: number) => <StatusTag color={v <= 0 ? 'red' : v <= 3 ? 'orange' : 'green'}>{v <= 0 ? 'Overdue' : `${v} day${v !== 1 ? 's' : ''}`}</StatusTag>,

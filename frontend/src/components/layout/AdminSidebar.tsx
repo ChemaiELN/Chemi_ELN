@@ -3,7 +3,7 @@ import { Menu } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   Users, Building2, ShieldCheck, Settings,
-  LayoutGrid, GitBranch, Database,
+  GitBranch, Database,
 } from 'lucide-react'
 import logo from '../../assets/logo.svg'
 import smallLogo from '../../assets/small-logo.png'
@@ -76,16 +76,6 @@ export default function AdminSidebar({ collapsed, onItemClick }: AdminSidebarPro
           className={collapsed ? 'h-8 w-8 object-contain' : 'h-9 w-auto object-contain'}
         />
       </div>
-
-      {/* Back to modules */}
-      <button
-        onClick={() => navigate('/')}
-        className={`flex items-center ${collapsed ? 'justify-center px-2' : 'gap-2 px-4'} py-2.5 mx-2 mt-2 rounded-xl text-slate-500 hover:text-purple-500 hover:bg-white/50 transition-colors text-xs font-medium`}
-        title="All Modules"
-      >
-        <LayoutGrid size={14} className="shrink-0" />
-        {!collapsed && <span>All Modules</span>}
-      </button>
 
       {/* Section label */}
       {!collapsed && (

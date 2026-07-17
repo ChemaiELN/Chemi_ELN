@@ -22,7 +22,7 @@ const EVENT_COLORS: Record<string, string> = {
 }
 
 function ValueCell({ val }: { val: string | null }) {
-  if (!val) return <span className="text-slate-300 text-[13px]">—</span>
+  if (!val) return <span className="text-slate-800 text-[13px]">NA</span>
   let parsed: unknown
   try { parsed = JSON.parse(val) } catch { parsed = null }
   if (parsed && typeof parsed === 'object') {
@@ -103,7 +103,7 @@ export default function AuditTrailPage() {
       dataIndex: 'entity_ref',
       key: 'entity_ref',
       width: 150,
-      render: v => <span className="  text-[13px]">{v as string ?? '—'}</span>,
+      render: v => <span className="  text-[13px]">{v as string ?? 'NA'}</span>,
     },
     {
       title: 'Performed By',
@@ -119,7 +119,7 @@ export default function AuditTrailPage() {
       dataIndex: 'performed_at',
       key: 'performed_at',
       width: 160,
-      render: v => <span className="text-[13px]">{dayjs(v as string).format('DD-MMM-YY HH:mm:ss')}</span>,
+      render: v => <span className="text-[13px]">{dayjs(v as string).format('DD/MM/YYYY HH:mm:ss')}</span>,
     },
     {
       title: 'Old Value',
@@ -189,7 +189,7 @@ export default function AuditTrailPage() {
         <RangePicker
           value={dateRange}
           onChange={v => setDateRange(v as [dayjs.Dayjs | null, dayjs.Dayjs | null] | null)}
-          format="DD-MMM-YYYY"
+          format="DD/MM/YYYY"
           className="w-64"
         />
         <Button type="primary" icon={<RefreshCw size={13} />} onClick={load} loading={loading} className="rounded-md font-medium">

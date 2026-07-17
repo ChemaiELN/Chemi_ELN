@@ -11,7 +11,7 @@ import { selectUser } from '../../store/authSlice'
 
 const { useBreakpoint } = Grid
 
-const PROCESS_OPTIONS = ['Molecular Biology', 'Plasmid', 'AAV']
+const PROCESS_OPTIONS = ['Molecular Biology', 'Plasmid', 'AAV', 'ADC Synthesis']
 
 // Only HOD/Team Lead can create CGT projects — chemists/analysts never reach
 // this page via nav (they land on My Notebooks) but this gates direct URL access too.

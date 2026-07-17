@@ -102,13 +102,13 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
   const columns: ColumnsType<Schedule> = [
     { title: isEquipment ? 'Equipment Code' : 'Instrument Code', ellipsis: true, dataIndex: 'equipment_code', width: 150, render: v => <span className="  text-[13px] text-slate-700">{v}</span> },
     { title: 'Schedule Type', ellipsis: true, dataIndex: 'schedule_type', width: 120, render: v => <span className="text-[13px] text-slate-600">{label(v)}</span> },
-    { title: 'Due Date', ellipsis: true, dataIndex: 'due_date', width: 110, render: v => <span className="text-[13px] text-slate-700">{v}</span> },
+    { title: 'Due Date', ellipsis: true, dataIndex: 'due_date', width: 110, render: v => <span className="text-[13px] text-slate-700">{dayjs(v).format('DD/MM/YYYY')}</span> },
     { title: 'Days', ellipsis: true, dataIndex: 'days_label', width: 130, render: v => <span className="text-[13px] text-slate-500">{v}</span> },
-    { title: 'Done On', ellipsis: true, dataIndex: 'done_on', width: 110, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-slate-300">—</span> },
+    { title: 'Done On', ellipsis: true, dataIndex: 'done_on', width: 110, render: v => v ? <span className="text-[13px] text-slate-600">{dayjs(v).format('DD/MM/YYYY')}</span> : <span className="text-slate-600">NA</span> },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 100, render: v => <StatusTag color={STATUS_TAG[v] ?? 'default'} className="text-[13px]">{v}</StatusTag> },
-    { title: 'Current Status', ellipsis: true, dataIndex: 'current_status', width: 140, render: v => v ? <span className="text-[13px] text-slate-600">{String(v).replace(/_/g, ' ')}</span> : <span className="text-slate-300">—</span> },
+    { title: 'Current Status', ellipsis: true, dataIndex: 'current_status', width: 140, render: v => v ? <span className="text-[13px] text-slate-600">{String(v).replace(/_/g, ' ')}</span> : <span className="text-slate-600">NA</span> },
     {
-      title: 'Action', key: 'a', width: 100, align: 'right', render: (_, r) => (
+      title: 'Actions', key: 'a', width: 100, align: 'right', render: (_, r) => (
         <Space size={2}>
           {r.status !== 'DONE' && <Tooltip title="Mark Done"><Button type="text" size="small" icon={<CheckCircle2 size={14} className="text-emerald-600" />} onClick={() => complete(r)} /></Tooltip>}
           <Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => del(r)} /></Tooltip>
@@ -131,6 +131,7 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
         <DatePicker.RangePicker
           value={range}
           onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])}
+          format="DD/MM/YYYY"
         />
         <div className="ml-auto flex gap-2">
           <Button icon={<Download size={14} />} onClick={() => masterTemplateApi.download(templateKey)}>Download Template</Button>
@@ -156,7 +157,7 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
               <Select options={SCHEDULE_TYPES.map(s => ({ value: s, label: label(s) }))} />
             </Form.Item>
             <Form.Item name="due_date" label="Due Date" rules={[{ required: true }]}>
-              <DatePicker style={{ width: '100%' }} />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
             </Form.Item>
           </div>
           <Form.Item name="tolerance_days" label="Tolerance Days"><Input type="number" min={0} /></Form.Item>

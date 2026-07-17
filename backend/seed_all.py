@@ -15,6 +15,7 @@ Seeds, in dependency order:
   6. CGT AAV workflow templates (USP, DSP)
   7. CGT Molecular Biology workflow templates (Cloning, PCS, Transformation,
      Plasmid Isolation, Cell Banking)
+  8. CGT ADC Synthesis workflow template
 """
 import importlib
 import sys
@@ -30,6 +31,7 @@ STEPS = [
     ("seeds.seed_cgt_plasmid_templates", "seed"),
     ("seeds.seed_aav_templates",    "seed"),
     ("seeds.seed_molbio_templates", "seed"),
+    ("seeds.seed_cgt_adc_templates", "seed"),
 ]
 
 

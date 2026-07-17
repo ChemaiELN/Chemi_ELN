@@ -44,6 +44,7 @@ export const PROCESS_TO_TEMPLATE_CATEGORY: Record<string, string> = {
   'Molecular Biology': 'CGT_MOLBIO',
   'Plasmid': 'CGT_PLASMID',
   'AAV': 'CGT_AAV',
+  'ADC Synthesis': 'CGT_ADC',
 }
 
 // ── CGT Notebooks ────────────────────────────────────────────────────────────

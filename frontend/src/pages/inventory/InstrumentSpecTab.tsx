@@ -38,9 +38,9 @@ function SpecDetails({ instrumentId }: { instrumentId: number }) {
 
   const columns: ColumnsType<InstrumentSpecDetail> = [
     { title: 'Specification', dataIndex: 'specification', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Value', dataIndex: 'value', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-slate-300">—</span> },
-    { title: 'UOM', dataIndex: 'uom', ellipsis: true, width: 120, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-slate-300">—</span> },
-    { title: 'Action', key: 'a', width: 90, align: 'right', render: (_, r) => (
+    { title: 'Value', dataIndex: 'value', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-slate-600">NA</span> },
+    { title: 'UOM', dataIndex: 'uom', ellipsis: true, width: 120, render: v => v ? <span className="text-[13px] text-slate-600">{v}</span> : <span className="text-slate-600">NA</span> },
+    { title: 'Actions', key: 'a', width: 90, align: 'right', render: (_, r) => (
       <Space size={2}>
         <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip>
         <Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => del(r)} /></Tooltip>
@@ -102,14 +102,14 @@ function Parameters({ instrumentId }: { instrumentId: number }) {
 
   const columns: ColumnsType<InstrumentParameter> = [
     { title: 'Sl No', dataIndex: 'seq_no', ellipsis: true, width: 60, render: v => <span className="text-[13px] text-slate-500">{v}</span> },
-    { title: 'Measurement Name', dataIndex: 'measurement_name', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v ?? '—'}</span> },
-    { title: 'Precision', dataIndex: 'precision', ellipsis: true, width: 90, render: v => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
-    { title: 'Lower Unit', dataIndex: 'lower_unit', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
-    { title: 'Lower UOM', dataIndex: 'lower_uom', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
-    { title: 'Upper Unit', dataIndex: 'upper_unit', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
-    { title: 'Upper UOM', dataIndex: 'upper_uom', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
-    { title: 'Calib. Tolerance (%)', dataIndex: 'calibration_tolerance_pct', ellipsis: true, width: 150, render: v => <span className="text-[13px] text-slate-600">{v ?? '—'}</span> },
-    { title: 'Action', key: 'a', width: 90, align: 'right', render: (_, r) => (
+    { title: 'Measurement Name', dataIndex: 'measurement_name', ellipsis: true, render: v => <span className="text-[13px] text-slate-800">{v ?? 'NA'}</span> },
+    { title: 'Precision', dataIndex: 'precision', ellipsis: true, width: 90, render: v => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
+    { title: 'Lower Unit', dataIndex: 'lower_unit', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
+    { title: 'Lower UOM', dataIndex: 'lower_uom', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
+    { title: 'Upper Unit', dataIndex: 'upper_unit', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
+    { title: 'Upper UOM', dataIndex: 'upper_uom', ellipsis: true, width: 100, render: v => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
+    { title: 'Calib. Tolerance (%)', dataIndex: 'calibration_tolerance_pct', ellipsis: true, width: 150, render: v => <span className="text-[13px] text-slate-600">{v ?? 'NA'}</span> },
+    { title: 'Actions', key: 'a', width: 90, align: 'right', render: (_, r) => (
       <Space size={2}>
         <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditing(r); form.setFieldsValue(r); setOpen(true) }} /></Tooltip>
         <Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => del(r)} /></Tooltip>

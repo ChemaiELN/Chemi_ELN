@@ -68,13 +68,13 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
 
   const columns: ColumnsType<UsageLog> = [
     { title: 'Sl No', key: 'sl', ellipsis: true, width: 60, render: (_, __, i) => i + 1 },
-    { title: 'Previous Product Code', dataIndex: 'previous_product_code', ellipsis: true, render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Previous Batch No.', dataIndex: 'previous_batch_no', ellipsis: true, render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Started By/On', key: 'started', ellipsis: true, render: (_, r) => r.started_by ? <span className="text-[13px]">{r.started_by} <span className="text-slate-400">({r.started_at ? new Date(r.started_at).toLocaleString() : ''})</span></span> : '—' },
-    { title: 'Ended By/On', key: 'ended', ellipsis: true, render: (_, r) => r.ended_by ? <span className="text-[13px]">{r.ended_by} <span className="text-slate-400">({r.ended_at ? new Date(r.ended_at).toLocaleString() : ''})</span></span> : <span className="text-slate-300">—</span> },
-    { title: 'Reference No.', dataIndex: 'reference_no', ellipsis: true, render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Previous Product Code', dataIndex: 'previous_product_code', ellipsis: true, render: v => v ?? <span className="text-slate-800">NA</span> },
+    { title: 'Previous Batch No.', dataIndex: 'previous_batch_no', ellipsis: true, render: v => v ?? <span className="text-slate-800">NA</span> },
+    { title: 'Started By/On', key: 'started', ellipsis: true, render: (_, r) => r.started_by ? <span className="text-[13px]">{r.started_by} <span className="text-slate-400">({r.started_at ? dayjs(r.started_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : 'NA' },
+    { title: 'Ended By/On', key: 'ended', ellipsis: true, render: (_, r) => r.ended_by ? <span className="text-[13px]">{r.ended_by} <span className="text-slate-400">({r.ended_at ? dayjs(r.ended_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : <span className="text-slate-800">NA</span> },
+    { title: 'Reference No.', dataIndex: 'reference_no', ellipsis: true, render: v => v ?? <span className="text-slate-800">NA</span> },
     {
-      title: 'Action', key: 'a', width: 90, render: (_, r) => !r.ended_at && (
+      title: 'Actions', key: 'a', width: 90, render: (_, r) => !r.ended_at && (
         <Tooltip title="End"><Button type="text" size="small" icon={<StopCircle size={14} />} onClick={() => { setEndTarget(r); endForm.resetFields() }} /></Tooltip>
       ),
     },
@@ -91,7 +91,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
 
       <Modal title={`Add ${isEquipment ? 'Equipment' : 'Instrument'} Usage Log`} open={addOpen} closable={false} onCancel={() => setAddOpen(false)} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={save} initialValues={{ started_at: dayjs() }}>
-          <Form.Item name="started_at" label="Start Time" rules={[{ required: true }]}><DatePicker showTime style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="started_at" label="Start Time" rules={[{ required: true }]}><DatePicker showTime style={{ width: '100%' }} format="DD/MM/YYYY HH:mm:ss" /></Form.Item>
           <Form.Item name="previous_batch_no" label="Batch No."><Input /></Form.Item>
           <Form.Item name="previous_product_code" label="Product Name/Code"><Input /></Form.Item>
           <Form.Item name="reference_no" label="Reference No"><Input /></Form.Item>
@@ -101,7 +101,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
 
       <Modal title="End Equipment Usage Log" open={!!endTarget} closable={false} onCancel={() => setEndTarget(null)} onOk={() => endForm.submit()} confirmLoading={saving} width={440} centered destroyOnHidden {...glassModalProps}>
         <Form form={endForm} layout="vertical" onFinish={doEnd} initialValues={{ ended_at: dayjs() }}>
-          <Form.Item name="ended_at" label="Ended On" rules={[{ required: true }]}><DatePicker showTime style={{ width: '100%' }} /></Form.Item>
+          <Form.Item name="ended_at" label="Ended On" rules={[{ required: true }]}><DatePicker showTime style={{ width: '100%' }} format="DD/MM/YYYY HH:mm:ss" /></Form.Item>
           <Form.Item name="usage_remarks" label="Usage Remarks" rules={[{ required: true }]}><Input.TextArea rows={2} /></Form.Item>
         </Form>
       </Modal>
@@ -129,19 +129,19 @@ function TabularViewTab({ targetKind, itemId }: { targetKind: Kind; itemId: numb
 
   const columns: ColumnsType<StatusHistoryRow> = [
     { title: 'Sl No', key: 'sl', ellipsis: true, width: 60, render: (_, __, i) => i + 1 },
-    { title: 'Previous Product Code', dataIndex: 'previous_product_code', ellipsis: true, render: v => v ?? <span className="text-slate-300">—</span> },
-    { title: 'Previous Batch No.', dataIndex: 'previous_batch_no', ellipsis: true, render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Previous Product Code', dataIndex: 'previous_product_code', ellipsis: true, render: v => v ?? <span className="text-slate-800">NA</span> },
+    { title: 'Previous Batch No.', dataIndex: 'previous_batch_no', ellipsis: true, render: v => v ?? <span className="text-slate-800">NA</span> },
     { title: 'Status', dataIndex: 'status', ellipsis: true, width: 160, render: v => <StatusTag color={STATUS_COLOR[v] ?? 'default'}>{v.replace(/_/g, ' ')}</StatusTag> },
-    { title: 'Started By/On', key: 'started', ellipsis: true, render: (_, r) => r.started_by ? <span className="text-[13px]">{r.started_by} <span className="text-slate-400">({new Date(r.started_at).toLocaleString()})</span></span> : <span className="text-[13px] text-slate-500">{new Date(r.started_at).toLocaleString()}</span> },
-    { title: 'Ended By/On', key: 'ended', ellipsis: true, render: (_, r) => r.ended_by ? <span className="text-[13px]">{r.ended_by} <span className="text-slate-400">({r.ended_at ? new Date(r.ended_at).toLocaleString() : ''})</span></span> : (r.ended_at ? <span className="text-[13px] text-slate-500">{new Date(r.ended_at).toLocaleString()}</span> : <span className="text-slate-300">—</span>) },
+    { title: 'Started By/On', key: 'started', ellipsis: true, render: (_, r) => r.started_by ? <span className="text-[13px]">{r.started_by} <span className="text-slate-400">({dayjs(r.started_at).format('DD/MM/YYYY HH:mm')})</span></span> : <span className="text-[13px] text-slate-500">{dayjs(r.started_at).format('DD/MM/YYYY HH:mm')}</span> },
+    { title: 'Ended By/On', key: 'ended', ellipsis: true, render: (_, r) => r.ended_by ? <span className="text-[13px]">{r.ended_by} <span className="text-slate-400">({r.ended_at ? dayjs(r.ended_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : (r.ended_at ? <span className="text-[13px] text-slate-500">{dayjs(r.ended_at).format('DD/MM/YYYY HH:mm')}</span> : <span className="text-slate-800">NA</span>) },
     { title: 'Duration', dataIndex: 'duration', ellipsis: true, width: 130 },
-    { title: 'Remarks', dataIndex: 'remarks', ellipsis: true, render: v => v ?? <span className="text-slate-300">—</span> },
+    { title: 'Remarks', dataIndex: 'remarks', ellipsis: true, render: v => v ?? <span className="text-slate-800">NA</span> },
   ]
 
   return (
     <div className="pt-3">
       <div className="glass-card rounded-lg px-4 py-3 mb-4 flex gap-2 items-center">
-        <DatePicker.RangePicker value={range} onChange={v => v && v[0] && v[1] && setRange([v[0], v[1]])} />
+        <DatePicker.RangePicker value={range} onChange={v => v && v[0] && v[1] && setRange([v[0], v[1]])} format="DD/MM/YYYY" />
       </div>
       <div className="glass-card rounded-lg overflow-hidden">
         <Table dataSource={rows} columns={columns} rowKey={r => `${r.status}-${r.started_at}`} size="small" loading={loading} scroll={{ x: 'max-content' }} pagination={{ pageSize: 10 }} locale={{ emptyText: itemId ? 'No history' : 'Select an item first' }} />

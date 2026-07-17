@@ -14,6 +14,8 @@ const MATERIALS_TEMPLATE_KEY = 'materials'
 const MATERIAL_TYPE_LOOKUP = 'Material Type'
 // The Consumable Type field only applies when this specific Material Type lookup value is selected.
 const CONSUMABLES_MATERIAL_TYPE = 'Consumables'
+// The ISO Type field only applies to this Material Type.
+const ANTIBODY_MATERIAL_TYPE = 'Antibody Materials'
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -196,7 +198,7 @@ export default function MaterialsPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     ...(showConsumablesType ? [{
       title: 'Consumables Type',
@@ -207,7 +209,7 @@ export default function MaterialsPage() {
         const name = ctypes.find(c => c.id === v)?.name
         return name
           ? <span className="text-[13px] text-slate-800">{name}</span>
-          : <span className="text-[13px] text-slate-300">—</span>
+          : <span className="text-[13px] text-slate-800">NA</span>
       },
     } as ColumnsType<Material>[number]] : []),
     {
@@ -218,7 +220,7 @@ export default function MaterialsPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Formula',
@@ -228,7 +230,7 @@ export default function MaterialsPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className=" text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Mol. Wt',
@@ -239,7 +241,7 @@ export default function MaterialsPage() {
       sorter: true,
       render: (v: number | null) => v != null
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Storage',
@@ -249,7 +251,7 @@ export default function MaterialsPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Hazard Class',
@@ -259,7 +261,7 @@ export default function MaterialsPage() {
       sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
-        : <span className="text-[13px] text-slate-300">—</span>,
+        : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
       title: 'Status',
@@ -271,7 +273,7 @@ export default function MaterialsPage() {
       render: (v: boolean, r) => <Switch size="small" checked={v} onChange={() => handleToggle(r)} />,
     },
     {
-      title: '',
+      title: 'Actions',
       key: 'actions',
       width: 80,
       align: 'center',
@@ -361,6 +363,9 @@ export default function MaterialsPage() {
             if ('material_type' in changed && changed.material_type !== CONSUMABLES_MATERIAL_TYPE) {
               form.setFieldValue('consumable_type_id', undefined)
             }
+            if ('material_type' in changed && changed.material_type !== ANTIBODY_MATERIAL_TYPE) {
+              form.setFieldValue('iso_type', undefined)
+            }
           }}
         >
           {/* Core fields */}
@@ -401,6 +406,11 @@ export default function MaterialsPage() {
             <Form.Item name="hazard_class" label="Hazard Class">
               <Input placeholder="e.g. Flammable, Corrosive" />
             </Form.Item>
+            {selectedMaterialType === ANTIBODY_MATERIAL_TYPE && (
+              <Form.Item name="iso_type" label="ISO Type">
+                <Input />
+              </Form.Item>
+            )}
             {selectedMaterialType === CONSUMABLES_MATERIAL_TYPE && (
               <Form.Item name="consumable_type_id" label="Consumable Type">
                 <Select allowClear options={ctypes.map(c => ({ value: c.id, label: c.name }))} />

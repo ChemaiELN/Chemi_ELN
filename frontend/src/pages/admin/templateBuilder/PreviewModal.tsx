@@ -1,8 +1,11 @@
+import { useState } from 'react'
 import { Modal } from 'antd'
 import { Plus } from 'lucide-react'
+import { useQueryClient } from '@tanstack/react-query'
 import { glassModalProps } from '../../../utils/modalStyles'
 import FieldPreview from './FieldPreview'
-import type { TemplateDefinition, TemplateScreen, TemplateSection } from './types'
+import { applyAutoFill, resolveMappingAutoFills } from './useInventoryOptions'
+import type { TemplateDefinition, TemplateField, TemplateScreen, TemplateSection } from './types'
 
 // A screen whose title ends with "(table)" is a repeatable data table at
 // runtime (its fields are the table's columns). Match that here so the preview
@@ -42,19 +45,44 @@ function SectionCard({ section }: { section: TemplateSection }) {
             ) : isTableScreen(screen) ? (
               <TableScreenPreview screen={screen} />
             ) : (
-              <div style={{ display: 'grid', gridTemplateColumns: screen.columns === 2 ? '1fr 1fr' : '1fr', gap: '14px' }}>
-                {screen.fields.map(field => (
-                  <div key={field.id} style={{ gridColumn: field.colSpan === 2 ? 'span 2' : undefined }}>
-                    <FieldPreview field={field} interactive />
-                  </div>
-                ))}
-                {screen.fields.length === 0 && <p className="text-xs text-slate-300 col-span-full">No fields.</p>}
-              </div>
+              <ScreenFieldsPreview screen={screen} />
             )}
           </div>
         ))}
         {section.screens.length === 0 && <p className="text-xs text-slate-300">No screens in this section.</p>}
       </div>
+    </div>
+  )
+}
+
+// Flat (non-table) screen: fields are controlled and wired through the same
+// applyAutoFill / resolveMappingAutoFills used by the real CGT runtime form
+// (CgtSectionPage.tsx), so picking a driver dropdown here actually copies
+// into its dependent fields — same as scientists see, not a static mock.
+function ScreenFieldsPreview({ screen }: { screen: TemplateScreen }) {
+  const qc = useQueryClient()
+  const [values, setValues] = useState<Record<string, unknown>>({})
+
+  const handleChange = (field: TemplateField, v: unknown) => {
+    const merged = applyAutoFill(qc, screen.fields, field, v, { ...values, [field.name]: v })
+    setValues(merged)
+    void resolveMappingAutoFills(qc, screen.fields, field, merged,
+      patch => setValues(prev => ({ ...prev, ...patch })))
+  }
+
+  return (
+    <div style={{ display: 'grid', gridTemplateColumns: screen.columns === 2 ? '1fr 1fr' : '1fr', gap: '14px' }}>
+      {screen.fields.map(field => (
+        <div key={field.id} style={{ gridColumn: field.colSpan === 2 ? 'span 2' : undefined }}>
+          <FieldPreview
+            field={field}
+            interactive
+            value={values[field.name]}
+            onChange={v => handleChange(field, v)}
+          />
+        </div>
+      ))}
+      {screen.fields.length === 0 && <p className="text-xs text-slate-300 col-span-full">No fields.</p>}
     </div>
   )
 }

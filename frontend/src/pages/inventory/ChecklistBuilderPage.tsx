@@ -1,5 +1,6 @@
 import { useEffect, useState, useCallback } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import dayjs from 'dayjs'
 import {
   Button, Spin, Empty, Table, Modal, Form, Input, Select, Radio, Checkbox,
   InputNumber, Space, Tooltip, message,
@@ -197,10 +198,10 @@ export default function ChecklistBuilderPage() {
         </div>
       ),
     },
-    { title: 'Data Type', ellipsis: true, dataIndex: 'data_type', width: 150, render: v => v ? <span className="text-[13px] text-slate-600">{label(v)}</span> : <span className="text-[13px] text-slate-300">—</span> },
-    { title: 'Frequencies', ellipsis: true, dataIndex: 'frequencies', width: 200, render: (v: string[] | null) => v && v.length ? <span className="text-[12px] text-slate-500">{v.map(freqLabel).join(', ')}</span> : <span className="text-[13px] text-slate-300">—</span> },
+    { title: 'Data Type', ellipsis: true, dataIndex: 'data_type', width: 150, render: v => v ? <span className="text-[13px] text-slate-600">{label(v)}</span> : <span className="text-[13px] text-slate-600">NA</span> },
+    { title: 'Frequencies', ellipsis: true, dataIndex: 'frequencies', width: 200, render: (v: string[] | null) => v && v.length ? <span className="text-[12px] text-slate-500">{v.map(freqLabel).join(', ')}</span> : <span className="text-[12px] text-slate-500">NA</span> },
     ...(isDraft ? [{
-      title: 'Action', key: 'actions', width: 90, align: 'right' as const, render: (_: unknown, r: ChecklistItem) => (
+      title: 'Actions', key: 'actions', width: 90, align: 'right' as const, render: (_: unknown, r: ChecklistItem) => (
         <Space size={2}>
           <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => { setEditingItem(r); setItemModal(true) }} /></Tooltip>
           <Tooltip title="Delete"><Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => deleteItem(r)} /></Tooltip>
@@ -238,7 +239,7 @@ export default function ChecklistBuilderPage() {
           <div className="space-y-1.5">
             {cl.approvals.map(a => (
               <p key={a.id} className="text-[13px] text-slate-600">
-                <span className="font-medium">{label(a.action)}</span> by <span className="font-medium">{a.performed_by}</span> on {new Date(a.performed_at).toLocaleString()}
+                <span className="font-medium">{label(a.action)}</span> by <span className="font-medium">{a.performed_by}</span> on {dayjs(a.performed_at).format('DD/MM/YYYY HH:mm')}
                 {a.comment ? <> — <span className="italic">{a.comment}</span></> : null}
               </p>
             ))}

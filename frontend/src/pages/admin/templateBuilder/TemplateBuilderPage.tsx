@@ -27,6 +27,7 @@ const MODALITIES = [
   { value: 'CGT_PLASMID', label: 'Plasmid', slugPrefix: 'cgt-plasmid' },
   { value: 'CGT_AAV', label: 'AAV', slugPrefix: 'cgt-aav' },
   { value: 'CGT_MOLBIO', label: 'Mol-Bio', slugPrefix: 'cgt-molbio' },
+  { value: 'CGT_ADC', label: 'ADC Synthesis', slugPrefix: 'cgt-adc' },
 ] as const
 type Category = typeof MODALITIES[number]['value']
 
@@ -217,8 +218,13 @@ function BuilderView({ template, category, onBack }: { template: WorkflowTemplat
       }
       return workflowTemplateApi.update(template.id, body)
     },
-    onSuccess: () => {
+    onSuccess: (saved) => {
       qc.invalidateQueries({ queryKey: ['cgt-templates', effectiveCategory] })
+      // The individual-template query (read when a draft is reopened) was never
+      // invalidated/updated after a save, so reopening served the stale
+      // pre-save cache instead of what was just written. Seed it with the
+      // response we already have so the next open is correct immediately.
+      qc.setQueryData(['cgt-template', saved.id], saved)
       message.success('Template saved')
       onBack()
     },

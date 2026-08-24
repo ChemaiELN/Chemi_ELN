@@ -1,0 +1,46 @@
+[Unit]
+Description=Laurus ELN API (Node/Express)
+Documentation=file:///opt/laurus-eln/deploy/ubuntu/DEPLOY-UBUNTU.md
+# Postgres is local, so wait for it. Harmless if Postgres is remote.
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+
+[Service]
+Type=simple
+User=laurus
+Group=laurus
+
+# Must be the directory holding dist/, .env, uploads/ and logs/:
+# the app loads .env via dotenv relative to its working directory and
+# creates logs/ relative to it too.
+WorkingDirectory=/opt/laurus-eln/backend
+ExecStart=/usr/bin/node dist/app.js
+
+# .env supplies the rest (DB, JWT_SECRET, CORS, UPLOAD_DIR).
+Environment=NODE_ENV=production
+
+Restart=always
+RestartSec=5
+# Don't thrash if it's crash-looping on a bad .env or an unreachable DB.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=laurus-eln-api
+
+# ── Hardening ────────────────────────────────────────────────
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+# ProtectSystem=strict makes the filesystem read-only, so the two
+# paths the app genuinely writes to must be allowed back in.
+ReadWritePaths=/opt/laurus-eln/backend/uploads /opt/laurus-eln/backend/logs
+
+[Install]
+WantedBy=multi-user.target

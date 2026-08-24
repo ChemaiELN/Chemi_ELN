@@ -1,0 +1,1840 @@
+import { useState, useMemo, useEffect, useRef } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import {
+  Tag, Button, Card, Space, Popconfirm, message, Empty, Spin, Alert, Divider,
+  Drawer, Timeline, Select, Table, Input, Form, Modal, Tooltip, Tabs, Segmented, Dropdown, Upload,
+} from 'antd'
+import { ArrowLeft, FlaskConical, Save, Download, History, Link, Eye, Trash2, Search, LayoutList, FileText, RotateCcw, Copy, Activity, Database } from 'lucide-react'
+import dayjs from 'dayjs'
+import {
+  ardExperimentApi, ardApi, type ExperimentStatus, type ArdExperimentDoc,
+  type VersionsResponse, type VersionCompareResponse, type RefExperiment,
+  type ExperimentLockInfo,
+} from '../../api/ard'
+import type { TemplateSection } from '../../api/ard'
+import { ApiError } from '../../api/client'
+import ExperimentSectionRenderer from '../../components/ard/ExperimentSectionRenderer'
+import type { SectionDef } from '../../components/ard/ExperimentSectionRenderer'
+import { ESignatureModal } from '../../components/common/ESignatureModal'
+import { useAppSelector } from '../../store'
+import { selectUser } from '../../store/authSlice'
+import { ErrorBoundary } from '../../components/ErrorBoundary'
+import { inventoryApi } from '../../api/inventory'
+import { userApi } from '../../api/adc'
+import { glassModalProps } from '../../utils/modalStyles'
+import { ardProjectsApi } from '../../api/ard-projects'
+import { ardNotebooksApi } from '../../api/ard-notebooks'
+
+const STATUS_COLOR: Record<string, string> = {
+  IN_PROGRESS: 'blue', SUBMITTED: 'purple', VERIFICATION_REQUESTED: 'gold',
+  VERIFIED: 'cyan', APPROVED: 'green', REWORK: 'red', VERIFICATION_REWORK: 'magenta',
+  UNLOCK_REQUESTED: 'volcano', UNLOCKED: 'geekblue', DEACTIVATED: 'default',
+}
+
+const STATUS_LABEL: Record<string, string> = {
+  IN_PROGRESS: 'Ongoing',
+  SUBMITTED: 'Submitted',
+  APPROVED: 'Approved',
+  VERIFICATION_REQUESTED: 'Verification Requested',
+  VERIFICATION_REWORK: 'Verification Rework',
+  VERIFIED: 'Verified',
+  REWORK: 'Rework',
+  UNLOCK_REQUESTED: 'Unlock Requested',
+  UNLOCKED: 'Unlocked',
+  DEACTIVATED: 'Deactivated',
+}
+
+// Correct experiment flow (per Chemia ELN manual):
+// IN_PROGRESS → [VERIFICATION_REQUESTED → VERIFIED] → SUBMITTED → APPROVED → UNLOCK_REQUESTED → UNLOCKED → IN_PROGRESS
+// Verification step is optional (controlled by VerificationRequestFlow ARD setting).
+// Both VERIFICATION_REQUESTED and SUBMITTED are offered from IN_PROGRESS; backend enforces the setting.
+const EXPERIMENT_TRANSITIONS: Record<ExperimentStatus, ExperimentStatus[]> = {
+  IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
+  VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK'],
+  VERIFICATION_REWORK: ['VERIFICATION_REQUESTED'],
+  VERIFIED: ['SUBMITTED'],
+  SUBMITTED: ['APPROVED', 'REWORK'],
+  REWORK: ['SUBMITTED'],
+  APPROVED: ['UNLOCK_REQUESTED'],
+  UNLOCK_REQUESTED: ['UNLOCKED'],
+  UNLOCKED: ['IN_PROGRESS', 'DEACTIVATED'],
+  DEACTIVATED: [],
+}
+
+// Which category of user can trigger each target status
+const TRANSITION_ROLE: Partial<Record<ExperimentStatus, 'analyst' | 'reviewer' | 'approver' | 'any'>> = {
+  VERIFICATION_REQUESTED: 'analyst',  // analyst submits for peer verification
+  SUBMITTED: 'analyst',               // analyst submits for approval (direct or after rework); overridden below for VERIFIED state
+  IN_PROGRESS: 'analyst',             // analyst resumes after unlock
+  VERIFIED: 'reviewer',               // TL/HOD marks verified
+  VERIFICATION_REWORK: 'reviewer',    // TL/HOD returns for verification rework
+  APPROVED: 'approver',               // HOD/QA final approval
+  REWORK: 'reviewer',                 // TL/HOD returns for rework
+  UNLOCK_REQUESTED: 'reviewer',       // TL requests unlock (HOD/QA approves)
+  UNLOCKED: 'approver',              // HOD/QA approves unlock
+  DEACTIVATED: 'any',                // owner or TL/HOD
+}
+
+const TRANSITION_LABEL: Record<string, string> = {
+  VERIFICATION_REQUESTED: 'Submit for Peer Verification',
+  VERIFIED: 'Mark Verified',
+  VERIFICATION_REWORK: 'Return for Verification Rework',
+  SUBMITTED: 'Submit for Approval',
+  SUBMITTED_FROM_VERIFIED: 'Send for HOD Approval',
+  APPROVED: 'Approve',
+  REWORK: 'Return for Rework',
+  UNLOCK_REQUESTED: 'Request Unlock',
+  UNLOCKED: 'Approve Unlock',
+  DEACTIVATED: 'Deactivate',
+  IN_PROGRESS: 'Resume Experiment',
+}
+
+// ── Version History Drawer ────────────────────────────────────────────────────
+
+function VersionHistoryDrawer({
+  experimentId,
+  sectionDefs,
+  open,
+  onClose,
+}: {
+  experimentId: string
+  sectionDefs: SectionDef[]
+  open: boolean
+  onClose: () => void
+}) {
+  const [v1Sel, setV1Sel] = useState<number | null>(null)
+  const [v2Sel, setV2Sel] = useState<number | null>(null)
+  const [compareResult, setCompareResult] = useState<VersionCompareResponse | null>(null)
+  const [comparing, setComparing] = useState(false)
+  const [compareErr, setCompareErr] = useState<string | null>(null)
+
+  const { data: versionsData, isLoading } = useQuery<VersionsResponse>({
+    queryKey: ['ard-experiment-versions', experimentId],
+    queryFn: () => ardExperimentApi.versions(experimentId),
+    enabled: open,
+  })
+
+  const handleCompare = async () => {
+    if (v1Sel === null || v2Sel === null) return
+    setComparing(true)
+    setCompareErr(null)
+    setCompareResult(null)
+    try {
+      const res = await ardExperimentApi.compareVersions(experimentId, v1Sel, v2Sel)
+      setCompareResult(res)
+    } catch (e: any) {
+      setCompareErr(e?.detail ?? 'Comparison failed — snapshots only exist for saves made after this feature was enabled.')
+    } finally {
+      setComparing(false)
+    }
+  }
+
+  // Unified timeline: snapshots (saves) + status transitions, newest first
+  const timeline = useMemo(() => {
+    const snaps = (versionsData?.snapshots ?? []).map(s => ({
+      type: 'save' as const, version: s.version, at: s.savedAt, by: s.savedBy, status: s.status,
+    }))
+    const hist = (versionsData?.statusHistory ?? []).map(h => ({
+      type: 'status' as const, from: h.from, to: h.to, at: h.at, by: h.by, remarks: h.remarks,
+    }))
+    return [...snaps, ...hist].sort((a, b) => (b.at ?? '').localeCompare(a.at ?? ''))
+  }, [versionsData])
+
+  const versionOptions = useMemo(() =>
+    (versionsData?.snapshots ?? [])
+      .slice()
+      .sort((a, b) => b.version - a.version)
+      .map(s => ({
+        value: s.version,
+        label: `v${s.version} — ${dayjs(s.savedAt).format('DD MMM YYYY HH:mm')} by ${s.savedBy}`,
+      }))
+  , [versionsData])
+
+  // Build comparison table rows from sectionDefs + compareResult
+  const compareRows = useMemo(() => {
+    if (!compareResult) return []
+    return sectionDefs.map(sec => {
+      const v1sum = compareResult.v1.sectionSummary?.[sec.id]
+      const v2sum = compareResult.v2.sectionSummary?.[sec.id]
+      const changed = compareResult.changes?.[sec.id] ?? false
+      return {
+        id: sec.id,
+        title: sec.title,
+        v1HasData: v1sum?.hasData ?? false,
+        v1Count: v1sum?.count ?? 0,
+        v2HasData: v2sum?.hasData ?? false,
+        v2Count: v2sum?.count ?? 0,
+        changed,
+      }
+    })
+  }, [compareResult, sectionDefs])
+
+  return (
+    <Drawer
+      title={<span className="flex items-center gap-2 text-slate-800 font-bold"><History size={18} className="text-violet-600" /> Version History</span>}
+      open={open}
+      onClose={onClose}
+      width={820}
+      styles={{
+        header: { background: '#ffffff', borderBottom: '1px solid #f1f5f9', zIndex: 10 },
+        body: { padding: '20px 24px', background: '#ffffff' },
+      }}
+    >
+      {isLoading ? (
+        <div className="flex justify-center py-10"><Spin /></div>
+      ) : (
+        <div className="space-y-6">
+          {/* Timeline */}
+          <div>
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Activity Timeline</h3>
+            {timeline.length === 0 ? (
+              <p className="text-sm text-slate-400 italic">No saves recorded yet. Version snapshots are captured on each save.</p>
+            ) : (
+              <Timeline
+                mode="left"
+                items={timeline.map(t =>
+                  t.type === 'save'
+                    ? {
+                        color: 'blue',
+                        label: <span className="text-xs text-slate-400">{dayjs(t.at).format('DD MMM YYYY HH:mm')}</span>,
+                        children: (
+                          <span className="text-sm">
+                            <span className="font-semibold text-indigo-700">v{t.version}</span> saved by {t.by}
+                            <Tag color={STATUS_COLOR[t.status] ?? 'default'} className="ml-2 text-xs">{t.status}</Tag>
+                          </span>
+                        ),
+                      }
+                    : {
+                        color: 'green',
+                        label: <span className="text-xs text-slate-400">{dayjs(t.at).format('DD MMM YYYY HH:mm')}</span>,
+                        children: (
+                          <span className="text-sm">
+                            Status: <Tag color={STATUS_COLOR[t.from] ?? 'default'} className="text-xs">{t.from}</Tag>
+                            →
+                            <Tag color={STATUS_COLOR[t.to] ?? 'default'} className="ml-1 text-xs">{t.to}</Tag>
+                            by {t.by}
+                            {t.remarks && <span className="ml-1 text-slate-500 italic text-xs">"{t.remarks}"</span>}
+                          </span>
+                        ),
+                      }
+                )}
+              />
+            )}
+          </div>
+
+          <Divider />
+
+          {/* Compare section */}
+          <div>
+            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Compare Versions</h3>
+            {versionOptions.length < 2 ? (
+              <p className="text-sm text-slate-400 italic">At least two saved versions are needed to compare. Save the experiment to create version snapshots.</p>
+            ) : (
+              <>
+                <div className="flex flex-wrap gap-3 mb-4">
+                  <Select
+                    placeholder="Base version"
+                    style={{ width: 280 }}
+                    options={versionOptions}
+                    value={v1Sel}
+                    onChange={v => { setV1Sel(v); setCompareResult(null) }}
+                  />
+                  <Select
+                    placeholder="Compare to"
+                    style={{ width: 280 }}
+                    options={versionOptions}
+                    value={v2Sel}
+                    onChange={v => { setV2Sel(v); setCompareResult(null) }}
+                  />
+                  <Button
+                    type="primary"
+                    onClick={handleCompare}
+                    loading={comparing}
+                    disabled={v1Sel === null || v2Sel === null || v1Sel === v2Sel}
+                  >
+                    Compare
+                  </Button>
+                </div>
+
+                {compareErr && <Alert type="warning" showIcon message={compareErr} className="mb-4" />}
+
+                {compareResult && (
+                  <Table
+                    size="small"
+                    rowKey="id"
+                    pagination={false}
+                    dataSource={compareRows}
+                    columns={[
+                      {
+                        title: 'Section',
+                        dataIndex: 'title',
+                        render: (v, row) => (
+                          <span className={row.changed ? 'font-semibold text-amber-700' : 'text-slate-700'}>
+                            {v}
+                          </span>
+                        ),
+                      },
+                      {
+                        title: `v${v1Sel} (${dayjs(compareResult.v1.savedAt).format('DD MMM HH:mm')})`,
+                        render: (_, row) => row.v1HasData
+                          ? <Tag color="blue" className="text-xs">{row.v1Count > 1 ? `${row.v1Count} rows` : 'Has data'}</Tag>
+                          : <span className="text-slate-300 text-xs">Empty</span>,
+                      },
+                      {
+                        title: `v${v2Sel} (${dayjs(compareResult.v2.savedAt).format('DD MMM HH:mm')})`,
+                        render: (_, row) => row.v2HasData
+                          ? <Tag color="blue" className="text-xs">{row.v2Count > 1 ? `${row.v2Count} rows` : 'Has data'}</Tag>
+                          : <span className="text-slate-300 text-xs">Empty</span>,
+                      },
+                      {
+                        title: 'Diff',
+                        width: 90,
+                        render: (_, row) => row.changed
+                          ? <Tag color="orange" className="text-xs font-semibold">Changed</Tag>
+                          : <Tag color="green" className="text-xs">Same</Tag>,
+                      },
+                    ]}
+                    rowClassName={row => row.changed ? 'bg-amber-50/60' : ''}
+                  />
+                )}
+              </>
+            )}
+          </div>
+        </div>
+      )}
+    </Drawer>
+  )
+}
+
+// ── Reference Experiments Panel ───────────────────────────────────────────────
+
+function ReferenceExperimentsPanel({
+  experimentId,
+  currentProjectId,
+  refs,
+  canEdit,
+  onUpdate,
+  saving,
+}: {
+  experimentId: string
+  currentProjectId?: string
+  refs: RefExperiment[]
+  canEdit: boolean
+  onUpdate: (refs: RefExperiment[]) => void
+  saving: boolean
+}) {
+  const user = useAppSelector(selectUser)
+  const [addOpen, setAddOpen] = useState(false)
+  const [linkMode, setLinkMode] = useState<'browse' | 'search'>('browse')
+  const [searchCode, setSearchCode] = useState('')
+  const [searchResult, setSearchResult] = useState<ArdExperimentDoc | null | 'not_found'>(null)
+  const [searching, setSearching] = useState(false)
+  const [selectedCode, setSelectedCode] = useState<string | null>(null)
+  const [remarks, setRemarks] = useState('')
+  const [previewCode, setPreviewCode] = useState<string | null>(null)
+  const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>()
+  const [selectedNotebookId, setSelectedNotebookId] = useState<string | undefined>()
+  const [selectedExpId, setSelectedExpId] = useState<string | undefined>()
+
+  const { data: previewExp, isLoading: previewLoading } = useQuery<ArdExperimentDoc | null>({
+    queryKey: ['ard-exp-by-code', previewCode],
+    queryFn: () => ardExperimentApi.getByCode(previewCode!),
+    enabled: !!previewCode,
+    retry: false,
+  })
+
+  const { data: projectsData, isLoading: projectsLoading } = useQuery({
+    queryKey: ['ref-exp-projects'],
+    queryFn: () => ardProjectsApi.list({ pageSize: 100 }),
+    enabled: addOpen,
+  })
+
+  const { data: notebooksData, isLoading: notebooksLoading } = useQuery({
+    queryKey: ['ref-exp-notebooks', selectedProjectId],
+    queryFn: () => ardNotebooksApi.list({ projectId: selectedProjectId, pageSize: 100 }),
+    enabled: addOpen && !!selectedProjectId,
+  })
+
+  const { data: expsData, isLoading: expsLoading } = useQuery({
+    queryKey: ['ref-exp-experiments', selectedNotebookId],
+    queryFn: () => ardNotebooksApi.experiments(selectedNotebookId!),
+    enabled: addOpen && !!selectedNotebookId,
+  })
+
+  const resetModalState = () => {
+    setAddOpen(false)
+    setSearchCode('')
+    setSearchResult(null)
+    setSelectedCode(null)
+    setSelectedProjectId(undefined)
+    setSelectedNotebookId(undefined)
+    setSelectedExpId(undefined)
+    setRemarks('')
+  }
+
+  const handleSearch = async () => {
+    const code = searchCode.trim().toUpperCase()
+    if (!code) return
+    setSearching(true)
+    setSearchResult(null)
+    try {
+      const res = await ardExperimentApi.getByCode(code)
+      if (['DEACTIVATED', 'DISCONTINUED'].includes((res.status || '').toUpperCase())) {
+        message.warning('Discontinued / deactivated experiments cannot be linked as a reference.')
+        setSearchResult(null)
+      } else if (refs.some(r => r.code === res.code)) {
+        message.warning('This experiment is already linked.')
+        setSearchResult(null)
+      } else if (res.id === experimentId) {
+        message.warning('Cannot link an experiment to itself.')
+        setSearchResult(null)
+      } else {
+        setSearchResult(res)
+        setSelectedCode(res.code)
+      }
+    } catch {
+      setSearchResult('not_found')
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  const handleAdd = () => {
+    if (!selectedCode) return
+    const newRef: RefExperiment = {
+      code: selectedCode,
+      remarks: remarks.trim() || undefined,
+      addedBy: user?.username,
+      addedAt: new Date().toISOString(),
+    }
+    onUpdate([...refs, newRef])
+    resetModalState()
+  }
+
+  const handleRemove = (code: string) => {
+    onUpdate(refs.filter(r => r.code !== code))
+  }
+
+  return (
+    <Card
+      size="small"
+      title={
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+          <Link size={14} className="text-violet-500" />
+          Reference Experiments
+          {refs.length > 0 && <Tag color="default" className="text-xs font-normal ml-1">{refs.length}</Tag>}
+        </span>
+      }
+      extra={
+        canEdit && (
+          <Button size="small" icon={<Link size={12} />} onClick={() => setAddOpen(true)}>
+            Add Reference
+          </Button>
+        )
+      }
+      className="rounded-lg"
+    >
+      {refs.length === 0 ? (
+        <p className="text-sm text-slate-400 italic py-1">No reference experiments linked.</p>
+      ) : (
+        <Table
+          rowKey="code"
+          size="small"
+          pagination={false}
+          dataSource={refs}
+          columns={[
+            {
+              title: 'Code',
+              dataIndex: 'code',
+              width: 160,
+              render: (v) => <span className="font-mono text-xs font-semibold text-indigo-700">{v}</span>,
+            },
+            {
+              title: 'Remarks',
+              dataIndex: 'remarks',
+              render: (v) => v || <span className="text-slate-300 text-xs">—</span>,
+            },
+            {
+              title: 'Linked By',
+              dataIndex: 'addedBy',
+              width: 120,
+              render: (v) => v || '—',
+            },
+            {
+              title: 'Date',
+              dataIndex: 'addedAt',
+              width: 120,
+              render: (v) => v ? dayjs(v).format('DD MMM YYYY') : '—',
+            },
+            {
+              title: '',
+              width: 100,
+              render: (_, row) => (
+                <Space>
+                  <Tooltip title="Preview experiment">
+                    <Button
+                      size="small"
+                      type="link"
+                      icon={<Eye size={13} />}
+                      onClick={() => setPreviewCode(row.code)}
+                    />
+                  </Tooltip>
+                  {canEdit && (
+                    <Popconfirm
+                      title="Remove this reference link?"
+                      onConfirm={() => handleRemove(row.code)}
+                      okText="Remove"
+                      okButtonProps={{ danger: true }}
+                    >
+                      <Button size="small" type="link" danger icon={<Trash2 size={13} />} />
+                    </Popconfirm>
+                  )}
+                </Space>
+              ),
+            },
+          ]}
+        />
+      )}
+
+      {/* Add Reference Modal */}
+      <Modal
+        {...glassModalProps}
+        title="Link Reference Experiment"
+        open={addOpen}
+        onCancel={resetModalState}
+        onOk={handleAdd}
+        okText="Link Experiment"
+        okButtonProps={{ disabled: !selectedCode }}
+        destroyOnClose
+      >
+        <div className="space-y-4 pt-2">
+          {/* Mode Switcher */}
+          <Segmented
+            value={linkMode}
+            onChange={(v) => {
+              setLinkMode(v as 'browse' | 'search')
+              setSelectedCode(null)
+              setSearchResult(null)
+              setSelectedExpId(undefined)
+            }}
+            options={[
+              { label: 'Select by Project / Notebook', value: 'browse' },
+              { label: 'Search by Code', value: 'search' },
+            ]}
+            block
+          />
+
+          {linkMode === 'browse' ? (
+            <div className="space-y-3 bg-slate-50 p-3.5 rounded-lg border border-slate-200">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Select Project</label>
+                <Select
+                  placeholder="Select a project..."
+                  className="w-full"
+                  loading={projectsLoading}
+                  value={selectedProjectId}
+                  onChange={(val) => {
+                    setSelectedProjectId(val)
+                    setSelectedNotebookId(undefined)
+                    setSelectedExpId(undefined)
+                    setSelectedCode(null)
+                    setSearchResult(null)
+                  }}
+                  options={(projectsData?.items ?? [])
+                    .filter(p => !currentProjectId || p.id !== currentProjectId)
+                    .map(p => ({
+                      value: p.id,
+                      label: `${p.code} - ${p.productName || p.name || 'Project'}`,
+                    }))}
+                  showSearch
+                  optionFilterProp="label"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Select Notebook</label>
+                <Select
+                  placeholder={!selectedProjectId ? 'First select a project' : 'Select a notebook...'}
+                  className="w-full"
+                  disabled={!selectedProjectId}
+                  loading={notebooksLoading}
+                  value={selectedNotebookId}
+                  onChange={(val) => {
+                    setSelectedNotebookId(val)
+                    setSelectedExpId(undefined)
+                    setSelectedCode(null)
+                    setSearchResult(null)
+                  }}
+                  options={(notebooksData?.items ?? []).map(n => ({
+                    value: n.id,
+                    label: `${n.code} - ${n.name}`,
+                  }))}
+                  showSearch
+                  optionFilterProp="label"
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Select Experiment</label>
+                <Select
+                  placeholder={!selectedNotebookId ? 'First select a notebook' : 'Select an experiment...'}
+                  className="w-full"
+                  disabled={!selectedNotebookId}
+                  loading={expsLoading}
+                  value={selectedExpId}
+                  onChange={(val) => {
+                    setSelectedExpId(val)
+                    const matched = expsData?.items?.find(e => e.id === val)
+                    if (matched) {
+                      if (refs.some(r => r.code === matched.code)) {
+                        message.warning('This experiment is already linked.')
+                        setSelectedExpId(undefined)
+                        setSelectedCode(null)
+                        setSearchResult(null)
+                      } else if (matched.id === experimentId) {
+                        message.warning('Cannot link an experiment to itself.')
+                        setSelectedExpId(undefined)
+                        setSelectedCode(null)
+                        setSearchResult(null)
+                      } else {
+                        setSelectedCode(matched.code)
+                        setSearchResult({
+                          id: matched.id,
+                          code: matched.code,
+                          templateName: matched.templateName || '',
+                          status: matched.status,
+                          createdAt: matched.createdAt || '',
+                        } as any)
+                      }
+                    }
+                  }}
+                  options={(expsData?.items ?? [])
+                    .filter(e => !['DEACTIVATED', 'DISCONTINUED'].includes((e.status || '').toUpperCase()))
+                    .map(e => ({
+                      value: e.id,
+                      label: `${e.code} ${e.templateName ? `(${e.templateName})` : ''} - ${STATUS_LABEL[e.status] ?? (e.status ? e.status.replace(/_/g, ' ') : '—')}`,
+                    }))}
+                  showSearch
+                  optionFilterProp="label"
+                />
+              </div>
+            </div>
+          ) : (
+            <div className="flex gap-2">
+              <Input
+                placeholder="Enter experiment code (e.g. EXP-0042)"
+                value={searchCode}
+                onChange={e => { setSearchCode(e.target.value.toUpperCase()); setSearchResult(null) }}
+                onPressEnter={handleSearch}
+                allowClear
+              />
+              <Button
+                icon={<Search size={14} />}
+                loading={searching}
+                onClick={handleSearch}
+                disabled={!searchCode.trim()}
+              >
+                Search
+              </Button>
+            </div>
+          )}
+
+          {searchResult === 'not_found' && (
+            <Alert type="error" showIcon message="Experiment not found. Check the code and try again." />
+          )}
+
+          {searchResult && searchResult !== 'not_found' && (
+            <Card size="small" className="bg-indigo-50/60 border-indigo-200">
+              <div className="space-y-1 text-sm">
+                <div className="flex items-center gap-2">
+                  <span className="font-mono font-bold text-indigo-700">{searchResult.code}</span>
+                  <Tag color={STATUS_COLOR[searchResult.status] ?? 'default'} className="text-xs">
+                    {STATUS_LABEL[searchResult.status] ?? searchResult.status.replace(/_/g, ' ')}
+                  </Tag>
+                </div>
+                {searchResult.templateName && (
+                  <p className="text-slate-500 text-xs">{searchResult.templateName}</p>
+                )}
+                <p className="text-slate-400 text-xs">
+                  Created: {searchResult.createdAt ? dayjs(searchResult.createdAt).format('DD MMM YYYY') : '—'}
+                </p>
+              </div>
+            </Card>
+          )}
+
+          <Form.Item label="Remarks (optional)" style={{ marginBottom: 0 }}>
+            <Input.TextArea
+              rows={2}
+              value={remarks}
+              onChange={e => setRemarks(e.target.value)}
+              placeholder="Why is this experiment referenced?"
+            />
+          </Form.Item>
+        </div>
+      </Modal>
+
+      {/* Preview Drawer */}
+      <Drawer
+        title={
+          <span className="flex items-center gap-2">
+            <Eye size={14} />
+            Experiment Preview — {previewCode}
+          </span>
+        }
+        open={!!previewCode}
+        onClose={() => setPreviewCode(null)}
+        width={680}
+        styles={{ body: { backgroundColor: '#ffffff' }, content: { backgroundColor: '#ffffff' } }}
+      >
+        {previewLoading ? (
+          <div className="flex justify-center py-10"><Spin /></div>
+        ) : previewExp ? (
+          <div className="space-y-4 bg-white">
+            <div className="grid grid-cols-2 gap-3 text-sm bg-slate-50 p-4 rounded-lg border border-slate-200">
+              <div>
+                <p className="text-xs text-slate-400">Code</p>
+                <p className="font-mono font-bold text-indigo-700">{previewExp.code}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Status</p>
+                <Tag color={STATUS_COLOR[previewExp.status] ?? 'default'}>{STATUS_LABEL[previewExp.status] ?? (previewExp.status ? previewExp.status.replace(/_/g, ' ') : '—')}</Tag>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Template</p>
+                <p>{previewExp.templateName || '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Version</p>
+                <p>v{previewExp.version}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Created</p>
+                <p>{previewExp.createdAt ? dayjs(previewExp.createdAt).format('DD MMM YYYY HH:mm') : '—'}</p>
+              </div>
+              <div>
+                <p className="text-xs text-slate-400">Notebook</p>
+                <p className="font-mono text-xs">{previewExp.notebookId || '—'}</p>
+              </div>
+            </div>
+            <Divider className="my-2" />
+            <div>
+              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">Sections</p>
+              <div className="space-y-1">
+                {(previewExp.sectionDefs as SectionDef[]).map(sec => {
+                  const secData = previewExp.sections?.[sec.id]
+                  const hasData = Array.isArray(secData) ? secData.length > 0 : (secData !== null && secData !== undefined && secData !== '')
+                  return (
+                    <div key={sec.id} className="flex items-center justify-between py-1 px-2 rounded bg-slate-50 text-xs">
+                      <span className="text-slate-700">{sec.title}</span>
+                      {hasData
+                        ? <Tag color="blue" className="text-xs">Has data</Tag>
+                        : <span className="text-slate-300">Empty</span>}
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <Alert type="error" message="Could not load experiment preview." />
+        )}
+      </Drawer>
+    </Card>
+  )
+}
+
+// ── Experiment Events Content (with filters) ──────────────────────────────────
+function ExperimentEventsContent({ eventsData }: { eventsData?: { items: { id: string; action: string; detail: string; userName: string; createdAt: string }[] } | undefined }) {
+  const [eventType, setEventType] = useState<string | undefined>()
+  const [fromDate, setFromDate] = useState('')
+  const [toDate, setToDate] = useState('')
+  const [userFilter, setUserFilter] = useState<string | undefined>()
+  const [shown, setShown] = useState(false)
+
+  const allItems = eventsData?.items ?? []
+  const uniqueActions = Array.from(new Set(allItems.map(e => e.action).filter(Boolean)))
+  const uniqueUsers   = Array.from(new Set(allItems.map(e => e.userName).filter(Boolean)))
+
+  const filtered = shown
+    ? allItems.filter(e => {
+        if (eventType && e.action !== eventType) return false
+        if (userFilter && e.userName !== userFilter) return false
+        if (fromDate && e.createdAt && e.createdAt < fromDate) return false
+        if (toDate   && e.createdAt && e.createdAt.slice(0,10) > toDate) return false
+        return true
+      })
+    : []
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap gap-2 items-end bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div>
+          <div className="text-xs text-slate-500 mb-1">Event Type</div>
+          <Select allowClear placeholder="All" style={{ width: 180 }} value={eventType} onChange={setEventType}
+            options={[{ value: undefined as any, label: 'All' }, ...uniqueActions.map(a => ({ value: a, label: a }))]} />
+        </div>
+        <div>
+          <div className="text-xs text-slate-500 mb-1">From</div>
+          <Input type="date" style={{ width: 140 }} value={fromDate} onChange={e => setFromDate(e.target.value)} />
+        </div>
+        <div>
+          <div className="text-xs text-slate-500 mb-1">To</div>
+          <Input type="date" style={{ width: 140 }} value={toDate} onChange={e => setToDate(e.target.value)} />
+        </div>
+        <div>
+          <div className="text-xs text-slate-500 mb-1">User</div>
+          <Select allowClear placeholder="All Users" style={{ width: 150 }} value={userFilter} onChange={setUserFilter}
+            options={[{ value: undefined as any, label: 'All Users' }, ...uniqueUsers.map(u => ({ value: u, label: u }))]} />
+        </div>
+        <Button type="primary" onClick={() => setShown(true)}>Show Events</Button>
+      </div>
+
+      {!shown && <p className="text-slate-400 text-sm">Set filters and click "Show Events" to view experiment events.</p>}
+      {shown && filtered.length === 0 && <Empty description="No events match the selected filters." />}
+      {shown && filtered.length > 0 && (
+        <Timeline
+          items={filtered.map(ev => ({
+            color: ev.action.includes('Status') ? 'blue' : ev.action.includes('Clone') ? 'green' : 'gray',
+            children: (
+              <div>
+                <p className="font-semibold text-sm text-slate-800">{ev.action}</p>
+                {ev.detail && <p className="text-xs text-slate-500">{ev.detail}</p>}
+                <p className="text-xs text-slate-400 mt-0.5">{ev.userName} · {dayjs(ev.createdAt).format('DD MMM YYYY, HH:mm')}</p>
+              </div>
+            ),
+          }))}
+        />
+      )}
+    </div>
+  )
+}
+
+// ── Main Page ─────────────────────────────────────────────────────────────────
+
+function ArdExperimentWorkspacePage() {
+  const { experimentId } = useParams()
+  const navigate = useNavigate()
+  const qc = useQueryClient()
+  const user = useAppSelector(selectUser)
+  const [msg, ctx] = message.useMessage()
+  const [localData, setLocalData] = useState<Record<string, unknown> | null>(null)
+  const [downloading, setDownloading] = useState<boolean>(false)
+  const [pendingTargetStatus, setPendingTargetStatus] = useState<string | null>(null)
+  const [historyOpen, setHistoryOpen] = useState(false)
+  const [eventsOpen, setEventsOpen] = useState(false)
+  const [cloneLoading, setCloneLoading] = useState(false)
+  const [viewMode, setViewMode] = useState<'tabbed' | 'single'>('tabbed')
+  const [takeoverOpen, setTakeoverOpen] = useState(false)
+  const [takeoverAnalystId, setTakeoverAnalystId] = useState<string | undefined>()
+  const [takeoverRemarks, setTakeoverRemarks] = useState('')
+  const [qaComment, setQaComment] = useState('')
+  const [lockedByOther, setLockedByOther] = useState<string | null>(null)
+  const lockAcquired = useRef(false)
+  const [empowerModalOpen, setEmpowerModalOpen] = useState(false)
+  const [empowerCsvText, setEmpowerCsvText] = useState('')
+  // B-41: reassign reviewer
+  const [reviewerOpen, setReviewerOpen] = useState(false)
+  const [reviewerSelectedId, setReviewerSelectedId] = useState<string | undefined>()
+  const [reviewerRemarks, setReviewerRemarks] = useState('')
+  // B-76: reviewer picker on SUBMITTED transition
+  const [submitReviewerOpen, setSubmitReviewerOpen] = useState(false)
+  const [submitReviewerId, setSubmitReviewerId] = useState<string | undefined>()
+  // B-77: linked ATR IDs for co-submission
+  const [linkedAtrIds, setLinkedAtrIds] = useState<string[]>([])
+  // B-80: skip verification if disabled
+  const [verificationFlowActive, setVerificationFlowActive] = useState(true)
+  // B-44: aim achieved pre-modal before approval
+  const [aimModalOpen, setAimModalOpen] = useState(false)
+  const [aimAchieved, setAimAchieved] = useState<boolean | null>(null)
+  const [aimRemarks, setAimRemarks] = useState('')
+
+
+  const { data: analystUsers } = useQuery({
+    queryKey: ['ard-analyst-users'],
+    queryFn: () => userApi.list({ role_code: 'ANALYST', limit: 100 }),
+    enabled: takeoverOpen,
+  })
+
+  const { data: reviewerUsers } = useQuery({
+    queryKey: ['ard-reviewer-users'],
+    queryFn: () => userApi.list({ limit: 200 }),
+    enabled: reviewerOpen,
+  })
+
+  const { data: exp, isLoading, error } = useQuery({
+    queryKey: ['ard-experiment', experimentId],
+    queryFn: () => ardExperimentApi.get(experimentId!),
+    enabled: !!experimentId,
+    refetchOnWindowFocus: false,
+  })
+
+  // B-76: notebook members for reviewer picker on SUBMITTED
+  const notebookId = exp?.notebookId
+  const { data: notebookDetail } = useQuery({
+    queryKey: ['ard-notebook-detail', notebookId],
+    queryFn: () => ardNotebooksApi.get(notebookId!),
+    enabled: !!notebookId,
+  })
+  const notebookMemberOptions = useMemo(() => {
+    const members = (notebookDetail as any)?.assignedUsers ?? []
+    if (members.length === 0) return []
+    return members
+      .filter((m: any) => m.role !== 'VIEWER')
+      .map((m: any) => ({ value: m.userId ?? m.id, label: `${m.userName ?? m.username} (${m.role})` }))
+  }, [notebookDetail])
+
+  // B-77: list ATRs for co-submit picker
+  const { data: atrListData } = useQuery({
+    queryKey: ['ard-atrs-for-cosubmit'],
+    queryFn: () => import('../../api/ard').then(m => m.ardAtrApi.list({ pageSize: 100 })),
+    enabled: submitReviewerOpen,
+  })
+  const coSubmitAtrOptions = useMemo(() => {
+    const items = (atrListData as any)?.items ?? []
+    return items
+      .filter((a: any) => ['DRAFT', 'SAVED'].includes(a.status ?? ''))
+      .map((a: any) => ({ value: a.id, label: `${a.formNo ?? a.id} — ${a.projectCode ?? ''}` }))
+  }, [atrListData])
+
+  const { data: settingsMap } = useQuery({
+    queryKey: ['ard-settings-map'],
+    queryFn: ardApi.settingsMap,
+  })
+
+  // B-80: verification flow requires app-level setting AND notebook-level flag
+  const verificationEnabled = useMemo(() => {
+    const raw = (settingsMap as any)?.['IncludeADVerificationFlow']
+    const val = typeof raw === 'object' && raw !== null && 'value' in raw ? raw.value : raw
+    const appOk = val === undefined || val === null ? true : (typeof val === 'boolean' ? val : String(val).toLowerCase() !== 'false')
+    const nbOk = (notebookDetail as any)?.includeVerificationFlow ?? true
+    return appOk && nbOk
+  }, [settingsMap, notebookDetail])
+
+  const patch = useMutation({
+    mutationFn: (sections: Record<string, unknown>) => ardExperimentApi.patch(experimentId!, { sections }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      setLocalData(null)
+      msg.success('Saved.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save.'),
+  })
+
+  const patchRefs = useMutation({
+    mutationFn: (refs: RefExperiment[]) => ardExperimentApi.patch(experimentId!, { referenceExperiments: refs }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      msg.success('Reference experiments updated.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to update references.'),
+  })
+
+  const transition = useMutation({
+    mutationFn: ({ to, password, remarks, reason, aimAchieved: aim, aimRemarks: aimR, reviewerId, linkedAtrIds: atrIds }: { to: string; password?: string; remarks?: string; reason?: string; aimAchieved?: boolean | null; aimRemarks?: string; reviewerId?: string; linkedAtrIds?: string[] }) =>
+      ardExperimentApi.transition(experimentId!, { to, ...(password ? { password } : {}), ...(remarks ? { remarks } : {}), ...(reason ? { reason } : {}), ...(aim != null ? { aimAchieved: aim } : {}), ...(aimR ? { aimRemarks: aimR } : {}), ...(reviewerId ? { reviewerId } : {}), ...(atrIds?.length ? { linkedAtrIds: atrIds } : {}) }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      setPendingTargetStatus(null)
+      msg.success('Status updated.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Transition failed.'),
+  })
+
+  const takeover = useMutation({
+    mutationFn: ({ newAnalystId, remarks }: { newAnalystId: string; remarks: string }) =>
+      ardExperimentApi.takeover(experimentId!, { newAnalystId, remarks }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      setTakeoverOpen(false)
+      setTakeoverAnalystId(undefined)
+      setTakeoverRemarks('')
+      msg.success('Experiment reassigned.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Takeover failed.'),
+  })
+
+  const reassignReviewer = useMutation({
+    mutationFn: ({ reviewerId, remarks }: { reviewerId: string; remarks: string }) =>
+      ardExperimentApi.reassignReviewer(experimentId!, { reviewerId, remarks }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      setReviewerOpen(false)
+      setReviewerSelectedId(undefined)
+      setReviewerRemarks('')
+      msg.success('Reviewer reassigned.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Reassign reviewer failed.'),
+  })
+
+  const stpWeightsMut = useMutation({
+    mutationFn: () => ardExperimentApi.stpUpdateSampleWeights(experimentId!),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      msg.success(`Sample weights updated (${res.updatedFields} field(s) populated).`)
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Update failed.'),
+  })
+
+  const stpEmpowerMut = useMutation({
+    mutationFn: (csvData: string) => ardExperimentApi.stpImportEmpower(experimentId!, csvData),
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      setEmpowerModalOpen(false)
+      setEmpowerCsvText('')
+      msg.success(`Empower data imported: ${res.rowsImported} rows into section.`)
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Empower import failed.'),
+  })
+
+  const stpPushResultsMut = useMutation({
+    mutationFn: () => {
+      // ArdExperimentDoc has no `resultParameters` field — that lives on the
+      // parent Notebook doc (see ArdNotebookWorkspacePage.tsx), which this
+      // page doesn't fetch. Preserved as an explicit empty array rather than
+      // wiring in a notebook fetch, since this was already a no-op at runtime
+      // (the property never existed on `exp`) and fixing the underlying gap
+      // is a separate, larger change.
+      const resultParams: Record<string, unknown>[] = []
+      return ardExperimentApi.stpPushResults(experimentId!, resultParams)
+    },
+    onSuccess: (res) => {
+      msg.success(`${res.resultsCount} result(s) pushed to ATR sample.`)
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Push results failed.'),
+  })
+
+  const restoreMut = useMutation({
+    mutationFn: (remarks: string) => ardExperimentApi.restore(experimentId!, remarks),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      msg.success('Experiment restored to In Progress.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Restore failed.'),
+  })
+
+  const addQaComment = useMutation({
+    mutationFn: (message: string) => ardExperimentApi.addComment(experimentId!, { message }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      setQaComment('')
+      msg.success('QA comment added.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to add comment.'),
+  })
+
+  const { data: eventsData } = useQuery({
+    queryKey: ['ard-experiment-events', experimentId],
+    queryFn: () => import('../../api/client').then(m => m.apiGet<{ items: { id: string; action: string; detail: string; userName: string; createdAt: string }[] }>(`/api/ard/audit/entity/EXPERIMENT/${experimentId}`)),
+    enabled: eventsOpen && !!experimentId,
+  })
+
+
+  const parsedSections = useMemo(() => {
+    if (!exp?.sections) return {}
+    return Array.isArray(exp.sections)
+      ? exp.sections.reduce((acc, item) => {
+          if (item && typeof item === 'object' && 'id' in item) {
+            acc[(item as any).id] = item
+          }
+          return acc
+        }, {} as Record<string, unknown>)
+      : (exp.sections as Record<string, unknown>) ?? {}
+  }, [exp?.sections])
+
+  const isDirty = useMemo(() => {
+    if (!localData) return false
+    return JSON.stringify(localData) !== JSON.stringify(parsedSections)
+  }, [localData, parsedSections])
+
+  // B-13: Session-based experiment locking
+  useEffect(() => {
+    const LOCKABLE = ['IN_PROGRESS', 'REWORK', 'UNLOCKED']
+    if (!experimentId || !exp || !LOCKABLE.includes(exp.status)) return
+    let active = true
+
+    ardExperimentApi.acquireLock(experimentId)
+      .then(() => { if (active) { lockAcquired.current = true; setLockedByOther(null) } })
+      .catch((e) => {
+        if (active && e instanceof ApiError && e.status === 409) {
+          setLockedByOther(e.detail || 'Another user')
+        }
+      })
+
+    const apiBase = (import.meta as any).env?.VITE_API_URL || 'http://localhost:8000'
+    const releaseOnUnload = () => {
+      if (!lockAcquired.current) return
+      const token = localStorage.getItem('access_token')
+      fetch(`${apiBase}/api/ard/experiments/${experimentId}/lock`, {
+        method: 'DELETE',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        keepalive: true,
+      }).catch(() => {})
+    }
+    window.addEventListener('beforeunload', releaseOnUnload)
+
+    return () => {
+      active = false
+      window.removeEventListener('beforeunload', releaseOnUnload)
+      if (lockAcquired.current) {
+        lockAcquired.current = false
+        ardExperimentApi.releaseLock(experimentId).catch(() => {})
+      }
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [experimentId, exp?.status])
+
+  if (isLoading) return <div className="p-8 flex justify-center"><Spin size="large" /></div>
+  if (error || !exp) return (
+    <div className="p-4 md:p-6">
+      <Alert
+        type="error"
+        message="Unable to load experiment"
+        description={error instanceof ApiError ? error.detail : (error as Error)?.message || 'Experiment not found or access restricted.'}
+        action={<Button size="small" onClick={() => navigate('/ard/experiments')}>Back to Experiments</Button>}
+      />
+    </div>
+  )
+
+  const data = localData ?? parsedSections
+  // B-13: locked by another user → treat as read-only regardless of status
+  const editable = (exp.status === 'IN_PROGRESS' || exp.status === 'REWORK') && !lockedByOther
+
+  // B-08: ModifyAfterRework — when setting is 'sections_with_comments_only', only sections
+  // that have a reviewer/QA comment attached may be edited during REWORK.
+  const modifyAfterRework = (settingsMap as any)?.ModifyAfterRework?.value ?? 'all'
+  const sectionsWithComments: Set<string> | null = (() => {
+    if (exp.status !== 'REWORK' || modifyAfterRework !== 'sections_with_comments_only') return null
+    const scs = (exp.sectionComments as { sectionId?: string; authorRole?: string }[] | undefined) ?? []
+    const reviewerRoles = ['TL', 'TEAM_LEAD', 'HOD', 'HEAD_OF_DEPT', 'QA', 'SUPER_ADMIN', 'ADMIN']
+    return new Set(
+      scs
+        .filter(c => c.sectionId && reviewerRoles.includes((c.authorRole ?? '').toUpperCase()))
+        .map(c => c.sectionId!)
+    )
+  })()
+  const isSectionReadOnly = (sectionId: string): boolean => {
+    if (!editable) return true
+    if (sectionsWithComments !== null) return !sectionsWithComments.has(sectionId)
+    return false
+  }
+
+  const role = ((user as any)?.role?.code || user?.role_code || '').toUpperCase()
+  const isAnalyst = role === 'ANALYST' || role === 'ANALYST_ROLE' || (!['TL', 'TEAM_LEAD', 'HOD', 'HEAD_OF_DEPT', 'QA', 'SUPER_ADMIN', 'ADMIN'].includes(role))
+  const isHODOrQA = ['HOD', 'HEAD_OF_DEPT', 'SUPER_ADMIN', 'QA'].includes(role)
+  const rawNextStates = EXPERIMENT_TRANSITIONS[exp.status as ExperimentStatus] ?? []
+  const nextStates = rawNextStates.filter(s => {
+    // B-80: hide peer-verification step when disabled at app or notebook level
+    if (s === 'VERIFICATION_REQUESTED' && !verificationEnabled) return false
+    // After TL verifies, only TL/HOD sends the experiment to HOD for approval (not analyst)
+    if (s === 'SUBMITTED' && exp.status === 'VERIFIED') return !isAnalyst
+    const category = TRANSITION_ROLE[s as ExperimentStatus] ?? 'any'
+    if (category === 'any') return true
+    if (category === 'analyst') return isAnalyst
+    if (category === 'approver') return isHODOrQA
+    // 'reviewer' = TL / HOD / SUPER_ADMIN (not analyst)
+    return !isAnalyst
+  })
+  const canTakeover = ['TL', 'TEAM_LEAD', 'HOD', 'HEAD_OF_DEPT', 'SUPER_ADMIN'].includes(role) && editable
+
+  const onChange = (sectionId: string, value: unknown) =>
+    setLocalData({ ...data, [sectionId]: value })
+
+  const handleSave = () => {
+    if (!localData) return
+    patch.mutate(localData)
+  }
+
+  const SENSITIVE_TRANSITIONS = [
+    'SUBMITTED', 'VERIFICATION_REQUESTED', 'VERIFIED', 'APPROVED',
+    'REWORK', 'VERIFICATION_REWORK', 'UNLOCK_REQUESTED', 'UNLOCKED', 'DEACTIVATED',
+  ]
+
+  const handleTransitionClick = async (to: string) => {
+    if (isDirty && localData) {
+      try {
+        await patch.mutateAsync(localData)
+      } catch {
+        return
+      }
+    }
+
+    // Validate required sections before any analyst-initiated forward submission
+    if (['SUBMITTED', 'VERIFICATION_REQUESTED'].includes(to) && isAnalyst) {
+      const allDefs = Array.isArray(exp.sectionDefs) ? (exp.sectionDefs as SectionDef[]) : []
+      const required = allDefs.filter(s => s.required)
+      const missing = required.filter(s => {
+        const v = data[s.id]
+        if (v === null || v === undefined) return true
+        if (typeof v === 'string') return v.trim() === ''
+        if (Array.isArray(v)) return v.length === 0
+        return false
+      })
+      if (missing.length > 0) {
+        msg.error(`Complete required sections before submitting: ${missing.map(s => s.title).join(', ')}`)
+        return
+      }
+
+      const equipDefs = allDefs.filter(s => s.type === 'equipment')
+      for (const ed of equipDefs) {
+        const rows = (data[ed.id] as { instrumentCode?: string; calibrationStatus?: string; maintenanceStatus?: string }[]) || []
+        const expired = rows.find(r => r.calibrationStatus === 'EXPIRED' || r.maintenanceStatus === 'OUT_OF_SERVICE')
+        if (expired) {
+          msg.error(`Calibration Interlock Violation: Instrument ${expired.instrumentCode || 'selected'} is ${expired.calibrationStatus || expired.maintenanceStatus}. Select a calibrated asset before submitting.`)
+          return
+        }
+      }
+    }
+
+    // B-44: for APPROVED, show "Is aim achieved?" modal first
+    if (to === 'APPROVED') {
+      setAimAchieved(null)
+      setAimRemarks('')
+      setAimModalOpen(true)
+      return
+    }
+
+    // B-76/B-77: for SUBMITTED (by analyst), show pre-submit modal to pick reviewer + linked ATRs
+    if (to === 'SUBMITTED' && isAnalyst) {
+      setSubmitReviewerId(undefined)
+      setLinkedAtrIds([])
+      setSubmitReviewerOpen(true)
+      return
+    }
+
+    if (SENSITIVE_TRANSITIONS.includes(to)) {
+      setPendingTargetStatus(to)
+    } else {
+      transition.mutate({ to })
+    }
+  }
+
+  const handleClone = async (blank: boolean) => {
+    setCloneLoading(true)
+    try {
+      const cloned = blank ? await ardExperimentApi.cloneBlank(experimentId!) : await ardExperimentApi.clone(experimentId!)
+      msg.success(`Cloned as ${(cloned as any).code} — opening now.`)
+      navigate(`/ard/experiments/${(cloned as any).id}`)
+    } catch {
+      msg.error('Clone failed.')
+    } finally {
+      setCloneLoading(false)
+    }
+  }
+
+  const handleDownloadPdf = async () => {
+    if (!exp) return
+    setDownloading(true)
+    try {
+      const { blob, filename } = await ardExperimentApi.downloadReport(experimentId!)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || `${exp.code}.pdf`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      msg.error('Failed to generate PDF report.')
+    } finally {
+      setDownloading(false)
+    }
+  }
+
+  const sectionDefs = Array.isArray(exp.sectionDefs) ? (exp.sectionDefs as SectionDef[]) : []
+  const sectionTabItems = sectionDefs.map((section, idx) => ({
+    key: section?.id || `sec-${idx}`,
+    label: `${idx + 1}. ${section?.title || 'Section'}`,
+    children: (
+      <ExperimentSectionRenderer
+        section={section || { id: `sec-${idx}`, title: 'Section', type: 'richtext' }}
+        data={data}
+        onChange={onChange}
+        readOnly={isSectionReadOnly(section?.id || `sec-${idx}`)}
+        projectId={exp.projectId ?? undefined}
+        onSave={handleSave}
+        isSaving={patch.isPending}
+      />
+    ),
+  }))
+
+  return (
+    <div className="p-4 md:p-6 space-y-4">
+      {ctx}
+
+      {/* Header */}
+      <div className="glass-card flex items-start gap-3 flex-wrap p-4 rounded-lg">
+        <Button icon={<ArrowLeft size={14} />} onClick={() => navigate('/ard/experiments')} />
+        <FlaskConical size={20} className="text-violet-500 mt-1 shrink-0" />
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <h1 className="text-lg font-bold text-slate-800 font-mono">{exp.code}</h1>
+            <Tag color={STATUS_COLOR[exp.status] ?? 'blue'}>{STATUS_LABEL[exp.status] ?? (exp.status ? exp.status.replace(/_/g, ' ') : '—')}</Tag>
+            {exp.templateName && (
+              <span className="text-sm text-slate-400">{exp.templateName}</span>
+            )}
+            {exp.createdAt && (() => {
+              const days = Math.floor((Date.now() - new Date(exp.createdAt).getTime()) / 86_400_000)
+              const color = days <= 7 ? 'text-violet-600' : days <= 14 ? 'text-amber-500' : 'text-red-500'
+              return <span className={`text-xs font-mono font-semibold ${color}`}>{days}d old</span>
+            })()}
+          </div>
+          {(exp as any).testType && (
+            <p className="text-xs text-slate-400 mt-0.5">Test Type: <span className="font-medium text-slate-600">{(exp as any).testType}{(exp as any).testSubType ? ` / ${(exp as any).testSubType}` : ''}</span></p>
+          )}
+          {exp.notebookId && (
+            <p className="text-xs text-slate-400 mt-0.5">Notebook: {exp.notebookId}</p>
+          )}
+          {(exp as any).projectName && (
+            <p className="text-xs text-slate-400 mt-0.5">Project: <span className="font-medium text-slate-600">{(exp as any).projectName}</span></p>
+          )}
+          {(exp as any).createdBy && (
+            <p className="text-xs text-slate-400 mt-0.5">Started By: <span className="font-medium text-slate-600">{(exp as any).createdBy}</span></p>
+          )}
+          {(exp.contributors ?? []).length > 0 && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              Contributors:{' '}
+              {(exp.contributors ?? []).map(c => (
+                <Tag key={c.userId} className="text-xs ml-0.5">{c.userName}</Tag>
+              ))}
+            </p>
+          )}
+          {exp.aimAchieved != null && (
+            <p className="text-xs text-slate-400 mt-0.5">
+              Aim Achieved:{' '}
+              <Tag color={exp.aimAchieved ? 'green' : 'red'} className="text-xs">{exp.aimAchieved ? 'Yes' : 'No'}</Tag>
+              {exp.aimRemarks && <span className="text-slate-500 italic ml-1">"{exp.aimRemarks}"</span>}
+            </p>
+          )}
+        </div>
+
+        {/* Action buttons */}
+        <Space wrap>
+          <Button icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>History</Button>
+          <Button icon={<Activity size={14} />} onClick={() => setEventsOpen(true)}>Events</Button>
+          <Button.Group>
+            <Button icon={<Copy size={14} />} loading={cloneLoading} onClick={() => handleClone(false)}>Clone</Button>
+            <Button loading={cloneLoading} onClick={() => handleClone(true)} title="Clone structure only — no data">Blank</Button>
+          </Button.Group>
+          <Button icon={<Download size={14} />} loading={downloading} onClick={handleDownloadPdf}>
+            Download PDF
+          </Button>
+          {canTakeover && (
+            <Button icon={<RotateCcw size={14} />} onClick={() => setTakeoverOpen(true)}
+              className="border-amber-500 text-amber-700 bg-amber-50 hover:bg-amber-100 font-semibold">
+              Reassign Analyst
+            </Button>
+          )}
+          {canTakeover && ['SUBMITTED', 'IN_PROGRESS', 'REWORK'].includes(exp.status) && (
+            <Button icon={<RotateCcw size={14} />} onClick={() => setReviewerOpen(true)}
+              className="border-violet-400 text-violet-700 bg-violet-50 hover:bg-violet-100 font-semibold">
+              Reassign Reviewer
+            </Button>
+          )}
+          {exp.projectStpId && editable && (
+            <Dropdown menu={{
+              items: [
+                {
+                  key: 'weights',
+                  label: 'Update Sample Weights',
+                  icon: <Database size={13} />,
+                  onClick: () => stpWeightsMut.mutate(),
+                  disabled: stpWeightsMut.isPending,
+                },
+                {
+                  key: 'empower',
+                  label: 'Read from Empower (CSV)',
+                  icon: <Download size={13} />,
+                  onClick: () => setEmpowerModalOpen(true),
+                },
+                {
+                  key: 'results',
+                  label: 'Update Results to Sample',
+                  icon: <FileText size={13} />,
+                  onClick: () => stpPushResultsMut.mutate(),
+                  disabled: stpPushResultsMut.isPending,
+                },
+              ],
+            }} trigger={['click']}>
+              <Button icon={<Database size={14} />} className="border-violet-500 text-violet-700 bg-violet-50 hover:bg-violet-100">
+                STP Actions
+              </Button>
+            </Dropdown>
+          )}
+          {exp.status === 'DEACTIVATED' && ['HOD', 'SUPER_ADMIN'].includes(role) && (
+            <Button type="primary" icon={<RotateCcw size={14} />}
+              loading={restoreMut.isPending}
+              onClick={() => restoreMut.mutate('Restored by HOD')}
+              style={{ background: '#7c3aed', borderColor: '#7c3aed' }}>
+              Restore Experiment
+            </Button>
+          )}
+          {editable && isDirty && (
+            <Button type="primary" icon={<Save size={14} />}
+              loading={patch.isPending} onClick={handleSave}>
+              Save
+            </Button>
+          )}
+          {nextStates.map(s => (
+            <Button
+              key={s}
+              loading={transition.isPending}
+              type={['SUBMITTED', 'VERIFIED', 'APPROVED', 'UNLOCKED', 'VERIFICATION_REQUESTED'].includes(s) ? 'primary' : 'default'}
+              danger={['DEACTIVATED', 'REWORK', 'VERIFICATION_REWORK'].includes(s)}
+              onClick={() => handleTransitionClick(s)}
+            >
+              {s === 'SUBMITTED' && exp.status === 'VERIFIED' ? TRANSITION_LABEL['SUBMITTED_FROM_VERIFIED'] : (TRANSITION_LABEL[s] ?? (s ? s.replace(/_/g, ' ') : '—'))}
+            </Button>
+          ))}
+        </Space>
+      </div>
+
+      {/* Unlock Authorization Card */}
+      {exp.status === 'UNLOCKED' && (
+        <Alert
+          type="info"
+          showIcon
+          message="Experiment Unlocked for Revision"
+          description={`Unlocked by ${(exp as any).unlockApprovedBy || (exp as any).unlockedBy || 'Authorized Approver'} on ${(exp as any).unlockedAt ? dayjs((exp as any).unlockedAt).format('DD MMM YYYY, HH:mm') : '—'}. Reason: ${(exp as any).unlockReason || 'Re-opening for corrections'}`}
+          className="bg-indigo-50/80 border-indigo-200"
+        />
+      )}
+
+      {/* B-13: locked by another session — view-only mode */}
+      {lockedByOther && (
+        <Alert
+          type="warning"
+          showIcon
+          message="Viewing in read-only mode"
+          description={`This experiment is currently being edited by ${lockedByOther.replace(/^Experiment is currently being edited by /, '').replace(/\. Try again later\.$/, '')}. You can view all sections but cannot make edits until the other session ends.`}
+          className="border-amber-300 bg-amber-50"
+        />
+      )}
+
+      {/* REWORK restricted-sections banner */}
+      {exp.status === 'REWORK' && sectionsWithComments !== null && (
+        <Alert
+          type="warning"
+          showIcon
+          message={`Rework mode: only sections with reviewer comments (${sectionsWithComments.size}) are editable. All other sections are locked.`}
+        />
+      )}
+
+      {/* Unsaved changes banner */}
+      {isDirty && (
+        <Alert type="warning" showIcon
+          message="You have unsaved changes."
+          action={<Button size="small" onClick={handleSave} loading={patch.isPending}>Save now</Button>}
+        />
+      )}
+
+      {/* 2-Button View Mode Toggle: Tabbed View | Single Page View */}
+      <div className="glass-card flex justify-between items-center px-4 py-2.5 rounded-lg mb-4">
+        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Experiment Layout View</span>
+        <Segmented
+          value={viewMode}
+          onChange={(v) => setViewMode(v as 'tabbed' | 'single')}
+          options={[
+            { label: 'Tabbed View', value: 'tabbed', icon: <LayoutList size={14} className="inline mr-1" /> },
+            { label: 'Single Page View', value: 'single', icon: <FileText size={14} className="inline mr-1" /> },
+          ]}
+        />
+      </div>
+
+      {/* Sections rendering based on viewMode */}
+      {sectionDefs.length === 0 ? (
+        <Empty description="This template has no sections defined." />
+      ) : viewMode === 'tabbed' ? (
+        <div className="glass-card rounded-lg p-4">
+          <Tabs type="card" items={sectionTabItems} />
+        </div>
+      ) : (
+        <div className="space-y-4">
+          {sectionDefs.map((section, idx) => (
+            <Card
+              key={section?.id || `sec-${idx}`}
+              size="small"
+              title={
+                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                  {section?.title || 'Section'}
+                  {section?.required && <Tag color="red" className="text-xs font-normal">Required</Tag>}
+                </span>
+              }
+              className="rounded-lg overflow-hidden"
+            >
+              <ExperimentSectionRenderer
+                section={section || { id: `sec-${idx}`, title: 'Section', type: 'richtext' }}
+                data={data}
+                onChange={onChange}
+                readOnly={isSectionReadOnly(section?.id || `sec-${idx}`)}
+                projectId={exp.projectId ?? undefined}
+                onSave={handleSave}
+                isSaving={patch.isPending}
+              />
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {/* Reference Experiments */}
+      <ReferenceExperimentsPanel
+        experimentId={experimentId!}
+        currentProjectId={exp.projectId ?? undefined}
+        refs={Array.isArray(exp.referenceExperiments) ? exp.referenceExperiments : []}
+        canEdit={editable}
+        onUpdate={(refs) => patchRefs.mutate(refs)}
+        saving={patchRefs.isPending}
+      />
+
+      {/* QA Comments */}
+      {(() => {
+        const clarifications = Array.isArray(exp.clarifications) ? exp.clarifications : []
+        if (!['QA', 'HOD', 'SUPER_ADMIN', 'TL', 'TEAM_LEAD'].includes(role) && clarifications.length === 0) return null
+        return (
+          <Card
+            title={<span className="text-sm font-semibold text-slate-700">QA Comments</span>}
+            size="small"
+            className="rounded-lg"
+          >
+            <div className="space-y-2 mb-3 max-h-60 overflow-y-auto">
+              {clarifications.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No QA comments yet.</p>
+              ) : (
+                (clarifications as { id: string; message: string; authorName: string; createdAt: string }[]).map(c => (
+                  <div key={c.id || Math.random().toString()} className="bg-amber-50 border border-amber-100 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex justify-between items-center mb-0.5">
+                      <span className="font-semibold text-amber-700">{c.authorName || 'QA'}</span>
+                      <span className="text-slate-400">{c.createdAt ? dayjs(c.createdAt).format('DD MMM YYYY HH:mm') : ''}</span>
+                    </div>
+                    <p className="text-slate-700">{c.message}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            {['QA', 'HOD', 'SUPER_ADMIN'].includes(role) && (
+              <div className="flex gap-2 mt-2">
+                <Input.TextArea
+                  rows={2}
+                  placeholder="Add a QA comment..."
+                  value={qaComment}
+                  onChange={e => setQaComment(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  type="primary"
+                  loading={addQaComment.isPending}
+                  disabled={!qaComment.trim()}
+                  onClick={() => addQaComment.mutate(qaComment)}
+                  style={{ alignSelf: 'flex-end' }}
+                >
+                  Post
+                </Button>
+              </div>
+            )}
+          </Card>
+        )
+      })()}
+
+      {/* Bottom save bar when dirty */}
+      {editable && isDirty && (
+        <>
+          <Divider />
+          <div className="flex justify-end gap-2">
+            <Button onClick={() => setLocalData(null)}>Discard changes</Button>
+            <Button type="primary" icon={<Save size={14} />}
+              loading={patch.isPending} onClick={handleSave}>
+              Save Changes
+            </Button>
+          </div>
+        </>
+      )}
+
+      {/* Experiment Takeover Modal (GAP-015) */}
+      <Modal
+        {...glassModalProps}
+        title="Reassign Experiment Analyst"
+        open={takeoverOpen}
+        onCancel={() => { setTakeoverOpen(false); setTakeoverAnalystId(undefined); setTakeoverRemarks('') }}
+        onOk={() => {
+          if (!takeoverAnalystId) { msg.warning('Select an analyst.'); return }
+          if (!takeoverRemarks.trim()) { msg.warning('Remarks are required.'); return }
+          takeover.mutate({ newAnalystId: takeoverAnalystId, remarks: takeoverRemarks })
+        }}
+        confirmLoading={takeover.isPending}
+        okText="Reassign"
+      >
+        <div className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">New Analyst</label>
+            <Select
+              className="w-full"
+              placeholder="Select analyst"
+              value={takeoverAnalystId}
+              onChange={setTakeoverAnalystId}
+              options={(analystUsers?.items ?? []).map(u => ({ value: u.id, label: u.username }))}
+              showSearch
+              filterOption={(q, opt) => (opt?.label as string ?? '').toLowerCase().includes(q.toLowerCase())}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Reason for Reassignment</label>
+            <Input.TextArea
+              rows={3}
+              placeholder="Business justification required…"
+              value={takeoverRemarks}
+              onChange={e => setTakeoverRemarks(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* B-44: Aim Achieved Modal (shown before approval e-sign) */}
+      <Modal
+        {...glassModalProps}
+        title="Is the Experiment Aim Achieved?"
+        open={aimModalOpen}
+        onCancel={() => { setAimModalOpen(false); setAimAchieved(null); setAimRemarks('') }}
+        onOk={() => {
+          if (aimAchieved === null) { msg.warning('Please select Yes or No.'); return }
+          setAimModalOpen(false)
+          setPendingTargetStatus('APPROVED')
+        }}
+        okText="Continue to Approve"
+        okButtonProps={{ disabled: aimAchieved === null }}
+      >
+        <div className="space-y-3 pt-2">
+          <p className="text-sm text-slate-600">Before approving, confirm whether the scientific aim of this experiment was achieved.</p>
+          <div className="flex gap-3">
+            <Button
+              type={aimAchieved === true ? 'primary' : 'default'}
+              style={aimAchieved === true ? { background: '#7c3aed', borderColor: '#7c3aed' } : {}}
+              onClick={() => setAimAchieved(true)}
+            >
+              ✓ Yes — Aim Achieved
+            </Button>
+            <Button
+              danger={aimAchieved === false}
+              type={aimAchieved === false ? 'primary' : 'default'}
+              onClick={() => setAimAchieved(false)}
+            >
+              ✗ No — Aim Not Achieved
+            </Button>
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-slate-500 mb-1">Remarks (optional)</p>
+            <Input.TextArea
+              rows={2}
+              placeholder="Any notes about the experiment outcome…"
+              value={aimRemarks}
+              onChange={e => setAimRemarks(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* B-41: Reassign Reviewer Modal */}
+      <Modal
+        {...glassModalProps}
+        title="Reassign Experiment Reviewer"
+        open={reviewerOpen}
+        onCancel={() => { setReviewerOpen(false); setReviewerSelectedId(undefined); setReviewerRemarks('') }}
+        onOk={() => {
+          if (!reviewerSelectedId) { msg.warning('Select a reviewer.'); return }
+          reassignReviewer.mutate({ reviewerId: reviewerSelectedId, remarks: reviewerRemarks })
+        }}
+        confirmLoading={reassignReviewer.isPending}
+        okText="Reassign"
+      >
+        <div className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">New Reviewer</label>
+            <Select
+              className="w-full"
+              placeholder="Select reviewer (TL/HOD)"
+              value={reviewerSelectedId}
+              onChange={setReviewerSelectedId}
+              options={((reviewerUsers?.items ?? []) as any[])
+                .filter((u: any) => ['TL', 'TEAM_LEAD', 'HOD', 'ADMIN', 'SUPER_ADMIN'].includes(u.role_code ?? u.roleCode ?? ''))
+                .map((u: any) => ({ value: u.id, label: `${u.username} (${u.role_code ?? u.roleCode ?? ''})` }))}
+              showSearch
+              filterOption={(q, opt) => (opt?.label as string ?? '').toLowerCase().includes(q.toLowerCase())}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Reason (optional)</label>
+            <Input.TextArea
+              rows={2}
+              placeholder="Reason for reviewer change…"
+              value={reviewerRemarks}
+              onChange={e => setReviewerRemarks(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* B-76/B-77: Pre-Submit modal — pick reviewer + optional linked ATRs */}
+      <Modal
+        {...glassModalProps}
+        title="Submit Experiment for Approval"
+        open={submitReviewerOpen}
+        onCancel={() => { setSubmitReviewerOpen(false); setSubmitReviewerId(undefined); setLinkedAtrIds([]) }}
+        onOk={() => {
+          setSubmitReviewerOpen(false)
+          setPendingTargetStatus('SUBMITTED')
+        }}
+        okText="Proceed to Sign"
+        okButtonProps={{ disabled: !submitReviewerId && notebookMemberOptions.length > 0 }}
+      >
+        <div className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              Assign Reviewer <span className="text-red-500">*</span>
+            </label>
+            <Select
+              className="w-full"
+              placeholder={notebookMemberOptions.length > 0 ? 'Select a notebook member as reviewer…' : 'No notebook members — type to search all users'}
+              showSearch
+              optionFilterProp="label"
+              value={submitReviewerId}
+              onChange={setSubmitReviewerId}
+              options={notebookMemberOptions.length > 0 ? notebookMemberOptions : ((reviewerUsers?.items ?? []) as any[])
+                .filter((u: any) => ['TL', 'TEAM_LEAD', 'HOD', 'ADMIN', 'SUPER_ADMIN'].includes(u.role_code ?? u.roleCode ?? ''))
+                .map((u: any) => ({ value: u.id, label: `${u.username} (${u.role_code ?? u.roleCode ?? ''})` }))}
+              allowClear
+            />
+            {notebookMemberOptions.length === 0 && (
+              <p className="text-xs text-slate-400 mt-1">Notebook has no assigned members — showing all TL/HOD users.</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">
+              Co-submit ATRs (optional)
+            </label>
+            <Select
+              className="w-full"
+              mode="multiple"
+              placeholder="Select ATRs to co-submit with this experiment…"
+              showSearch
+              optionFilterProp="label"
+              value={linkedAtrIds}
+              onChange={setLinkedAtrIds}
+              options={coSubmitAtrOptions}
+              allowClear
+            />
+            <p className="text-xs text-slate-400 mt-1">Only DRAFT or SAVED ATRs are listed. Selected ATRs will be moved to REQUESTED together with this experiment.</p>
+          </div>
+        </div>
+      </Modal>
+
+      {/* GxP Electronic Signature Modal */}
+      <ESignatureModal
+        open={pendingTargetStatus !== null}
+        userName={user?.username ?? ''}
+        title={`Electronic Signature — ${TRANSITION_LABEL[pendingTargetStatus ?? ''] ?? pendingTargetStatus}`}
+        reasonLabel={`Reason for ${TRANSITION_LABEL[pendingTargetStatus ?? ''] ?? 'action'}`}
+        requireReason={['REWORK', 'VERIFICATION_REWORK', 'UNLOCK_REQUESTED', 'DEACTIVATED'].includes(pendingTargetStatus ?? '')}
+        loading={transition.isPending}
+        onCancel={() => setPendingTargetStatus(null)}
+        onConfirm={async ({ password, reason }) => {
+          if (pendingTargetStatus) {
+            if (['SUBMITTED', 'VERIFICATION_REQUESTED'].includes(pendingTargetStatus) && isAnalyst) {
+              const allDefs = Array.isArray(exp.sectionDefs) ? (exp.sectionDefs as SectionDef[]) : []
+              const matDefs = allDefs.filter(s => s.type === 'material')
+              for (const md of matDefs) {
+                const rows = (data[md.id] as { batchId?: number; batchNo?: string; qty?: string }[]) || []
+                for (const r of rows) {
+                  if (r.batchId && r.qty && !isNaN(Number(r.qty)) && Number(r.qty) > 0) {
+                    try {
+                      await inventoryApi.batches.issue(r.batchId, {
+                        qty: Number(r.qty),
+                        purpose: `ARD Experiment ${exp.code} execution`,
+                        issuedTo: user?.username || 'Analyst',
+                      })
+                      msg.success(`Deducted ${r.qty} from Inventory Batch #${r.batchNo || r.batchId}`)
+                    } catch {
+                      // Handled gracefully if batch stock API is un-seeded
+                    }
+                  }
+                }
+              }
+            }
+            await transition.mutateAsync({
+              to: pendingTargetStatus,
+              password,
+              remarks: reason,
+              reason,
+              ...(pendingTargetStatus === 'APPROVED' ? { aimAchieved, aimRemarks } : {}),
+              ...(pendingTargetStatus === 'SUBMITTED' ? { reviewerId: submitReviewerId, linkedAtrIds } : {}),
+            })
+          }
+        }}
+      />
+
+      {/* Empower CSV Import Modal */}
+      <Modal {...glassModalProps} title="Read from Empower — Import CSV" open={empowerModalOpen}
+        onCancel={() => { setEmpowerModalOpen(false); setEmpowerCsvText('') }} footer={null} width={580}>
+        <div className="space-y-3 py-2">
+          <p className="text-sm text-slate-600">
+            Paste the CSV export from Waters Empower below, or upload the file. The data will be
+            imported into the chromatographic section of this experiment.
+          </p>
+          <Upload.Dragger
+            accept=".csv,.txt"
+            showUploadList={false}
+            beforeUpload={(file) => {
+              const reader = new FileReader()
+              reader.onload = (e) => setEmpowerCsvText((e.target?.result as string) || '')
+              reader.readAsText(file)
+              return false
+            }}
+            className="mb-2"
+          >
+            <p className="text-xs text-slate-500">Click or drag Empower CSV file here</p>
+          </Upload.Dragger>
+          <Input.TextArea
+            rows={8}
+            value={empowerCsvText}
+            onChange={e => setEmpowerCsvText(e.target.value)}
+            placeholder={"SampleName,InjectionId,PeakName,Amount,RT,Area,Height\nStd1,1,Peak1,99.8,4.32,1234567,88432\n..."}
+            className="font-mono text-xs"
+          />
+          <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+            <Button onClick={() => { setEmpowerModalOpen(false); setEmpowerCsvText('') }}>Cancel</Button>
+            <Button type="primary" loading={stpEmpowerMut.isPending}
+              disabled={!empowerCsvText.trim()}
+              onClick={() => stpEmpowerMut.mutate(empowerCsvText)}
+              style={{ background: '#7c3aed', borderColor: '#7c3aed' }}>
+              Import Data
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Version History Drawer */}
+      <VersionHistoryDrawer
+        experimentId={experimentId!}
+        sectionDefs={Array.isArray(exp.sectionDefs) ? (exp.sectionDefs as SectionDef[]) : []}
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+      />
+
+      {/* Events Drawer */}
+      <Drawer
+        title={<span className="flex items-center gap-2 font-bold text-slate-800"><Activity size={18} className="text-violet-600" /> Experiment Events</span>}
+        open={eventsOpen}
+        onClose={() => setEventsOpen(false)}
+        width={600}
+        styles={{ body: { padding: '20px 24px', background: '#fff' } }}
+      >
+        <ExperimentEventsContent eventsData={eventsData} />
+      </Drawer>
+    </div>
+  )
+}
+
+export default function ArdExperimentWorkspacePageWrapped() {
+  return (
+    <ErrorBoundary fallbackMessage="Unable to render experiment workspace">
+      <ArdExperimentWorkspacePage />
+    </ErrorBoundary>
+  )
+}

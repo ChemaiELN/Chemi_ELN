@@ -1,0 +1,21 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Laurus ELN</title>
+    <!-- Runtime config (API_URL). Loaded before the app so window.__APP_CONFIG__ is set.
+         Editable on the server without rebuilding — see public/config.js. -->
+    <script src="/config.js"></script>
+    <!-- Node globals shim — ketcher-react references process/global which don't exist in the browser -->
+    <script>
+      window.global = window.global || window;
+      window.process = window.process || { env: {}, platform: 'browser', nextTick: function (fn) { setTimeout(fn, 0); } };
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

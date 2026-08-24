@@ -1,0 +1,283 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Self-hosted app font: Inter ─────────────────────────────────────────────
+   Primary UI font. Heavily hinted for screens, so it renders cleanly on Windows
+   (DirectWrite/ClearType) — unlike SF Pro, whose web conversions lack Windows
+   hinting and look uneven at small sizes. Four real weights → no faux bolding.
+   Served from /public/fonts, works offline on the intranet deployment. */
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-400.woff2') format('woff2');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-500.woff2') format('woff2');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-600.woff2') format('woff2');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Inter';
+  src: url('/fonts/Inter-700.woff2') format('woff2');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+/* ── SF Pro Text (kept as a fallback) ────────────────────────────────────────
+   Files live in /public/fonts (served at /fonts/… — works offline on the
+   intranet deployment). Four real weights so Tailwind's font-normal/medium/
+   semibold/bold each map to a genuine face — no faux/synthetic bolding. */
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextR.woff') format('woff');
+  font-weight: 400;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextM.woff') format('woff');
+  font-weight: 500;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextSB.woff') format('woff');
+  font-weight: 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'SF Pro Text';
+  src: url('/fonts/SFProTextB.woff') format('woff');
+  font-weight: 700;
+  font-style: normal;
+  font-display: swap;
+}
+
+@layer base {
+  *, *::before, *::after { box-sizing: border-box; }
+  body {
+    margin: 0;
+    font-family: 'Inter', 'SF Pro Text', 'UniversLTPro-55Roman', sans-serif;
+    @apply antialiased;
+  }
+  #root { min-height: 100dvh; display: flex; flex-direction: column; }
+
+  * {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  *::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+@layer utilities {
+  .glass {
+    @apply bg-white/30 backdrop-blur-xl border border-white/50;
+  }
+  .glass-card {
+    @apply bg-white/50 backdrop-blur-xl border border-white/70 shadow-xl shadow-violet-200/30;
+  }
+  .glass-strong {
+    @apply bg-white/60 backdrop-blur-2xl border border-white/80 shadow-2xl shadow-violet-300/20;
+  }
+  .glass-sidebar {
+    @apply backdrop-blur-2xl border-r border-white/40;
+    background-color: #FEFEFA;
+  }
+  .glass-header {
+    @apply bg-white/40 backdrop-blur-xl border-b border-white/50;
+  }
+  .glass-input {
+    @apply bg-white/60 backdrop-blur-sm border border-white/80 focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition-all;
+  }
+  /* Scrollable, but with the scrollbar visually hidden (scroll still works). */
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
+  }
+}
+
+/* Module shells: semi-transparent cards so the page gradient shows through. */
+.module-surface .glass-card {
+  background-color: rgba(255, 255, 255, 0.75);
+  backdrop-filter: blur(14px);
+}
+/* Ant Design cards */
+.module-surface .ant-card {
+  background-color: rgba(255, 255, 255, 0.78) !important;
+  backdrop-filter: blur(14px);
+}
+.module-surface .ant-card-head {
+  background-color: transparent !important;
+}
+/* Tables: transparent so the card tint shows behind rows */
+.module-surface .ant-table,
+.module-surface .ant-table-container,
+.module-surface .ant-table-content,
+.module-surface .ant-table-thead > tr > th,
+.module-surface .ant-table-tbody > tr > td,
+.module-surface .ant-table-tbody > tr.ant-table-row:hover > td {
+  background-color: transparent !important;
+}
+/* Alternate row tint for readability */
+.module-surface .ant-table-tbody > tr:nth-child(even) > td {
+  background-color: rgba(255, 255, 255, 0.35) !important;
+}
+/* Page-level header banners (white boxes above tables) */
+.module-surface .bg-white {
+  background-color: rgba(255, 255, 255, 0.80) !important;
+  backdrop-filter: blur(12px);
+}
+
+
+/* Inventory module: solid #FEFEFA surfaces for filter bars, cards and tables
+   instead of the translucent white used by the other module shells. */
+.inventory-surface .glass-card,
+.inventory-surface .ant-card,
+.inventory-surface .bg-white {
+  background-color: #FEFEFA !important;
+}
+.inventory-surface .ant-card-head {
+  background-color: transparent !important;
+}
+/* Table rows sit on the card, so keep them transparent (including the
+   alternate-row tint) and let #FEFEFA show through uniformly. */
+.inventory-surface .ant-table,
+.inventory-surface .ant-table-container,
+.inventory-surface .ant-table-content,
+.inventory-surface .ant-table-thead > tr > th,
+.inventory-surface .ant-table-tbody > tr > td,
+.inventory-surface .ant-table-tbody > tr:nth-child(even) > td,
+.inventory-surface .ant-table-tbody > tr.ant-table-row:hover > td,
+.inventory-surface .ant-table-summary,
+.inventory-surface .ant-table-summary > tr > td {
+  background-color: transparent !important;
+}
+/* Tables rendered outside a card still need the surface colour. */
+.inventory-surface .ant-table-wrapper {
+  background-color: #FEFEFA;
+}
+
+/* Admin/ADC/CGT module shells: same solid #FEFEFA treatment as Inventory
+   for filter bars, cards and tables (ARD keeps the translucent glass look). */
+.solid-surface .glass-card,
+.solid-surface .ant-card,
+.solid-surface .bg-white {
+  background-color: #FEFEFA !important;
+}
+.solid-surface .ant-card-head {
+  background-color: transparent !important;
+}
+.solid-surface .ant-table,
+.solid-surface .ant-table-container,
+.solid-surface .ant-table-content,
+.solid-surface .ant-table-thead > tr > th,
+.solid-surface .ant-table-tbody > tr > td,
+.solid-surface .ant-table-tbody > tr:nth-child(even) > td,
+.solid-surface .ant-table-tbody > tr.ant-table-row:hover > td,
+.solid-surface .ant-table-summary,
+.solid-surface .ant-table-summary > tr > td {
+  background-color: transparent !important;
+}
+.solid-surface .ant-table-wrapper {
+  background-color: #FEFEFA;
+}
+
+/* Select field with a #FEFEFA background (e.g. the Template Builder category
+   picker). Targets the inner selector box, which owns the background. */
+.fefefa-select .ant-select-selector {
+  background-color: #FEFEFA !important;
+}
+
+/* Admin table row-actions dropdown (Users, Roles, Department Users, ID Numbering, etc.). */
+.admin-actions-dropdown .ant-dropdown-menu {
+  background-color: #FEFEFA !important;
+}
+.admin-actions-dropdown .ant-dropdown-menu-item {
+  padding: 4px 8px !important;
+  font-size: 12px !important;
+  min-height: auto !important;
+}
+.admin-actions-dropdown .ant-dropdown-menu-item .ant-dropdown-menu-item-icon {
+  font-size: 12px !important;
+}
+.admin-actions-dropdown .ant-dropdown-menu-title-content {
+  font-size: 12px !important;
+}
+
+/* Disabled inputs/selects: keep the readable black text (AntD's default
+   disabled color is a faded grey) while leaving the disabled background
+   and cursor styling untouched. */
+.ant-input[disabled],
+.ant-input-disabled,
+.ant-select-disabled .ant-select-selection-item,
+.ant-input-number-disabled .ant-input-number-input {
+  color: rgba(0, 0, 0, 0.88) !important;
+}
+
+/* Blob animation */
+@keyframes blob {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%       { transform: translate(20px, -30px) scale(1.05); }
+  66%       { transform: translate(-15px, 15px) scale(0.95); }
+}
+.animate-blob { animation: blob 10s 3 ease-in-out forwards; }
+.animation-delay-2000 { animation-delay: 2s; }
+.animation-delay-4000 { animation-delay: 4s; }
+
+/* Ant Design Menu Flyout Submenu — matches the app's light "glass" theme
+   (see .glass-sidebar/.glass above) instead of a clashing dark panel. */
+.ant-menu-submenu-popup {
+  background-color: transparent !important;
+}
+.ant-menu-submenu-popup .ant-menu-sub {
+  background-color: #FEFEFA !important;
+  border: 1px solid rgba(139, 92, 246, 0.15) !important;
+  border-radius: 12px !important;
+  box-shadow: 0 10px 25px -5px rgba(124, 58, 237, 0.15), 0 8px 10px -6px rgba(124, 58, 237, 0.1) !important;
+  padding: 4px !important;
+}
+.ant-menu-submenu-popup .ant-menu-item {
+  color: #334155 !important;
+  border-radius: 8px !important;
+  margin-top: 2px !important;
+  margin-bottom: 2px !important;
+}
+.ant-menu-submenu-popup .ant-menu-item-hover,
+.ant-menu-submenu-popup .ant-menu-item:hover {
+  background-color: rgba(139, 92, 246, 0.1) !important;
+  color: #7C3AED !important;
+}
+.ant-menu-submenu-popup .ant-menu-item-selected {
+  background-color: rgba(139, 92, 246, 0.15) !important;
+  color: #7C3AED !important;
+  font-weight: 600 !important;
+}
+.ant-menu-submenu-popup .ant-menu-item-selected .ant-menu-title-content {
+  color: #7C3AED !important;
+}
+.ant-menu-submenu-popup .ant-menu-item-selected .anticon,
+.ant-menu-submenu-popup .ant-menu-item-selected svg {
+  color: #7C3AED !important;
+}
+

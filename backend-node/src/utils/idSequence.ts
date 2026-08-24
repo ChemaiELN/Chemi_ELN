@@ -76,6 +76,13 @@ export async function generateNextSequenceValue(code: string): Promise<{
 
 /**
  * Generate ATR number: ATR/{year}/{MMDD}/{seq:03d}
+ *
+ * Derived directly from the max existing form_no for today (like
+ * generateArdExperimentCode below) rather than the id_sequence_counters
+ * table, since that table has no seeded 'ATR' config in some environments —
+ * relying on it silently returned seq=1 forever and collided with the
+ * unique constraint on ard_atr_forms.form_no (409 Conflict on every create
+ * after the first ATR of the day).
  */
 export async function generateAtrNumber(): Promise<string> {
   const now = new Date()
@@ -83,35 +90,22 @@ export async function generateAtrNumber(): Promise<string> {
   const mm = String(now.getMonth() + 1).padStart(2, '0')
   const dd = String(now.getDate()).padStart(2, '0')
   const mmdd = `${mm}${dd}`
+  const pattern = `ATR/${year}/${mmdd}/%`
 
   const t = await sequelize.transaction()
   try {
     const [rows] = await sequelize.query(
-      `SELECT * FROM id_sequence_counters
-       WHERE config_id = (SELECT id FROM id_sequence_configs WHERE code = 'ATR' LIMIT 1)
-         AND year = :year AND period = :period
-       FOR UPDATE`,
+      `SELECT MAX(CAST(SPLIT_PART(form_no, '/', 4) AS INTEGER)) AS last_seq
+       FROM ard_atr_forms
+       WHERE form_no LIKE :pattern`,
       {
-        replacements: { year, period: mmdd },
+        replacements: { pattern },
         type: QueryTypes.SELECT,
         transaction: t,
       },
-    ) as [IdSequenceCounter | undefined]
+    ) as [{ last_seq: number | null }]
 
-    let seq: number
-    if (!rows) {
-      const config = await IdSequenceConfig.findOne({ where: { code: 'ATR' } })
-      if (config) {
-        await IdSequenceCounter.create(
-          { configId: config.id, year, period: mmdd, lastValue: 1 },
-          { transaction: t },
-        )
-      }
-      seq = 1
-    } else {
-      seq = rows.lastValue + 1
-      await IdSequenceCounter.update({ lastValue: seq }, { where: { id: rows.id }, transaction: t })
-    }
+    const seq = (rows?.last_seq || 0) + 1
 
     await t.commit()
     return `ATR/${year}/${mmdd}/${String(seq).padStart(3, '0')}`
@@ -119,6 +113,32 @@ export async function generateAtrNumber(): Promise<string> {
     await t.rollback()
     throw err
   }
+}
+
+/**
+ * Generate the next ARD ATR sample code, honoring whatever format is
+ * configured under Admin > ID Numbering (code ARD_ATR_SAMPLE_CODE) — auto-
+ * creates the config on first use (prefix SMP, yearly reset, 4-digit year,
+ * 4-digit sequence — e.g. SMP-2026-0001) if an admin hasn't already set one up.
+ */
+export async function generateAtrSampleCode(): Promise<string> {
+  const existing = await IdSequenceConfig.findOne({ where: { code: 'ARD_ATR_SAMPLE_CODE' } })
+  if (!existing) {
+    await IdSequenceConfig.create({
+      code: 'ARD_ATR_SAMPLE_CODE',
+      label: 'ARD ATR Sample Code',
+      prefix: 'SMP',
+      separator: '-',
+      includeYear: true,
+      yearDigits: 4,
+      sequenceDigits: 4,
+      resetYearly: true,
+      isActive: true,
+      createdBy: null,
+    })
+  }
+  const { value } = await generateNextSequenceValue('ARD_ATR_SAMPLE_CODE')
+  return value
 }
 
 /**
@@ -161,9 +181,9 @@ export async function generateArTestNumber(techniqueKey: string): Promise<string
   const t = await sequelize.transaction()
   try {
     const [rows] = await sequelize.query(
-      `SELECT MAX(CAST(SPLIT_PART(ar_no, '/', 2) AS INTEGER)) AS last_seq
+      `SELECT MAX(CAST(SPLIT_PART(ar_number, '/', 2) AS INTEGER)) AS last_seq
        FROM ard_test_requests
-       WHERE ar_no LIKE :pattern`,
+       WHERE ar_number LIKE :pattern`,
       {
         replacements: { pattern: `${prefix}/%` },
         type: QueryTypes.SELECT,

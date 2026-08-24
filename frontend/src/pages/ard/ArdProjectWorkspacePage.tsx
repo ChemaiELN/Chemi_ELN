@@ -1,14 +1,16 @@
 import { useState, useEffect, useMemo, useRef } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
+import { useBreadcrumbLabel } from '../../components/layout/ArdShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Button, Tabs, Input, Tag, Spin, Alert, Modal, Table, Select,
-  Typography, Empty, Popconfirm, message, Form, DatePicker, Card, Tooltip, Space, Steps, Segmented
+  Button, Tabs, Input, InputNumber, Tag, Spin, Alert, Modal, Table, Select,
+  Typography, Empty, Popconfirm, message, Form, DatePicker, Card, Tooltip, Space, Steps, Segmented, Upload
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
+import type { UploadFile } from 'antd/es/upload/interface'
 import {
   ArrowLeft, FolderOpen, Plus, Trash2, CheckCircle2,
-  RotateCcw, Edit3, Lock, Unlock, BookOpen, Send, Users, ShieldCheck, Eye, Calendar, Filter, UserPlus, LayoutList, FileText
+  RotateCcw, Edit3, Lock, Unlock, BookOpen, Send, Users, ShieldCheck, Eye, Calendar, Filter, UserPlus, LayoutList, FileText, Paperclip
 } from 'lucide-react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { ardProjectsApi, type Project, type ProjectStp, type ProjectAttribute, type ProjectTeamMember } from '../../api/ard-projects'
@@ -34,13 +36,22 @@ const STP_STATUS_LABEL: Record<string, string> = {
   SUPERSEDED: 'Superseded', REWORK: 'Rework',
 }
 
+const NOTEBOOK_TYPE_OPTIONS = [
+  { value: 'STP_TEMPLATE', label: 'STP Worksheets' },
+  { value: 'ANALYTICAL', label: 'Method Development' },
+  { value: 'METHOD_VALIDATION', label: 'Method Validation' },
+  { value: 'ROUTINE_ANALYSIS', label: 'Routine Analysis' },
+  { value: 'CALIBRATION', label: 'Calibration' },
+  { value: 'OTHER', label: 'Others' },
+]
+
 function newStpId() {
   return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2)
 }
 
 function supersedePrevious(stps: ProjectStp[], documentNo: string, excludeId: string): ProjectStp[] {
   return stps.map(s =>
-    s.documentNo === documentNo && s.id !== excludeId && s.status === 'ACTIVE'
+    s.documentNo === documentNo && s.id !== excludeId && s.status === 'APPROVED'
       ? { ...s, status: 'SUPERSEDED' as const }
       : s
   )
@@ -58,6 +69,9 @@ export default function ArdProjectWorkspacePage() {
   const [description, setDescription] = useState('')
   const [customer, setCustomer] = useState('')
   const [projectType, setProjectType] = useState('')
+  const [projectCode, setProjectCode] = useState('')
+  const [productName, setProductName] = useState('')
+  const [teamSearch, setTeamSearch] = useState('')
   const [targetDate, setTargetDate] = useState<Dayjs | null>(null)
   const [ownerName, setOwnerName] = useState('')
 
@@ -71,6 +85,7 @@ export default function ArdProjectWorkspacePage() {
   const [viewStp, setViewStp] = useState<ProjectStp | null>(null)
   const [esignStp, setEsignStp] = useState<ProjectStp | null>(null)
   const [stpForm] = Form.useForm()
+  const [stpSearch, setStpSearch] = useState('')
 
   // Team Modal state
   const [teamModalOpen, setTeamModalOpen] = useState(false)
@@ -80,7 +95,12 @@ export default function ArdProjectWorkspacePage() {
   const [addTeamSel, setAddTeamSel] = useState<string | null>(null)
   const [teamRoleFilter, setTeamRoleFilter] = useState<string | undefined>(undefined)
   const [myTeamOnly, setMyTeamOnly] = useState(false)
-  const [notebookSyncIds, setNotebookSyncIds] = useState<string[]>([])
+  const [draftTeamMembers, setDraftTeamMembers] = useState<ProjectTeamMember[]>([])
+  const [notebookAccessOpen, setNotebookAccessOpen] = useState(false)
+  const [matrixDraft, setMatrixDraft] = useState<Record<string, string[]>>({})
+  const [accessSelectedNbId, setAccessSelectedNbId] = useState<string | null>(null)
+  const [nbSearch, setNbSearch] = useState('')
+  const [memberSearch, setMemberSearch] = useState('')
 
   // STP Submit modal state
   const [submitStpOpen, setSubmitStpOpen] = useState(false)
@@ -99,6 +119,8 @@ export default function ArdProjectWorkspacePage() {
   const [notebookModalOpen, setNotebookModalOpen] = useState(false)
   const [notebookName, setNotebookName] = useState('')
   const [notebookDescription, setNotebookDescription] = useState('')
+  const [notebookTypeSel, setNotebookTypeSel] = useState<string | undefined>(undefined)
+  const [notebookTypeOther, setNotebookTypeOther] = useState('')
 
   // Attributes state
   const [attributes, setAttributes] = useState<ProjectAttribute[]>([])
@@ -109,6 +131,8 @@ export default function ArdProjectWorkspacePage() {
     enabled: !!projectId,
     refetchOnWindowFocus: false,
   })
+
+  useBreadcrumbLabel(projectId, data?.productName || data?.code)
 
   const { data: notebooksData, refetch: refetchNotebooks } = useQuery({
     queryKey: ['ard-project-notebooks', projectId],
@@ -178,36 +202,48 @@ export default function ArdProjectWorkspacePage() {
         opts = opts.filter((o: any) => analystNames.has(o.username))
       }
     }
+    opts = opts.filter((o: any) => !draftTeamMembers.some((m) => m.userId === o.userId || m.userName === o.username))
     return opts
-  }, [dbUserOptions, teamRoleFilter, myTeamOnly, teamDirData, role, user])
+  }, [dbUserOptions, teamRoleFilter, myTeamOnly, teamDirData, role, user, draftTeamMembers])
 
   const selectedStpTestType = Form.useWatch('testType', stpForm)
 
   const testTypeOptions = useMemo(() => {
-    const types = Array.from(new Set((masterData?.testConfigs ?? []).map(tc => tc.testType).filter(Boolean)))
+    const types = Array.from(new Set((masterData?.testConfigs ?? []).filter(tc => tc.active).map(tc => tc.testType).filter(Boolean)))
     return types.map(t => ({ value: t, label: t }))
   }, [masterData?.testConfigs])
 
   const testSubtypeOptions = useMemo(() => {
     const filteredConfigs = selectedStpTestType
-      ? (masterData?.testConfigs ?? []).filter(tc => tc.testType === selectedStpTestType)
-      : (masterData?.testConfigs ?? [])
+      ? (masterData?.testConfigs ?? []).filter(tc => tc.active && tc.testType === selectedStpTestType)
+      : (masterData?.testConfigs ?? []).filter(tc => tc.active)
     const subtypes = Array.from(new Set(filteredConfigs.map(tc => tc.testSubtype).filter(Boolean)))
     return (subtypes as string[]).map(st => ({ value: st, label: st }))
   }, [masterData?.testConfigs, selectedStpTestType])
 
   const createNotebook = useMutation({
-    mutationFn: ({ name, description: desc }: { name: string; description?: string }) =>
-      ardNotebooksApi.create({ name, description: desc || null, projectId }),
+    mutationFn: ({ name, description: desc, notebookType }: { name: string; description?: string; notebookType?: string }) =>
+      ardNotebooksApi.create({ name, description: desc || null, projectId, notebookType: notebookType || null }),
     onSuccess: (nb: Notebook) => { refetchNotebooks(); navigate(`/ard/notebooks/${nb.id}`) },
-    onError: () => msgApi.error('Failed to create notebook'),
+    onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Failed to create notebook'),
   })
+
+  function submitNotebookCreate() {
+    if (!notebookName.trim() || !notebookTypeSel) return
+    const resolvedType = notebookTypeSel === 'OTHER' ? notebookTypeOther.trim() : notebookTypeSel
+    if (notebookTypeSel === 'OTHER' && !resolvedType) return
+    createNotebook.mutate({ name: notebookName.trim(), description: notebookDescription.trim() || undefined, notebookType: resolvedType })
+    setNotebookModalOpen(false)
+    setNotebookDescription('')
+  }
 
   useEffect(() => {
     if (!data) return
     setDescription(data.description ?? '')
     setCustomer(data.customer ?? '')
     setProjectType(data.projectType ?? '')
+    setProjectCode(data.code ?? '')
+    setProductName(data.productName ?? '')
     setTargetDate(data.targetDate ? dayjs(data.targetDate) : null)
     setOwnerName(data.ownerName ?? '')
     setAttributes(data.attributes ?? [])
@@ -324,25 +360,41 @@ export default function ArdProjectWorkspacePage() {
     setStpModalOpen(true)
   }
 
+  const stpFileFields = ['sampleMappingFile', 'stpProcedureFile', 'stpCalculationFile'] as const
+
+  function fileNameToList(name?: string): UploadFile[] {
+    return name ? [{ uid: '-1', name, status: 'done' }] : []
+  }
+
   function openEditStp(stp: ProjectStp) {
     setEditingStp(stp)
-    stpForm.setFieldsValue({ ...stp })
+    stpForm.setFieldsValue({
+      ...stp,
+      sampleMappingFile: fileNameToList(stp.sampleMappingFile),
+      stpProcedureFile: fileNameToList(stp.stpProcedureFile),
+      stpCalculationFile: fileNameToList(stp.stpCalculationFile),
+    })
     setStpModalOpen(true)
   }
 
-  function handleStpSubmit(values: Partial<ProjectStp>) {
+  function handleStpSubmit(values: Partial<ProjectStp> & Record<string, any>) {
+    const normalized: Partial<ProjectStp> = { ...values }
+    for (const f of stpFileFields) {
+      const list = (values as any)[f] as UploadFile[] | undefined
+      normalized[f] = list?.[0]?.name || undefined
+    }
     const current = data?.stpDocuments ?? []
     if (editingStp) {
-      const updated = current.map(s => s.id === editingStp.id ? { ...s, ...values, updatedAt: new Date().toISOString() } : s)
+      const updated = current.map(s => s.id === editingStp.id ? { ...s, ...normalized, updatedAt: new Date().toISOString() } : s)
       saveStpList(updated, 'STP document updated successfully.')
     } else {
       const newStp: ProjectStp = {
         id: newStpId(),
-        documentNo: values.documentNo ?? '',
-        title: values.title ?? '',
-        version: values.version ?? '1.0',
-        ...values,
-        status: values.status || 'DRAFT',
+        documentNo: normalized.documentNo ?? '',
+        title: normalized.title ?? '',
+        version: normalized.version ?? '1.0',
+        ...normalized,
+        status: normalized.status || 'DRAFT',
         updatedAt: new Date().toISOString(),
       }
       saveStpList([...current, newStp], 'STP document added successfully.')
@@ -393,8 +445,6 @@ export default function ArdProjectWorkspacePage() {
     saveStpList([...current, revised], `Created new revision v${nextVer} in Draft.`)
   }
 
-  const [draftTeamMembers, setDraftTeamMembers] = useState<ProjectTeamMember[]>([])
-
   function openTeamModal() {
     setDraftTeamMembers([...teamMembers])
     setSelectedBatchUsers([])
@@ -402,8 +452,41 @@ export default function ArdProjectWorkspacePage() {
     setAddTeamSel(null)
     setTeamRoleFilter(undefined)
     setMyTeamOnly(false)
-    setNotebookSyncIds([])
     setTeamModalOpen(true)
+  }
+
+  // Reconciles each notebook's assignedUsers against the project team's intended
+  // per-notebook membership, without ever touching non-team assignees or
+  // clobbering other notebooks' slices. HOD always gets every notebook; every
+  // other member gets NO notebooks by default — access must be explicitly
+  // granted via "Notebook Access" (HOD/TL decide who sees what).
+  async function syncNotebookAccess(members: ProjectTeamMember[]) {
+    const allNotebooks = notebooksData?.items ?? []
+    if (allNotebooks.length === 0) return
+    try {
+      const resolvedIds = (m: ProjectTeamMember) =>
+        m.role === 'HOD' ? allNotebooks.map(nb => nb.id) : (m.notebookIds ?? [])
+      const projectTeamIds = new Set(members.map(m => m.userId || m.userName))
+
+      for (const nb of allNotebooks) {
+        const intended = members.filter(m => resolvedIds(m).includes(nb.id))
+        const intendedUsers: AssignedUser[] = intended.map(m => ({
+          userId: m.userId || m.userName,
+          userName: m.userName,
+          role: m.role || 'ANALYST',
+        }))
+        const keptNonTeamUsers = (nb.assignedUsers ?? []).filter(au => !projectTeamIds.has(au.userId))
+        const nextAssigned = [...keptNonTeamUsers, ...intendedUsers]
+
+        const currentIds = new Set((nb.assignedUsers ?? []).map(au => au.userId))
+        const nextIds = new Set(nextAssigned.map(au => au.userId))
+        const unchanged = currentIds.size === nextIds.size && [...currentIds].every(id => nextIds.has(id))
+        if (unchanged) continue
+
+        await ardNotebooksApi.patch(nb.id, { assignedUsers: nextAssigned }).catch(() => {})
+      }
+      refetchNotebooks()
+    } catch { /* ignore */ }
   }
 
   async function handleSaveTeam() {
@@ -412,37 +495,71 @@ export default function ArdProjectWorkspacePage() {
       body: { team: draftTeamMembers },
       successMsg: 'Project team members updated successfully.',
     })
-    const targetNotebooks = notebookSyncIds.length > 0
-      ? (notebooksData?.items ?? []).filter(nb => notebookSyncIds.includes(nb.id))
-      : notebooksData?.items ?? []
-    if (targetNotebooks.length > 0) {
-      try {
-        const assignedUsers: AssignedUser[] = draftTeamMembers.map(m => ({
-          userId: m.userId || m.userName,
-          userName: m.userName,
-          role: m.role || 'ANALYST',
-        }))
-        // HOD always gets synced to all notebooks
-        const hodMembers = draftTeamMembers.filter(m => m.role === 'HOD')
-        for (const nb of targetNotebooks) {
-          await ardNotebooksApi.patch(nb.id, { assignedUsers }).catch(() => {})
-        }
-        if (hodMembers.length > 0 && notebookSyncIds.length > 0) {
-          const allNotebooks = notebooksData?.items ?? []
-          const syncedIds = new Set(notebookSyncIds)
-          for (const nb of allNotebooks.filter(n => !syncedIds.has(n.id))) {
-            const hodUsers: AssignedUser[] = hodMembers.map(m => ({
-              userId: m.userId || m.userName, userName: m.userName, role: 'HOD',
-            }))
-            await ardNotebooksApi.patch(nb.id, { assignedUsers: hodUsers }).catch(() => {})
-          }
-        }
-        refetchNotebooks()
-      } catch { /* ignore */ }
-    }
+    await syncNotebookAccess(draftTeamMembers)
     setTeamModalOpen(false)
     setSelectedBatchUsers([])
-    setNotebookSyncIds([])
+  }
+
+  // ── Notebook Access matrix ───────────────────────────────────────────────
+  function memberKey(m: ProjectTeamMember) { return m.userId || m.userName }
+
+  function openNotebookAccess() {
+    const allNotebooks = notebooksData?.items ?? []
+    const allNbIds = allNotebooks.map(nb => nb.id)
+    const draft: Record<string, string[]> = {}
+    teamMembers.forEach(m => {
+      // HOD always shows as fully checked (always has access). Everyone else
+      // starts from whichever notebooks actually list them in assignedUsers —
+      // the real, backend-enforced grant — rather than project.team[].notebookIds,
+      // which is only a UI-side mirror of that and can drift out of sync with it.
+      if (m.role === 'HOD') {
+        draft[memberKey(m)] = allNbIds
+      } else {
+        const key = memberKey(m)
+        draft[key] = allNotebooks
+          .filter(nb => (nb.assignedUsers ?? []).some(au => au.userId === m.userId || au.userName === m.userName))
+          .map(nb => nb.id)
+      }
+    })
+    setMatrixDraft(draft)
+    setAccessSelectedNbId(notebooksData?.items?.[0]?.id ?? null)
+    setNbSearch('')
+    setMemberSearch('')
+    setNotebookAccessOpen(true)
+  }
+
+  function toggleMatrixCell(key: string, nbId: string, checked: boolean) {
+    setMatrixDraft(prev => {
+      const current = new Set(prev[key] ?? [])
+      if (checked) current.add(nbId); else current.delete(nbId)
+      return { ...prev, [key]: [...current] }
+    })
+  }
+
+  function toggleMatrixColumn(nbId: string, checked: boolean) {
+    setMatrixDraft(prev => {
+      const next = { ...prev }
+      teamMembers.filter(m => m.role !== 'HOD').forEach(m => {
+        const key = memberKey(m)
+        const current = new Set(next[key] ?? [])
+        if (checked) current.add(nbId); else current.delete(nbId)
+        next[key] = [...current]
+      })
+      return next
+    })
+  }
+
+  async function handleSaveNotebookAccess() {
+    const updatedMembers = teamMembers.map(m => {
+      if (m.role === 'HOD') return m
+      // Store exactly what was checked — undefined/empty now means NO access,
+      // so a fully-checked member must be stored explicitly, not collapsed.
+      return { ...m, notebookIds: matrixDraft[memberKey(m)] ?? [] }
+    })
+    setTeamMembers(updatedMembers)
+    await saveMut.mutateAsync({ body: { team: updatedMembers }, successMsg: 'Notebook access updated successfully.' }).catch(() => {})
+    await syncNotebookAccess(updatedMembers)
+    setNotebookAccessOpen(false)
   }
 
   function handleBatchAddUsers() {
@@ -476,6 +593,13 @@ export default function ArdProjectWorkspacePage() {
 
   // ── Attribute helpers ────────────────────────────────────────────────────────
   function saveAttributes(updated: ProjectAttribute[], isDelete = false) {
+    if (!isDelete) {
+      const invalid = updated.find((a) => !a.key.trim() || !String(a.value ?? '').trim())
+      if (invalid) {
+        msgApi.warning('Every attribute needs both a name and a value before saving.')
+        return
+      }
+    }
     setAttributes(updated)
     saveMut.mutate({
       body: { attributes: updated },
@@ -629,7 +753,7 @@ export default function ArdProjectWorkspacePage() {
           )}
 
           {/* Approval Required status: Locked for HOD approval or return decision */}
-          {row.status === 'APPROVAL_REQUIRED' && (
+          {row.status === 'SUBMITTED' && (
             <>
               <Button size="small" icon={<Eye size={12} />} onClick={() => setViewStp(row)}>View</Button>
               {canApproveStp && (
@@ -656,10 +780,10 @@ export default function ArdProjectWorkspacePage() {
           )}
 
           {/* Active or Superseded status: Read-only View & Revise */}
-          {['ACTIVE', 'SUPERSEDED'].includes(row.status) && (
+          {['APPROVED', 'SUPERSEDED'].includes(row.status) && (
             <>
               <Button size="small" icon={<Eye size={12} />} onClick={() => setViewStp(row)}>View</Button>
-              {canEdit && row.status === 'ACTIVE' && (
+              {canEdit && row.status === 'APPROVED' && (
                 <Popconfirm title="Create new draft revision of this STP?" onConfirm={() => handleReviseStp(row)}>
                   <Button size="small" icon={<Plus size={12} />}>Revise</Button>
                 </Popconfirm>
@@ -681,6 +805,16 @@ export default function ArdProjectWorkspacePage() {
               <div className="pb-5 space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
+                    <p className="text-xs text-slate-500 font-medium mb-1">Project Code</p>
+                    <Input value={projectCode} onChange={e => setProjectCode(e.target.value)}
+                      disabled={!canEdit} placeholder="Project Code" />
+                  </div>
+                  <div>
+                    <p className="text-xs text-slate-500 font-medium mb-1">Product Name</p>
+                    <Input value={productName} onChange={e => setProductName(e.target.value)}
+                      disabled={!canEdit} placeholder="Product Name" />
+                  </div>
+                  <div>
                     <p className="text-xs text-slate-500 font-medium mb-1">Customer / Sponsor</p>
                     <Input value={customer} onChange={e => setCustomer(e.target.value)}
                       disabled={!canEdit} placeholder="Customer / Sponsor" />
@@ -689,7 +823,7 @@ export default function ArdProjectWorkspacePage() {
                     <p className="text-xs text-slate-500 font-medium mb-1">Project Type</p>
                     <Select value={projectType || undefined} onChange={v => setProjectType(v)} disabled={!canEdit}
                       allowClear placeholder="Select type" className="w-full"
-                      options={['ANALYSIS', 'DEVELOPMENT', 'STABILITY', 'QC'].map(v => ({ value: v, label: v }))} />
+                      options={['ANALYSIS', 'DEVELOPMENT', 'STABILITY', 'QC', 'OTHERS'].map(v => ({ value: v, label: v }))} />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 font-medium mb-1">Target Date</p>
@@ -708,8 +842,8 @@ export default function ArdProjectWorkspacePage() {
                     <Input value={data.createdBy || 'superadmin'} disabled className="bg-slate-50 text-slate-700 font-medium" />
                   </div>
                   <div>
-                    <p className="text-xs text-slate-500 font-medium mb-1">Created At</p>
-                    <Input value={data.createdAt ? dayjs(data.createdAt).format('DD MMM YYYY') : '—'} disabled className="bg-slate-50 text-slate-700 font-medium" />
+                    <p className="text-xs text-slate-500 font-medium mb-1">Created on</p>
+                    <Input value={data.createdAt ? dayjs(data.createdAt).format('DD MMM YYYY HH:mm') : '—'} disabled className="bg-slate-50 text-slate-700 font-medium" />
                   </div>
                 </div>
                 {canEdit && (
@@ -719,7 +853,7 @@ export default function ArdProjectWorkspacePage() {
                       size="middle"
                       loading={saveMut.isPending}
                       onClick={() => saveMut.mutate({
-                        body: { description, customer, projectType, targetDate: targetDate?.format('YYYY-MM-DD') ?? '', ownerName },
+                        body: { description, customer, projectType, targetDate: targetDate?.format('YYYY-MM-DD') ?? '', ownerName, code: projectCode, productName },
                         successMsg: 'Project details saved successfully.',
                       })}
                       className="bg-violet-600 hover:bg-violet-700 text-white font-medium border-none px-5"
@@ -746,45 +880,87 @@ export default function ArdProjectWorkspacePage() {
                     <p className="text-xs text-slate-400">Assigned Group Leaders, Team Leads, and Analysts</p>
                   </div>
                   {canEdit && (
-                    <Button icon={<UserPlus size={13} />} onClick={openTeamModal}>
-                      Assign Team Members
-                    </Button>
+                    <Space>
+                      {teamMembers.length > 0 && (
+                        <Button icon={<BookOpen size={13} />} onClick={openNotebookAccess}>
+                          Notebook Access
+                        </Button>
+                      )}
+                      <Button icon={<UserPlus size={13} />} onClick={openTeamModal}>
+                        Assign Team Members
+                      </Button>
+                    </Space>
                   )}
                 </div>
 
                 {teamMembers.length === 0 ? (
                   <Empty description="No team members assigned to this project yet." className="py-8" />
                 ) : (
-                  <Table
-                    rowKey={(r) => r.userId || r.userName}
-                    dataSource={teamMembers}
-                    pagination={false}
-                    size="small"
-                    columns={[
-                      { title: 'User Name', dataIndex: 'userName', render: (v) => <span className="font-semibold text-slate-700">{v}</span> },
-                      { title: 'Role', dataIndex: 'role', render: (v) => (
-                        <Tag color={v === 'HOD' ? 'gold' : v === 'GL' ? 'purple' : v === 'TL' ? 'blue' : 'geekblue'}>{v}</Tag>
-                      )},
-                      ...(canEdit ? [{
-                        title: '',
-                        dataIndex: 'userName',
-                        key: 'remove',
-                        width: 40,
-                        render: (_: any, row: any) => (
-                          <Popconfirm
-                            title={`Remove ${row.userName} from the project team?`}
-                            onConfirm={() => {
-                              const updated = teamMembers.filter(m => m.userName !== row.userName)
-                              setTeamMembers(updated)
-                              saveMut.mutate({ body: { team: updated }, successMsg: `${row.userName} removed from team.` })
-                            }}
-                          >
-                            <Button type="text" danger size="small" icon={<Trash2 size={13} />} />
-                          </Popconfirm>
-                        ),
-                      }] : []),
-                    ]}
-                  />
+                  <>
+                    <Input.Search
+                      placeholder="Search by name or role..."
+                      allowClear
+                      style={{ width: 280 }}
+                      value={teamSearch}
+                      onChange={(e) => setTeamSearch(e.target.value)}
+                      className="mb-2"
+                    />
+                    <Table
+                      rowKey={(r) => r.userId || r.userName}
+                      dataSource={teamMembers.filter((m) => {
+                        const q = teamSearch.trim().toLowerCase()
+                        if (!q) return true
+                        return m.userName.toLowerCase().includes(q) || (m.role ?? '').toLowerCase().includes(q)
+                      })}
+                      pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50'] }}
+                      size="small"
+                      columns={[
+                        { title: 'User Name', dataIndex: 'userName', render: (v) => <span className="font-semibold text-slate-700">{v}</span> },
+                        { title: 'Role', dataIndex: 'role', render: (v) => (
+                          <Tag color={v === 'HOD' ? 'gold' : v === 'GL' ? 'purple' : v === 'TL' ? 'blue' : 'geekblue'}>{v}</Tag>
+                        )},
+                        ...(canEdit ? [{
+                          title: '',
+                          dataIndex: 'userName',
+                          key: 'remove',
+                          width: 40,
+                          render: (_: any, row: any) => {
+                            const isSelf = row.userId === user?.id || row.userName === user?.username
+                            if (isSelf) {
+                              return (
+                                <Tooltip title="You cannot remove yourself from the project team.">
+                                  <Button type="text" size="small" icon={<Trash2 size={13} />} disabled />
+                                </Tooltip>
+                              )
+                            }
+                            return (
+                              <Popconfirm
+                                title={`Remove ${row.userName} from the project team?`}
+                                onConfirm={async () => {
+                                  const updated = teamMembers.filter(m => m.userName !== row.userName)
+                                  setTeamMembers(updated)
+                                  saveMut.mutate({ body: { team: updated }, successMsg: `${row.userName} removed from team.` })
+                                  // Cascade: also remove from every project notebook's assigned users.
+                                  const nbs = notebooksData?.items ?? []
+                                  for (const nb of nbs) {
+                                    const nextAssigned = (nb.assignedUsers ?? []).filter(
+                                      (u: AssignedUser) => u.userId !== row.userId && u.userName !== row.userName,
+                                    )
+                                    if (nextAssigned.length !== (nb.assignedUsers ?? []).length) {
+                                      await ardNotebooksApi.patch(nb.id, { assignedUsers: nextAssigned }).catch(() => {})
+                                    }
+                                  }
+                                  refetchNotebooks()
+                                }}
+                              >
+                                <Button type="text" danger size="small" icon={<Trash2 size={13} />} />
+                              </Popconfirm>
+                            )
+                          },
+                        }] : []),
+                      ]}
+                    />
+                  </>
                 )}
               </div>
             ),
@@ -795,17 +971,51 @@ export default function ArdProjectWorkspacePage() {
             key: 'stp',
             label: `STP (${data.stpDocuments?.length ?? 0})`,
             children: (
-              <div className="pb-5">
+              <div className="pb-5 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-3">
+                  <div>
+                    <h3 className="font-semibold text-slate-800 text-sm flex items-center gap-1.5">
+                      <FileText size={16} className="text-indigo-600" /> Standard Test Procedures
+                    </h3>
+                    <p className="text-xs text-slate-400">Test procedures, versions and approval status for this project</p>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Input.Search
+                      placeholder="Search by title, doc no. or test type..."
+                      allowClear
+                      style={{ width: 260 }}
+                      value={stpSearch}
+                      onChange={(e) => setStpSearch(e.target.value)}
+                    />
+                    {canEdit && (
+                      <Button
+                        type="primary"
+                        icon={<Plus size={14} />}
+                        onClick={openCreateStp}
+                        className="bg-violet-600 hover:bg-violet-700 border-none font-medium"
+                      >
+                        Add STP
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
                 {(data.stpDocuments?.length ?? 0) === 0 ? (
                   <Empty description="No STP documents yet" className="py-8" />
                 ) : (
-                  <Table dataSource={data.stpDocuments} columns={stpCols}
-                    rowKey="id" pagination={false} size="small" className="mb-3" scroll={{ x: 'max-content' }} />
-                )}
-                {canEdit && (
-                  <Button type="dashed" icon={<Plus size={13} />} onClick={openCreateStp}>
-                    Add STP document
-                  </Button>
+                  <Table
+                    dataSource={(data.stpDocuments ?? []).filter((s) => {
+                      const q = stpSearch.trim().toLowerCase()
+                      if (!q) return true
+                      return [s.documentNo, s.title, s.testType].some((v) => (v ?? '').toLowerCase().includes(q))
+                    })}
+                    columns={stpCols}
+                    rowKey="id"
+                    pagination={{ pageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50'] }}
+                    size="small"
+                    className="rounded-lg overflow-hidden border border-slate-200"
+                    scroll={{ x: 'max-content' }}
+                  />
                 )}
               </div>
             ),
@@ -817,9 +1027,9 @@ export default function ArdProjectWorkspacePage() {
             label: `Notebooks (${notebooksData?.items?.length ?? 0})`,
             children: (
               <div className="pb-5 space-y-3">
-                {!['ANALYST', 'CHEMIST', 'CHEM'].includes((user?.role_code || '').toUpperCase()) && (
+                {!['ANALYST', 'CHEMIST', 'CHEM'].includes((user?.role_code || '').toUpperCase()) && data.status === 'OPEN' && (
                   <div className="flex justify-end">
-                    <Button icon={<Plus size={13} />} onClick={() => { setNotebookName(''); setNotebookDescription(''); setNotebookModalOpen(true) }} loading={createNotebook.isPending}>
+                    <Button icon={<Plus size={13} />} onClick={() => { setNotebookName(''); setNotebookDescription(''); setNotebookTypeSel(undefined); setNotebookTypeOther(''); setNotebookModalOpen(true) }} loading={createNotebook.isPending}>
                       New Notebook
                     </Button>
                   </div>
@@ -890,10 +1100,25 @@ export default function ArdProjectWorkspacePage() {
                           onChange={val => { const u = [...attributes]; u[i] = { ...u[i], type: val, updatedBy: user?.username, updatedAt: new Date().toISOString() }; setAttributes(u) }}
                           options={['Text', 'Number', 'Date', 'Boolean', 'URL'].map(t => ({ value: t, label: t }))} />
                       )},
-                      { title: 'Value', dataIndex: 'value', render: (v, _, i) => (
-                        <Input size="small" value={v} disabled={!canEdit}
-                          onChange={e => { const u = [...attributes]; u[i] = { ...u[i], value: e.target.value, updatedBy: user?.username, updatedAt: new Date().toISOString() }; setAttributes(u) }} />
-                      )},
+                      { title: 'Value', dataIndex: 'value', render: (v, row: any, i) => {
+                        const commit = (val: unknown) => {
+                          const u = [...attributes]
+                          u[i] = { ...u[i], value: String(val ?? ''), updatedBy: user?.username, updatedAt: new Date().toISOString() }
+                          setAttributes(u)
+                        }
+                        if (row.type === 'Number') {
+                          return <InputNumber size="small" className="w-full" value={v === '' ? undefined : Number(v)} disabled={!canEdit} onChange={commit} />
+                        }
+                        if (row.type === 'Date') {
+                          return <DatePicker size="small" className="w-full" value={v ? dayjs(v) : null} disabled={!canEdit}
+                            onChange={(d) => commit(d ? d.format('YYYY-MM-DD') : '')} />
+                        }
+                        if (row.type === 'Boolean') {
+                          return <Select size="small" className="w-full" value={v || undefined} disabled={!canEdit} allowClear
+                            options={[{ value: 'true', label: 'True' }, { value: 'false', label: 'False' }]} onChange={commit} />
+                        }
+                        return <Input size="small" value={v} disabled={!canEdit} onChange={e => commit(e.target.value)} />
+                      }},
                       { title: 'Created By / On', key: 'createdBy', width: 140, render: (_: unknown, row: any) => (
                         <div className="text-xs text-slate-500">
                           <div>{row.createdBy || '—'}</div>
@@ -951,7 +1176,7 @@ export default function ArdProjectWorkspacePage() {
             label: 'Attachments',
             children: (
               <div className="pb-4">
-                <ArdAttachmentsPanel entityType="project" entityId={data.id} readOnly={!canEdit} />
+                <ArdAttachmentsPanel entityType="project" entityId={data.id} readOnly={!canEdit} folderLinkEnabled />
               </div>
             ),
           },
@@ -1077,6 +1302,9 @@ export default function ArdProjectWorkspacePage() {
             <Tag color={data.status === 'OPEN' ? 'green' : 'default'} className="font-semibold">
               {data.status}
             </Tag>
+            <Tag icon={<BookOpen size={12} />} color="blue">
+              {notebooksData?.items?.length ?? 0} Notebook{(notebooksData?.items?.length ?? 0) === 1 ? '' : 's'}
+            </Tag>
           </div>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
@@ -1101,7 +1329,7 @@ export default function ArdProjectWorkspacePage() {
             </Button>
           )}
           {!['ANALYST', 'CHEMIST', 'CHEM'].includes((user?.role_code || '').toUpperCase()) && (
-            <Button type="primary" icon={<Plus size={14} />} onClick={() => { setNotebookName(''); setNotebookDescription(''); setNotebookModalOpen(true) }}>
+            <Button type="primary" icon={<Plus size={14} />} onClick={() => { setNotebookName(''); setNotebookDescription(''); setNotebookTypeSel(undefined); setNotebookTypeOther(''); setNotebookModalOpen(true) }}>
               New Notebook
             </Button>
           )}
@@ -1140,7 +1368,6 @@ export default function ArdProjectWorkspacePage() {
           setAddTeamSel(null)
           setTeamRoleFilter(undefined)
           setMyTeamOnly(false)
-          setNotebookSyncIds([])
         }}
         onOk={handleSaveTeam}
         confirmLoading={saveMut.isPending}
@@ -1230,6 +1457,12 @@ export default function ArdProjectWorkspacePage() {
                       const existingNames = new Set(draftTeamMembers.map(m => m.userName).filter(Boolean))
                       const isDup = (id: string, name: string) => existingIds.has(id) || existingNames.has(name)
                       const newMembers: ProjectTeamMember[] = []
+                      // A person listed under a TL's "analysts" bucket (workload
+                      // assignment within the ARD team) isn't necessarily an
+                      // ANALYST by system role — e.g. a TL can be assigned there
+                      // too. Always resolve the real role from the user directory
+                      // instead of assuming the bucket name is the role.
+                      const roleById = new Map<string, string>(dbUserOptions.map((o: any) => [o.userId, o.role]))
 
                       if (team.hodName && team.hodName !== '—') {
                         const hodId = team.hodId || team.hodName
@@ -1250,7 +1483,7 @@ export default function ArdProjectWorkspacePage() {
                         for (const analyst of (tl.analysts ?? [])) {
                           const uname = analyst.username || analyst.name || analyst.id
                           if (!isDup(analyst.id, uname)) {
-                            newMembers.push({ userName: uname, userId: analyst.id, role: 'ANALYST' })
+                            newMembers.push({ userName: uname, userId: analyst.id, role: roleById.get(analyst.id) || 'ANALYST' })
                             existingIds.add(analyst.id)
                             existingNames.add(uname)
                           }
@@ -1277,20 +1510,9 @@ export default function ArdProjectWorkspacePage() {
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">
               Team Members ({draftTeamMembers.length})
             </span>
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-xs text-slate-600 font-medium">Grant notebook access:</span>
-              <Select
-                mode="multiple"
-                allowClear
-                maxTagCount={2}
-                size="small"
-                placeholder="All notebooks (default)"
-                style={{ minWidth: 220 }}
-                value={notebookSyncIds}
-                onChange={setNotebookSyncIds}
-                options={(notebooksData?.items ?? []).map(nb => ({ value: nb.id, label: nb.name }))}
-              />
-            </div>
+            <span className="text-[11px] text-slate-400">
+              New members get no notebook access by default. Use "Notebook Access" (on the Team tab) to grant it.
+            </span>
           </div>
 
           {draftTeamMembers.length === 0 ? (
@@ -1323,6 +1545,124 @@ export default function ArdProjectWorkspacePage() {
             </div>
           )}
         </div>
+      </Modal>
+
+      {/* Notebook Access — pick a notebook, then check off its members. Scales
+          to any number of notebooks since it's a searchable list, not a grid. */}
+      <Modal
+        {...glassModalProps}
+        title="Notebook Access"
+        open={notebookAccessOpen}
+        okText="Save Access"
+        cancelText="Cancel"
+        onCancel={() => setNotebookAccessOpen(false)}
+        onOk={handleSaveNotebookAccess}
+        confirmLoading={saveMut.isPending}
+        width={760}
+      >
+        {(notebooksData?.items ?? []).length === 0 ? (
+          <Empty description="No notebooks in this project yet." className="py-8" />
+        ) : (() => {
+          const allNotebooks = notebooksData?.items ?? []
+          const filteredNotebooks = allNotebooks.filter(nb =>
+            nb.name.toLowerCase().includes(nbSearch.trim().toLowerCase())
+          )
+          const selectedNb = allNotebooks.find(nb => nb.id === accessSelectedNbId) ?? null
+          const eligibleMembers = teamMembers.filter(m => m.role !== 'HOD')
+          const filteredMembers = eligibleMembers.filter(m =>
+            m.userName.toLowerCase().includes(memberSearch.trim().toLowerCase())
+          )
+          const memberCountFor = (nbId: string) =>
+            eligibleMembers.filter(m => (matrixDraft[memberKey(m)] ?? []).includes(nbId)).length
+
+          return (
+            <div className="flex gap-3 pt-2" style={{ height: 440 }}>
+              {/* Left: notebook list */}
+              <div className="w-64 shrink-0 flex flex-col border border-slate-200 rounded-lg overflow-hidden">
+                <div className="p-2 border-b border-slate-200 bg-slate-50">
+                  <Input.Search
+                    size="small"
+                    placeholder="Search notebooks..."
+                    value={nbSearch}
+                    onChange={(e) => setNbSearch(e.target.value)}
+                    allowClear
+                  />
+                </div>
+                <div className="flex-1 overflow-y-auto">
+                  {filteredNotebooks.length === 0 ? (
+                    <p className="text-xs text-slate-400 text-center py-4">No matches.</p>
+                  ) : filteredNotebooks.map(nb => (
+                    <button
+                      key={nb.id}
+                      type="button"
+                      onClick={() => setAccessSelectedNbId(nb.id)}
+                      className={`w-full text-left px-3 py-2 text-xs border-b border-slate-100 last:border-0 flex items-center justify-between gap-2 ${
+                        nb.id === accessSelectedNbId ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-700 hover:bg-slate-50'
+                      }`}
+                    >
+                      <span className="truncate" title={nb.name}>{nb.name}</span>
+                      <Tag className="m-0 shrink-0 text-[10px] leading-none py-0">{memberCountFor(nb.id)}</Tag>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Right: member checklist for the selected notebook */}
+              <div className="flex-1 flex flex-col border border-slate-200 rounded-lg overflow-hidden">
+                {!selectedNb ? (
+                  <div className="flex-1 flex items-center justify-center text-xs text-slate-400">
+                    Select a notebook on the left.
+                  </div>
+                ) : (
+                  <>
+                    <div className="p-2.5 border-b border-slate-200 bg-slate-50 space-y-2">
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="text-xs font-semibold text-slate-700 truncate" title={selectedNb.name}>
+                          {selectedNb.name}
+                        </span>
+                        <Space size={4}>
+                          <Button size="small" onClick={() => toggleMatrixColumn(selectedNb.id, true)}>Select all</Button>
+                          <Button size="small" onClick={() => toggleMatrixColumn(selectedNb.id, false)}>Clear</Button>
+                        </Space>
+                      </div>
+                      <Input.Search
+                        size="small"
+                        placeholder="Search members..."
+                        value={memberSearch}
+                        onChange={(e) => setMemberSearch(e.target.value)}
+                        allowClear
+                      />
+                    </div>
+                    <div className="flex-1 overflow-y-auto p-2 space-y-1">
+                      <div className="flex items-center gap-2 px-2 py-1.5 text-xs text-slate-400 italic">
+                        HOD — always has access to every notebook
+                      </div>
+                      {filteredMembers.length === 0 ? (
+                        <p className="text-xs text-slate-400 text-center py-4">No matches.</p>
+                      ) : filteredMembers.map(m => {
+                        const key = memberKey(m)
+                        const checked = (matrixDraft[key] ?? []).includes(selectedNb.id)
+                        return (
+                          <label key={key} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-slate-50 cursor-pointer text-xs">
+                            <input
+                              type="checkbox"
+                              checked={checked}
+                              onChange={(e) => toggleMatrixCell(key, selectedNb.id, e.target.checked)}
+                            />
+                            <span className="font-medium text-slate-800">{m.userName}</span>
+                            <Tag color={m.role === 'TL' ? 'blue' : 'geekblue'} className="text-[10px] leading-none py-0 m-0">
+                              {m.role || 'ANALYST'}
+                            </Tag>
+                          </label>
+                        )
+                      })}
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        })()}
       </Modal>
 
       {/* STP View Modal */}
@@ -1441,85 +1781,133 @@ export default function ArdProjectWorkspacePage() {
       {/* STP create/edit modal */}
       <Modal
         {...glassModalProps}
-        title={editingStp ? `Edit STP — ${editingStp.documentNo}` : 'Add STP Document'}
+        title={
+          <div className="flex items-center gap-2">
+            <FileText size={16} className="text-indigo-500" />
+            <span>{editingStp ? `Edit STP — ${editingStp.documentNo}` : 'Add STP Document'}</span>
+          </div>
+        }
         open={stpModalOpen}
         onCancel={() => { setStpModalOpen(false); stpForm.resetFields() }}
         onOk={() => stpForm.validateFields().then(handleStpSubmit)}
         confirmLoading={saveMut.isPending}
-        width={600}
+        okText={editingStp ? 'Save Changes' : 'Create STP'}
+        width={980}
       >
         <Form form={stpForm} layout="vertical" className="pt-2">
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-            <Form.Item name="documentNo" label="Document No." rules={[{ required: true }]} className="col-span-1">
-              <Input placeholder="e.g. STP-ARD-001" />
-            </Form.Item>
-            <Form.Item name="version" label="Version" initialValue="1.0" className="col-span-1">
-              <Input placeholder="1.0" />
-            </Form.Item>
-            <Form.Item name="title" label="STP Name" rules={[{ required: true }]} className="col-span-1 sm:col-span-2">
-              <Input placeholder="Standard Test Procedure title" />
-            </Form.Item>
-            <Form.Item name="stpType" label="STP Type" className="col-span-1">
-              <Select allowClear placeholder="Select STP Type"
-                options={['Compendial', 'Non-Compendial', 'In-House', 'Pharmacopoeial'].map(v => ({ value: v, label: v }))} />
-            </Form.Item>
-            <Form.Item name="stpGrade" label="STP Grade" className="col-span-1">
-              <Select allowClear placeholder="Select Grade"
-                options={['Pharmaceutical', 'Analytical', 'Research', 'Industrial'].map(v => ({ value: v, label: v }))} />
-            </Form.Item>
-            <Form.Item name="specificationNo" label="Specification No." className="col-span-1">
-              <Input placeholder="e.g. SPEC-ARD-001" />
-            </Form.Item>
-            <Form.Item name="testType" label="Test Type" className="col-span-1">
-              <Select showSearch optionFilterProp="label" allowClear placeholder="Select Test Type" options={testTypeOptions} />
-            </Form.Item>
-            <Form.Item name="testSubtype" label="Test Subtype" className="col-span-1">
-              <Select showSearch optionFilterProp="label" allowClear placeholder="Select Test Subtype" options={testSubtypeOptions} />
-            </Form.Item>
-            <Form.Item name="effectiveDate" label="Effective Date" className="col-span-1">
-              <Input placeholder="YYYY-MM-DD" />
-            </Form.Item>
-            <Form.Item name="description" label="Description" className="col-span-1 sm:col-span-2">
-              <TextArea rows={2} placeholder="Brief description of this STP..." />
-            </Form.Item>
-            <Form.Item name="scope" label="Scope" className="col-span-1 sm:col-span-2">
-              <TextArea rows={2} placeholder="Describe scope of this STP..." />
-            </Form.Item>
-          </div>
-          <div className="grid grid-cols-3 gap-x-4 mb-2">
-            <Form.Item name="weighingDetails" label=" " valuePropName="checked" className="col-span-1">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="rounded" />
-                <span className="text-sm text-slate-700">Weighing Details</span>
-              </label>
-            </Form.Item>
-            <Form.Item name="phDetails" label=" " valuePropName="checked" className="col-span-1">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="rounded" />
-                <span className="text-sm text-slate-700">pH Details</span>
-              </label>
-            </Form.Item>
-            <Form.Item name="columnDetails" label=" " valuePropName="checked" className="col-span-1">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" className="rounded" />
-                <span className="text-sm text-slate-700">Column Details</span>
-              </label>
-            </Form.Item>
-          </div>
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
-            <Form.Item name="sampleMappingFile" label="Sample Mapping (ref.)" className="col-span-1">
-              <Input placeholder="Document reference or file name" />
-            </Form.Item>
-            <Form.Item name="stpProcedureFile" label="STP Procedure (ref.)" className="col-span-1">
-              <Input placeholder="Document reference or file name" />
-            </Form.Item>
-            <Form.Item name="stpCalculationFile" label="STP Calculation (ref.)" className="col-span-1">
-              <Input placeholder="Document reference or file name" />
-            </Form.Item>
-          </div>
-          <Form.Item name="remarks" label="Remarks">
-            <TextArea rows={2} placeholder="Additional notes..." />
+          {/* Version is tracked internally for revisions but not shown in this form. */}
+          <Form.Item name="version" initialValue="1.0" className="hidden">
+            <Input />
           </Form.Item>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-5">
+            {/* Left column */}
+            <div>
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">STP Details</div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 mb-4">
+                <Form.Item name="title" label="STP Name" rules={[{ required: true, message: 'Required' }]} className="mb-3">
+                  <Input placeholder="Standard Test Procedure title" />
+                </Form.Item>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+                  <Form.Item name="testType" label="Test Type" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
+                    <Select showSearch optionFilterProp="label" allowClear placeholder="Select Test Type" options={testTypeOptions} />
+                  </Form.Item>
+                  <Form.Item name="testSubtype" label="Sub Type" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
+                    <Select showSearch optionFilterProp="label" allowClear placeholder="Select Sub Type" options={testSubtypeOptions} />
+                  </Form.Item>
+                  <Form.Item name="stpType" label="STP Type" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
+                    <Select allowClear placeholder="Select STP Type"
+                      options={['Compendial', 'Non-Compendial', 'In-House', 'Pharmacopoeial'].map(v => ({ value: v, label: v }))} />
+                  </Form.Item>
+                  <Form.Item name="documentNo" label="STP Code" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
+                    <Input placeholder="e.g. STP-ARD-001" />
+                  </Form.Item>
+                  <Form.Item name="stpGrade" label="STP Grade" className="col-span-1 mb-0">
+                    <Input placeholder="e.g. Pharmaceutical" />
+                  </Form.Item>
+                  <Form.Item name="specificationNo" label="Specification/Protocol No" className="col-span-1 mb-0">
+                    <Input placeholder="e.g. SPEC-ARD-001" />
+                  </Form.Item>
+                </div>
+              </div>
+
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Select Section to be Included</div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 flex flex-wrap gap-4">
+                <Form.Item name="weighingDetails" valuePropName="checked" className="mb-0">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                    <input type="checkbox" className="rounded accent-violet-600" />
+                    Weighing Details
+                  </label>
+                </Form.Item>
+                <Form.Item name="phDetails" valuePropName="checked" className="mb-0">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                    <input type="checkbox" className="rounded accent-violet-600" />
+                    pH Details
+                  </label>
+                </Form.Item>
+                <Form.Item name="columnDetails" valuePropName="checked" className="mb-0">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                    <input type="checkbox" className="rounded accent-violet-600" />
+                    Column Details
+                  </label>
+                </Form.Item>
+              </div>
+            </div>
+
+            {/* Right column */}
+            <div>
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Attachments</div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 mb-4 space-y-3">
+                <Form.Item
+                  name="sampleMappingFile"
+                  label="Sample Mapping Details"
+                  valuePropName="fileList"
+                  getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
+                  className="mb-0"
+                >
+                  <Upload beforeUpload={() => false} maxCount={1}>
+                    <Button icon={<Paperclip size={13} />}>Choose File</Button>
+                  </Upload>
+                </Form.Item>
+                <Form.Item
+                  name="stpProcedureFile"
+                  label="STP Procedure"
+                  valuePropName="fileList"
+                  getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
+                  rules={[{ required: true, message: 'STP Procedure attachment is required' }]}
+                  className="mb-0"
+                >
+                  <Upload beforeUpload={() => false} maxCount={1}>
+                    <Button icon={<Paperclip size={13} />}>Choose File</Button>
+                  </Upload>
+                </Form.Item>
+                <Form.Item
+                  name="stpCalculationFile"
+                  label="STP Calculation"
+                  valuePropName="fileList"
+                  getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
+                  className="mb-0"
+                >
+                  <Upload beforeUpload={() => false} maxCount={1}>
+                    <Button icon={<Paperclip size={13} />}>Choose File</Button>
+                  </Upload>
+                </Form.Item>
+                <Form.Item name="chromatogramReport" valuePropName="checked" className="mb-0">
+                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                    <input type="checkbox" className="rounded accent-violet-600" />
+                    Include Chromatogram Report
+                  </label>
+                </Form.Item>
+              </div>
+
+              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Description</div>
+              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
+                <Form.Item name="description" rules={[{ required: true, message: 'Required' }]} className="mb-0">
+                  <TextArea rows={8} placeholder="Describe this STP..." />
+                </Form.Item>
+              </div>
+            </div>
+          </div>
         </Form>
       </Modal>
 
@@ -1529,17 +1917,14 @@ export default function ArdProjectWorkspacePage() {
         title={<span className="font-bold text-slate-800 text-base">Create New Notebook</span>}
         open={notebookModalOpen}
         onCancel={() => setNotebookModalOpen(false)}
-        onOk={() => {
-          if (notebookName.trim()) {
-            createNotebook.mutate({ name: notebookName.trim(), description: notebookDescription.trim() || undefined })
-            setNotebookModalOpen(false)
-            setNotebookDescription('')
-          }
-        }}
+        onOk={submitNotebookCreate}
         confirmLoading={createNotebook.isPending}
         okText="Create Notebook"
         cancelText="Cancel"
-        okButtonProps={{ className: 'bg-indigo-600 hover:bg-indigo-700 text-white font-medium border-none' }}
+        okButtonProps={{
+          className: 'bg-indigo-600 hover:bg-indigo-700 text-white font-medium border-none',
+          disabled: !notebookName.trim() || !notebookTypeSel || (notebookTypeSel === 'OTHER' && !notebookTypeOther.trim()),
+        }}
         width={520}
       >
         <div className="pt-4 pb-2 space-y-3">
@@ -1551,14 +1936,37 @@ export default function ArdProjectWorkspacePage() {
             value={notebookName}
             onChange={(e) => setNotebookName(e.target.value)}
             className="py-2 text-sm rounded-lg"
-            onPressEnter={() => {
-              if (notebookName.trim()) {
-                createNotebook.mutate({ name: notebookName.trim(), description: notebookDescription.trim() || undefined })
-                setNotebookModalOpen(false)
-                setNotebookDescription('')
-              }
-            }}
+            onPressEnter={submitNotebookCreate}
           />
+          <label className="block text-xs font-semibold text-slate-700 mt-3">
+            Notebook Type <span className="text-red-500">*</span>
+          </label>
+          {notebookTypeSel === 'OTHER' ? (
+            <Input
+              placeholder="Enter notebook type"
+              value={notebookTypeOther}
+              onChange={(e) => setNotebookTypeOther(e.target.value)}
+              className="py-2 text-sm rounded-lg"
+              autoFocus
+              suffix={
+                <button
+                  type="button"
+                  className="text-xs text-indigo-600 hover:text-indigo-700"
+                  onClick={() => { setNotebookTypeSel(undefined); setNotebookTypeOther('') }}
+                >
+                  Choose from list
+                </button>
+              }
+            />
+          ) : (
+            <Select
+              placeholder="Select notebook type"
+              value={notebookTypeSel}
+              onChange={(v) => setNotebookTypeSel(v)}
+              options={NOTEBOOK_TYPE_OPTIONS}
+              className="w-full"
+            />
+          )}
           <label className="block text-xs font-semibold text-slate-700 mt-3">
             Description <span className="text-slate-400 font-normal">(optional)</span>
           </label>

@@ -6,7 +6,7 @@ import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response'
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../utils/errors'
 import { sequelize } from '../../database/connection'
-import { ArdNotebook, ArdExperiment, ArdAuditLog } from '../../models/index'
+import { ArdNotebook, ArdExperiment, ArdAuditLog, ArdProject } from '../../models/index'
 
 const router = Router()
 
@@ -69,11 +69,22 @@ router.get('/', authenticate, async (req: Request, res: Response, next: NextFunc
   } catch (err) { next(err) }
 })
 
+async function canView(nb: ArdNotebook, user: any, rc: string): Promise<boolean> {
+  if (canEdit(nb, user, rc)) return true
+  if (!nb.projectId) return false
+  const project = await ArdProject.findByPk(nb.projectId)
+  const team = (project?.team as any[]) || []
+  return team.some((m: any) => m.userId === user.id)
+}
+
 // GET /api/ard/notebooks/:notebookId
 router.get('/:notebookId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = (req as any).user
+    const rc: string = (user?.role as any)?.code || ''
     const nb = await ArdNotebook.findByPk(req.params.notebookId as string)
     if (!nb) throw new NotFoundError('Notebook')
+    if (!(await canView(nb, user, rc))) throw new ForbiddenError('You are not a member of this notebook')
     res.json(successResponse('Notebook', nbOut(nb)))
   } catch (err) { next(err) }
 })
@@ -87,12 +98,19 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
 
     const { name, description, projectId, notebookType, assignedUsers, resultParameters } = z.object({
       name: z.string().min(1),
-      description: z.string().optional(),
-      projectId: z.string().uuid().optional(),
-      notebookType: z.string().optional(),
+      description: z.string().nullable().optional(),
+      projectId: z.string().uuid().nullable().optional(),
+      notebookType: z.string().nullable().optional(),
       assignedUsers: z.array(z.any()).optional(),
       resultParameters: z.array(z.any()).optional(),
     }).parse(req.body)
+
+    if (projectId) {
+      const project = await ArdProject.findByPk(projectId)
+      if (project && project.status !== 'OPEN') {
+        throw new BadRequestError('Cannot create a notebook in a closed project', 'INVALID_STATE')
+      }
+    }
 
     const code = await nextCode()
     const nb = await ArdNotebook.create({
@@ -100,7 +118,8 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
       description: description || null,
       projectId: projectId || null,
       notebookType: notebookType || null,
-      assignedUsers: assignedUsers || [],
+      // Creator is automatically an assigned user when no explicit list is given.
+      assignedUsers: (assignedUsers && assignedUsers.length > 0) ? assignedUsers : [{ userId: user.id, userName: user.username, role: rc }],
       resultParameters: resultParameters || [],
       auditTrail: [],
       equipmentIds: [],
@@ -138,7 +157,9 @@ router.patch('/:notebookId', authenticate, async (req: Request, res: Response, n
       updates.status = newStatus
     }
 
-    if (nb.status !== 'OPEN' && body.status !== 'OPEN') {
+    // Status transitions (e.g. Close → Archive) have their own validation above;
+    // this OPEN-gate only applies to editing other fields on a non-open notebook.
+    if (body.status === undefined && nb.status !== 'OPEN') {
       throw new BadRequestError('Notebook must be OPEN to edit', 'INVALID_STATE')
     }
 
@@ -273,6 +294,9 @@ router.get('/:notebookId/documents/report.pdf', authenticate, async (req: Reques
     const { htmlToPdf } = await import('../../utils/pdfRenderer')
     const nb = await ArdNotebook.findByPk(req.params.notebookId as string)
     if (!nb) { res.status(404).json({ success: false, message: 'Notebook not found' }); return }
+    const user = (req as any).user
+    const rc: string = (user?.role as any)?.code || ''
+    if (!(await canView(nb, user, rc))) throw new ForbiddenError('You are not a member of this notebook')
     const experiments = await ArdExperiment.findAll({ where: { notebookId: nb.id } })
     const html = ardNotebookReportHtml(nb.toJSON(), experiments.map(e => e.toJSON()))
     const pdf = await htmlToPdf(html)

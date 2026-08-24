@@ -238,7 +238,7 @@ export default function ArdQcTrfWorkspacePage() {
   })
 
   const testTypeOptions = useMemo(() => {
-    const types = Array.from(new Set((masterData?.testConfigs ?? []).map(tc => tc.testType).filter(Boolean)))
+    const types = Array.from(new Set((masterData?.testConfigs ?? []).filter(tc => tc.active).map(tc => tc.testType).filter(Boolean)))
     return types.map(t => ({ value: t, label: t }))
   }, [masterData?.testConfigs])
 

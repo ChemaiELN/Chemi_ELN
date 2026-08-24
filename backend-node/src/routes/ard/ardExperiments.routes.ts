@@ -22,6 +22,11 @@ import { generateArdExperimentCode } from '../../utils/idSequence';
 
 const ardExperimentRouter = Router();
 
+// Mirrors Python's is_lab_role (atr_rbac.py:151-152) — analyst/TL/HOD/QA/admin.
+function isLabRole(rc: string): boolean {
+  return ['ANALYST', 'CHEM', 'CHEMIST', 'TL', 'HOD', 'QA', 'ADMIN', 'SUPER_ADMIN'].includes(rc);
+}
+
 // Status machine
 const EXPERIMENT_TRANSITIONS: Record<string, string[]> = {
   IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
@@ -44,8 +49,20 @@ const MAX_SNAPSHOTS = 50;
 
 // ─── Zod Schemas ─────────────────────────────────────────────────────────────
 
+// Wire contract matches what ArdExperimentsPage.tsx actually sends
+// (camelCase, straight from the Form's field names) — the old snake_case
+// schema here never matched, so every experiment create 400'd.
 const createExperimentSchema = z.object({
-  template_id: z.string(),
+  templateId: z.string(),
+  notebookId: z.string().optional(),
+  projectId: z.string().optional(),
+  name: z.string().optional(),
+  testType: z.string().optional(),
+  testSubType: z.string().optional(),
+  aimObjective: z.string().optional(),
+  projectStpId: z.string().optional(),
+  // legacy snake_case aliases, kept for any other caller
+  template_id: z.string().optional(),
   notebook_id: z.string().optional(),
   project_id: z.string().optional(),
 });
@@ -64,8 +81,21 @@ const updateExperimentSchema = z.object({
 });
 
 const transitionSchema = z.object({
-  action: z.string(),
+  // Every frontend call site sends the target status as `to` (see
+  // ArdExperimentWorkspacePage.tsx's `transition.mutate`/`mutateAsync`
+  // calls) — `action` was never actually sent, so this schema's required
+  // `action` field failed validation on every single transition (422).
+  // `action` is kept as a fallback alias, matching atrs.routes.ts's schema.
+  to: z.string().optional(),
+  action: z.string().optional(),
   password: z.string().optional(),
+  remarks: z.string().optional(),
+  reason: z.string().optional(),
+  aimAchieved: z.boolean().optional(),
+  aimRemarks: z.string().optional(),
+  reviewerId: z.string().optional(),
+  reviewerName: z.string().optional(),
+  linkedAtrIds: z.any().optional(),
 });
 
 const cloneSchema = z.object({});
@@ -154,15 +184,22 @@ ardExperimentRouter.post('/', authenticate, async (req: Request, res: Response, 
   try {
     const body = createExperimentSchema.parse(req.body);
     const user = (req as any).user;
+    const templateId = body.templateId || body.template_id;
+    const notebookId = body.notebookId || body.notebook_id;
+    const projectId = body.projectId || body.project_id;
+    if (!templateId) throw new BadRequestError('templateId is required');
 
-    const template = await (ArdTemplate as any).findByPk(body.template_id);
+    const template = await (ArdTemplate as any).findByPk(templateId);
     if (!template) throw new NotFoundError('Template not found');
 
-    if (body.notebook_id) {
-      const notebook = await (ArdNotebook as any).findByPk(body.notebook_id);
+    if (notebookId) {
+      const notebook = await (ArdNotebook as any).findByPk(notebookId);
       if (!notebook) throw new NotFoundError('Notebook not found');
+      if (notebook.status !== 'OPEN') {
+        throw new BadRequestError('Cannot add an experiment to a notebook that is not OPEN', 'INVALID_STATE');
+      }
       if ((notebook as any).maxExperiments) {
-        const existingCount = await (ArdExperiment as any).count({ where: { notebookId: body.notebook_id } });
+        const existingCount = await (ArdExperiment as any).count({ where: { notebookId } });
         if (existingCount >= (notebook as any).maxExperiments) {
           throw new BadRequestError('Notebook has reached maximum experiment capacity');
         }
@@ -172,12 +209,13 @@ ardExperimentRouter.post('/', authenticate, async (req: Request, res: Response, 
     const code = await generateArdExperimentCode();
     const exp = await (ArdExperiment as any).create({
       code,
-      templateId: body.template_id,
+      name: body.name || null,
+      templateId,
       templateName: template.name,
       sectionDefs: template.sections,
       sections: {},
-      notebookId: body.notebook_id,
-      projectId: body.project_id,
+      notebookId,
+      projectId,
       createdById: user.id,
       status: 'IN_PROGRESS',
       history: [],
@@ -328,7 +366,10 @@ ardExperimentRouter.patch('/:experimentId', authenticate, async (req: Request, r
 // POST /:experimentId/transition
 ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { action, password } = transitionSchema.parse(req.body);
+    const parsed = transitionSchema.parse(req.body);
+    const action = parsed.to || parsed.action;
+    if (!action) throw new BadRequestError('Target status is required');
+    const { password, remarks, reason, aimAchieved, aimRemarks, reviewerId, reviewerName, linkedAtrIds } = parsed;
     const exp = await findExperiment(req.params.experimentId as string);
     const user = (req as any).user;
     const currentStatus = (exp as any).status;
@@ -349,6 +390,8 @@ ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: 
       by: user.id,
       byName: user.username,
       at: new Date(),
+      ...(remarks ? { remarks } : {}),
+      ...(reason ? { reason } : {}),
     };
 
     const updates: any = {
@@ -359,11 +402,18 @@ ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: 
     if (action === 'SUBMITTED') {
       updates.submittedById = user.id;
       updates.submittedAt = new Date();
+      if (reviewerId) {
+        updates.reviewerId = reviewerId;
+        updates.reviewerName = reviewerName ?? null;
+      }
     }
     if (action === 'APPROVED') {
       updates.approvedById = user.id;
       updates.approvedAt = new Date();
     }
+    if (aimAchieved != null) updates.aimAchieved = aimAchieved;
+    if (aimRemarks) updates.aimRemarks = aimRemarks;
+    if (linkedAtrIds) updates.linkedAtrIds = linkedAtrIds;
 
     await (exp as any).update(updates);
     res.json(successResponse('Experiment status updated', exp));
@@ -375,8 +425,10 @@ ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: 
 // POST /:experimentId/clone
 ardExperimentRouter.post('/:experimentId/clone', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const exp = await findExperiment(req.params.experimentId as string);
     const user = (req as any).user;
+    const rc: string = (user?.role as any)?.code || '';
+    if (!isLabRole(rc)) throw new ForbiddenError('Not permitted to clone experiments.');
+    const exp = await findExperiment(req.params.experimentId as string);
     const code = await generateArdExperimentCode();
     const clone = await (ArdExperiment as any).create({
       code,
@@ -405,8 +457,10 @@ ardExperimentRouter.post('/:experimentId/clone', authenticate, async (req: Reque
 // POST /:experimentId/clone-blank
 ardExperimentRouter.post('/:experimentId/clone-blank', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const exp = await findExperiment(req.params.experimentId as string);
     const user = (req as any).user;
+    const rc: string = (user?.role as any)?.code || '';
+    if (!isLabRole(rc)) throw new ForbiddenError('Not permitted to clone experiments.');
+    const exp = await findExperiment(req.params.experimentId as string);
     const code = await generateArdExperimentCode();
     const clone = await (ArdExperiment as any).create({
       code,

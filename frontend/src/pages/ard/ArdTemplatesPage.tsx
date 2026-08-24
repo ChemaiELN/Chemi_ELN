@@ -68,17 +68,11 @@ export default function ArdTemplatesPage() {
     mutationFn: (values: any) =>
       ardTemplateApi.create({
         name: values.name,
+        code: values.code,
         templateType: values.templateType,
         description: values.description,
-        sections: [
-          {
-            id: `sec-${Date.now().toString(36)}`,
-            type: 'richtext',
-            title: 'Objective',
-            sequence: 1,
-            required: true,
-          },
-        ],
+        // Sections are attached afterward in the Template Builder by picking
+        // existing reusable master Sections — a new template starts empty.
       }),
     onSuccess: (t) => {
       qc.invalidateQueries({ queryKey: ['ard-templates'] })
@@ -99,14 +93,28 @@ export default function ArdTemplatesPage() {
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to delete template.'),
   })
 
+  const [cloneEditing, setCloneEditing] = useState<ArdTemplateDoc | null>(null)
+  const [cloneForm] = Form.useForm()
+
   const clone = useMutation({
     mutationFn: ardTemplateApi.clone,
     onSuccess: (copy) => {
       qc.invalidateQueries({ queryKey: ['ard-templates'] })
-      msg.success('Template cloned successfully')
-      navigate(`/ard/templates/${copy.id}`)
+      setCloneEditing(copy)
+      cloneForm.setFieldsValue({ name: copy.name, templateType: copy.templateType })
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to clone template.'),
+  })
+
+  const saveCloneDetails = useMutation({
+    mutationFn: (v: { name: string; templateType?: string }) => ardTemplateApi.save(cloneEditing!.id, v),
+    onSuccess: (t) => {
+      qc.invalidateQueries({ queryKey: ['ard-templates'] })
+      msg.success('Template cloned successfully')
+      setCloneEditing(null)
+      navigate(`/ard/templates/${t.id}`)
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save cloned template.'),
   })
 
   const newVersion = useMutation({
@@ -214,9 +222,11 @@ export default function ArdTemplatesPage() {
         columns={[
           {
             title: 'Code',
-            dataIndex: 'id',
+            dataIndex: 'code',
             width: 140,
-            render: (_, row) => <span className="font-mono text-xs font-semibold text-indigo-600">TPL-{row.id.slice(0, 8).toUpperCase()}</span>,
+            render: (v) => v
+              ? <span className="font-mono text-xs font-semibold text-indigo-600">{v}</span>
+              : <span className="text-xs italic text-slate-400">not set</span>,
           },
           {
             title: 'Name',
@@ -342,6 +352,9 @@ export default function ArdTemplatesPage() {
         confirmLoading={create.isPending}
       >
         <Form form={form} layout="vertical">
+          <Form.Item name="code" label="Template Code" rules={[{ required: true, message: 'Template code is required' }]}>
+            <Input className="font-mono" placeholder="e.g. TPL-ASSAY-01" />
+          </Form.Item>
           <Form.Item name="name" label="Template Name" rules={[{ required: true, message: 'Template name is required' }]}>
             <Input placeholder="e.g. Assay Test Protocol Template" />
           </Form.Item>
@@ -350,6 +363,27 @@ export default function ArdTemplatesPage() {
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={2} placeholder="Optional description of template purpose..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Clone: edit name/type before continuing (avoids silent "(Copy)" name collisions) */}
+      <Modal
+        {...glassModalProps}
+        destroyOnClose
+        title="Cloned Template — Update Details"
+        open={!!cloneEditing}
+        onCancel={() => { setCloneEditing(null); navigate(`/ard/templates/${cloneEditing?.id}`) }}
+        onOk={() => cloneForm.validateFields().then((v) => saveCloneDetails.mutate(v))}
+        confirmLoading={saveCloneDetails.isPending}
+        okText="Save & Open"
+      >
+        <Form form={cloneForm} layout="vertical">
+          <Form.Item name="name" label="Template Name" rules={[{ required: true, message: 'Template name is required' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item name="templateType" label="Template Type">
+            <Select allowClear placeholder="Select template type" options={templateTypeOptions} />
           </Form.Item>
         </Form>
       </Modal>

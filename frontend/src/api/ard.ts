@@ -52,12 +52,19 @@ export interface ArdTestConfiguration extends AuditFields {
   resultParams: ResultParam[]
 }
 
+export interface ArdTestGroupMemberRef {
+  id: string
+  testConfigId: string
+  specOverrides: Record<string, string>
+}
+
 export interface ArdTestGroup extends AuditFields {
   id: string
   name: string
   description: string | null
   active: boolean
   testConfigIds: string[]
+  members?: ArdTestGroupMemberRef[]
 }
 
 export type FieldTypeCode =
@@ -92,16 +99,25 @@ export interface ArdFormType extends AuditFields {
   mandateBatchNo: boolean
   mandateSampleQty: boolean
   mandateQaSubmission: boolean
+  allowPostApprovalChanges: boolean
   active: boolean
 }
+
+// Matches the legacy "Template DataItems" screen exactly (product owner review
+// 2026-08-20): dataType is INTEGER | TEXT | DATE | LOV. lengthCategory is never
+// user-entered — the server derives it from dataType (TEXT -> LONG, else SHORT).
+// LOV selectable values come from the Inventory module's shared general-lookup
+// table (lovLookupType), not an ARD-local lookup.
+export type ArdDataItemType = 'INTEGER' | 'TEXT' | 'DATE' | 'LOV'
+export type ArdDataItemLengthCategory = 'SHORT' | 'LONG'
 
 export interface ArdDataItem extends AuditFields {
   id: string
   name: string
-  dataType: 'text' | 'number' | 'date' | 'select' | 'radio' | 'checkbox'
-  uom: string | null
-  options: { label: string; value: string }[] | null
   description: string | null
+  dataType: ArdDataItemType
+  lengthCategory: ArdDataItemLengthCategory | null
+  lovLookupType: string | null
   active: boolean
 }
 
@@ -114,13 +130,13 @@ export interface ArdContentBlock extends AuditFields {
   active: boolean
 }
 
-export interface ArdLookup {
+export interface ArdLookup extends AuditFields {
   id: string
   category: string
   code: string
   label: string
+  description: string | null
   active: boolean
-  createdAt: string | null
 }
 
 export interface ArdSetting {
@@ -220,6 +236,9 @@ export interface AtrSampleTestSummary {
   resultValue?: string | null
   resultUom?: string | null
   resultStatus?: string | null
+  priority?: string | null
+  remarks?: string | null
+  testQuantity?: string | null
 }
 
 export interface AtrSample {
@@ -374,7 +393,7 @@ const ATR_BASE = '/api/ard/atrs'
 export const ardAtrApi = {
   list: (params?: { status?: string; statuses?: string; tab?: string; q?: string; scope?: string; page?: number; pageSize?: number }) =>
     apiGet<AtrListResponse>(ATR_BASE, params),
-  getCounts: () => apiGet<Record<string, number>>(`${ATR_BASE}/counts`),
+  getCounts: () => apiGet<{ counts: Record<string, number>; unassigned: number; methodDev: number }>(`${ATR_BASE}/counts`),
   get: (id: string) => apiGet<AtrForm>(`${ATR_BASE}/${id}`),
   create: (body: Record<string, unknown>) => apiPost<AtrForm>(ATR_BASE, body),
   save: (id: string, body: Record<string, unknown>) => apiPut<AtrForm>(`${ATR_BASE}/${id}`, body),
@@ -394,7 +413,7 @@ export const ardAtrApi = {
     apiPost<AtrForm>(`${ATR_BASE}/${id}/link-experiment`, body),
   raiseEnhancement: (id: string, body: { remarks: string }) =>
     apiPost<AtrForm>(`${ATR_BASE}/${id}/raise-enhancement`, body),
-  addTests: (atrId: string, sampleId: string, body: { testConfigIds?: string[]; testGroupId?: string }) =>
+  addTests: (atrId: string, sampleId: string, body: { testConfigIds?: string[]; testGroupIds?: string[]; testGroupId?: string; priority?: string; remarks?: string; quantity?: string }) =>
     apiPost<{ created: AtrSampleTestSummary[] }>(`${ATR_BASE}/${atrId}/samples/${sampleId}/tests`, body),
   removeTest: (atrId: string, sampleId: string, testId: string) =>
     apiDelete<{ ok: boolean }>(`${ATR_BASE}/${atrId}/samples/${sampleId}/tests/${testId}`),
@@ -442,6 +461,7 @@ export interface ArdTemplateDoc {
   id: string
   familyId: string
   name: string
+  code?: string | null
   templateType: string | null
   description: string | null
   version: number
@@ -473,6 +493,35 @@ export interface ArdTemplateDoc {
 
 const TEMPLATE_BASE = '/api/ard/templates'
 
+// §1.6: per-attachment flags for a section attached to one template version —
+// the wire shape ardTemplateApi.save() now sends for `sections`, replacing the
+// old inline-content array.
+export interface ArdTemplateSectionAttachment {
+  sectionId: string
+  includeInCloning?: boolean
+  includeInEmpower?: boolean
+  updateSampleWeights?: boolean
+  updateResultSample?: boolean
+  includeReadWeighingExcel?: boolean
+}
+
+export interface ArdTemplateSectionAttachmentRow extends ArdTemplateSectionAttachment {
+  id: string
+  sequenceNumber: number
+  section: { id: string; name: string; sectionType: SectionType; description: string | null; active: boolean } | null
+}
+
+export interface ArdTemplatePreviewSection {
+  sectionId: string
+  name: string | null
+  sectionType: SectionType | null
+  sequenceNumber: number
+  richtext?: { editorHeight: number | null; editorWidth: number | null; defaultContent: string | null }
+  datatable?: { name: string | null; description: string | null; typicalRowCount: number; columns: { dataItemId: string; sequenceNumber: number; relativeWidth: number; isMandatory: boolean }[] }
+  embeddedFile?: { fileName: string | null; mappingFileName: string | null; hasFile: boolean }
+  dataItemLinks?: { dataItemId: string; name: string; dataType: string; lengthCategory: string | null; isMandatory: boolean }[]
+}
+
 export const ardTemplateApi = {
   sectionTypes: () => apiGet<{ type: SectionType; label: string; configurable: string }[]>(`${TEMPLATE_BASE}/section-types`),
   list: (params?: { status?: string; q?: string; page?: number; pageSize?: number }) =>
@@ -480,12 +529,87 @@ export const ardTemplateApi = {
   published: () => apiGet<{ items: ArdTemplateDoc[] }>(`${TEMPLATE_BASE}/published`),
   get: (id: string) => apiGet<ArdTemplateDoc>(`${TEMPLATE_BASE}/${id}`),
   experimentCount: (id: string) => apiGet<{ count: number }>(`${TEMPLATE_BASE}/${id}/experiment-count`),
+  sections: (id: string) => apiGet<{ items: ArdTemplateSectionAttachmentRow[] }>(`${TEMPLATE_BASE}/${id}/sections`),
+  preview: (id: string) => apiGet<{ templateId: string; name: string; status: TemplateStatus; sections: ArdTemplatePreviewSection[] }>(`${TEMPLATE_BASE}/${id}/preview`),
   create: (body: Record<string, unknown>) => apiPost<ArdTemplateDoc>(TEMPLATE_BASE, body),
   save: (id: string, body: Record<string, unknown>) => apiPut<ArdTemplateDoc>(`${TEMPLATE_BASE}/${id}`, body),
   transition: (id: string, body: Record<string, unknown>) => apiPost<ArdTemplateDoc>(`${TEMPLATE_BASE}/${id}/transition`, body),
   clone: (id: string) => apiPost<ArdTemplateDoc>(`${TEMPLATE_BASE}/${id}/clone`),
   newVersion: (id: string) => apiPost<ArdTemplateDoc>(`${TEMPLATE_BASE}/${id}/new-version`),
   delete: (id: string) => apiDelete<void>(`${TEMPLATE_BASE}/${id}`),
+}
+
+// ── ARD Sections (reusable master data — rearchitecture prompt §1.1-§1.9) ───
+
+export interface ArdSectionColumn {
+  id?: string
+  dataItemId: string
+  dataItemName?: string
+  sequenceNumber: number
+  relativeWidth: number
+  isMandatory: boolean
+}
+
+export interface ArdSectionDataItemLink {
+  id?: string
+  dataItemId: string
+  dataItemName?: string
+  dataItemType?: string
+  sequenceNumber: number
+  isMandatory: boolean
+}
+
+export interface ArdMasterSection {
+  id: string
+  name: string
+  description: string | null
+  uniqueIdentifier: string | null
+  sectionType: SectionType
+  deptId: string | null
+  active: boolean
+  createdById: string | null
+  createdAt: string | null
+  lastUpdatedById: string | null
+  updatedAt: string | null
+  richtext?: { editorHeight: number | null; editorWidth: number | null; defaultContent: string | null } | null
+  datatable?: { id: string; name: string | null; description: string | null; typicalRowCount: number; columns: ArdSectionColumn[] } | null
+  embeddedFile?: { fileName: string | null; mappingFileName: string | null; hasFile: boolean; hasMappingFile: boolean } | null
+  dataItemLinks?: ArdSectionDataItemLink[]
+}
+
+const SECTION_BASE = '/api/ard/sections'
+
+export const ardSectionApi = {
+  list: (params?: { sectionType?: string; is_active?: string; q?: string; page?: number; pageSize?: number }) =>
+    apiGet<{ items: ArdMasterSection[]; total: number; page: number; pageSize: number }>(SECTION_BASE, params),
+  get: (id: string) => apiGet<ArdMasterSection>(`${SECTION_BASE}/${id}`),
+  create: (body: Record<string, unknown>) => apiPost<ArdMasterSection>(SECTION_BASE, body),
+  save: (id: string, body: Record<string, unknown>) => apiPut<ArdMasterSection>(`${SECTION_BASE}/${id}`, body),
+  delete: (id: string) => apiDelete<void>(`${SECTION_BASE}/${id}`),
+  events: (id: string) => apiGet<{ items: unknown[] }>(`${SECTION_BASE}/${id}/events`),
+  uploadEmbeddedFile: (id: string, file: File, mappingFile?: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    if (mappingFile) form.append('mappingFile', mappingFile)
+    return apiUpload<{ fileName: string; mappingFileName: string | null; hasFile: boolean; hasMappingFile: boolean }>(`${SECTION_BASE}/${id}/embedded-file`, form)
+  },
+}
+
+// ── ARD Data Items — new canonical router (rearchitecture prompt §3.2) ──────
+// Supersedes ardApi.saveDataItem (still used by the legacy master-data bundle
+// tab) — this is the dedicated router the Sections builder and a future
+// standalone Data Items admin page should use.
+
+const DATA_ITEM_BASE = '/api/ard/data-items'
+
+export const ardDataItemApi = {
+  list: (params?: { is_active?: string; data_type?: string; q?: string; page?: number; pageSize?: number }) =>
+    apiGet<{ items: ArdDataItem[]; total: number; page: number; pageSize: number }>(DATA_ITEM_BASE, params),
+  lovLookupTypes: () => apiGet<{ items: string[] }>(`${DATA_ITEM_BASE}/lov-lookup-types`),
+  get: (id: string) => apiGet<ArdDataItem>(`${DATA_ITEM_BASE}/${id}`),
+  create: (body: Record<string, unknown>) => apiPost<ArdDataItem>(DATA_ITEM_BASE, body),
+  save: (id: string, body: Record<string, unknown>) => apiPut<ArdDataItem>(`${DATA_ITEM_BASE}/${id}`, body),
+  delete: (id: string) => apiDelete<void>(`${DATA_ITEM_BASE}/${id}`),
 }
 
 // ── Experiments ──────────────────────────────────────────────────────────
@@ -552,6 +676,7 @@ export interface ArdExperimentDoc {
   aimAchieved: boolean | null
   aimRemarks: string | null
   contributors: { userId: string; userName: string; at: string }[]
+  resultParameters?: Record<string, unknown>[] | null
   createdById: string | null
   createdAt: string | null
   updatedAt: string | null
@@ -691,7 +816,7 @@ export const ardOpsApi = {
   teamUsers: () => apiGet<{ items: TeamUserDto[] }>('/api/ard/team/users'),
   teamWorkload: () => apiGet<{ items: WorkloadRow[] }>('/api/ard/team/workload'),
   teamEvents: () => apiGet<{ items: TeamEvent[] }>('/api/ard/team/events'),
-  createTeam: (body: { name: string; description?: string; hodId?: string; tlIds?: string[]; memberIds?: string[] }) =>
+  createTeam: (body: { name: string; description?: string; hodId?: string; tlIds?: string[]; memberIds?: string[]; tlAnalystMap?: Record<string, string[]> }) =>
     apiPost<{ id: string; name: string }>('/api/ard/team/teams', body),
   updateTeam: (id: string, body: { name?: string; description?: string; hodId?: string; tlIds?: string[]; tlAnalystMap?: Record<string, string[]>; tlAnalystCanReview?: Record<string, boolean>; isActive?: boolean }) =>
     apiPut<{ ok: boolean }>(`/api/ard/team/teams/${id}`, body),
@@ -812,6 +937,11 @@ export const ardApi = {
   saveTestGroup: (body: Record<string, unknown>) =>
     apiPost<ArdTestGroup>(`${BASE}/test-groups`, body),
 
+  saveTestGroupSpecOverride: (groupId: string, memberId: string, paramId: string, specification: string | null) =>
+    apiPatch<ArdTestGroup>(`${BASE}/test-groups/${groupId}/members/${memberId}/spec-override`, { paramId, specification }),
+
+  deleteTestGroup: (id: string) => apiDelete<void>(`${BASE}/test-groups/${id}`),
+
   saveAttribute: (body: Record<string, unknown>) =>
     apiPost<ArdAttribute>(`${BASE}/attributes`, body),
 
@@ -859,14 +989,26 @@ export const ardApi = {
 
 export interface ArdSpecTestParam {
   id?: string
+  // Links this parameter back to the Test Configuration it was pulled from, so
+  // the spec editor can group parameters by test and let the user re-sync or
+  // remove a whole test at once. Absent for manually-added ad-hoc parameters.
+  testConfigId?: string | null
   testType?: string | null
   testSubtype?: string | null
+  techniqueName?: string | null
+  // True when this row was typed in by hand (name is editable) rather than
+  // pulled from the Test Configuration's own result parameters (name is
+  // fixed, matching what's defined in master data).
+  manualEntry?: boolean
   parameter: string
   dataType?: 'text' | 'number' | 'range' | string | null
+  // NONE | NMT | NLT | RANGE — same validation scheme as Test Configuration's
+  // ResultParam.validationType (numeric limit type, not a replication scheme).
   validationType?: string | null
   specLimit: string
   unit?: string | null
   testMethod?: string | null
+  precision?: number | null
   lowerLimit?: number | null
   upperLimit?: number | null
   remarks?: string | null
@@ -887,6 +1029,7 @@ export interface ArdProjectSpecification {
   createdById?: string | null
   approvedBy?: string | null
   approvedAt?: string | null
+  updatedBy?: string | null
   createdAt?: string | null
   updatedAt?: string | null
 }

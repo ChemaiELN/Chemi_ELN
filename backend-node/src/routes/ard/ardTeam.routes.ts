@@ -3,7 +3,8 @@ import { Op } from 'sequelize'
 import { z } from 'zod'
 import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse } from '../../utils/response'
-import { NotFoundError, ForbiddenError } from '../../utils/errors'
+import { NotFoundError, ForbiddenError, ConflictError } from '../../utils/errors'
+import { qualificationActive } from '../../shared/ardQualifications'
 import {
   ArdTeam, ArdAnalystQualification, ArdTestRequest, ArdExperiment,
   ArdAuditLog, User, Role, Department,
@@ -11,36 +12,80 @@ import {
 
 const router = Router()
 
-const ARD_DEPT_CODE = 'AD'
+const ARD_DEPT_CODES = ['AD', 'ARD']
+// QA is included here (in addition to the ARD depts) so QA people are selectable
+// as Team Members — a QA person can stand in when the HOD/Main TL is unavailable.
+const TEAM_USER_DEPT_CODES = ['AD', 'ARD', 'QA']
+const TEAM_USER_ROLES = ['HOD', 'HEAD_OF_DEPT', 'MANAGER', 'TL', 'TEAM_LEAD', 'CHEM', 'CHEMIST', 'ANALYST', 'SUPER_ADMIN']
 const LEAD_ROLES = new Set(['TL', 'TEAM_LEAD', 'HOD', 'ADMIN', 'SUPER_ADMIN', 'QA'])
 
-// GET /api/ard/team/users
-router.get('/users', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+// A person can be TL — primary (tlIds[0]) or secondary (tlIds[1+]) — of only
+// ONE active team at a time. They can still be added as a plain member
+// (memberIds) of any number of other teams; only holding a TL slot on more
+// than one team is blocked.
+async function assertTlIdsAvailable(tlIds: string[] | undefined, excludeTeamId?: string) {
+  if (!tlIds || !tlIds.length) return
+  const teams = await ArdTeam.findAll({ where: { isActive: true } as any })
+  for (const tlId of tlIds) {
+    const clash = teams.find((t: any) => {
+      if (excludeTeamId && t.id === excludeTeamId) return false
+      const ids: string[] = (t.tlIds as string[]) || []
+      return ids.includes(tlId)
+    })
+    if (clash) {
+      const user = await User.findByPk(tlId, { attributes: ['username'] })
+      throw new ConflictError(
+        `${user?.username || 'This user'} is already a Team Lead on "${(clash as any).name}". A Team Lead can lead only one team, but can still be added as a member of other teams.`
+      )
+    }
+  }
+}
+
+async function assertTeamNameAvailable(name: string, excludeTeamId?: string) {
+  const where: any = { name: { [Op.iLike]: name }, isActive: true }
+  if (excludeTeamId) where.id = { [Op.ne]: excludeTeamId }
+  const clash = await ArdTeam.findOne({ where })
+  if (clash) {
+    throw new ConflictError(`A team named "${name}" already exists.`)
+  }
+}
+
+// GET /api/ard/team/users — Python list_team_users (team.py:23-50)
+router.get('/users', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const users = await User.findAll({
       where: { isActive: true },
       include: [
-        { model: Role, as: 'role', attributes: ['code'], where: { code: { [Op.in]: ['HOD', 'TL', 'TEAM_LEAD', 'CHEM', 'ANALYST', 'SUPER_ADMIN'] } } },
-        { model: Department, as: 'department', attributes: ['code'], where: { code: ARD_DEPT_CODE } },
+        { model: Role, as: 'role', attributes: ['code'], where: { code: { [Op.in]: TEAM_USER_ROLES } }, required: true },
+        { model: Department, as: 'department', attributes: ['code'], where: { code: { [Op.in]: TEAM_USER_DEPT_CODES } }, required: true },
       ],
       attributes: ['id', 'username', 'empNo', 'email'],
       order: [['username', 'ASC']],
     })
-    const items = users.map((u: any) => ({
-      id: u.id,
-      username: u.username,
-      fullName: u.empNo || u.username,
-      roleCode: (u.role as any)?.code,
-      departmentCode: (u.department as any)?.code,
-    }))
+    const items = users.map((u: any) => {
+      const role_code = (u.role as any)?.code ?? null
+      const department_code = (u.department as any)?.code ?? null
+      return {
+        id: u.id,
+        username: u.username,
+        full_name: u.username,
+        role_code,
+        department_code,
+      }
+    })
     res.json(successResponse('ARD users', { items }))
   } catch (err) { next(err) }
 })
 
 // GET /api/ard/team/directory
+// Returns both active and inactive teams — the frontend has an active/inactive
+// Switch per row (deactivate is a toggle, not a delete). Filtering this to
+// isActive-only made a deactivated team disappear from the list entirely with
+// no way left in the UI to find and reactivate it, which looked exactly like
+// a delete even though the DELETE route only ever soft-deletes.
 router.get('/directory', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const teams = await ArdTeam.findAll({ where: { isActive: true } as any, order: [['name', 'ASC']] })
+    const teams = await ArdTeam.findAll({ order: [['name', 'ASC']] })
 
     // Build user id→username map from all referenced user IDs
     const allUserIds = new Set<string>()
@@ -102,15 +147,25 @@ router.post('/teams', authenticate, async (req: Request, res: Response, next: Ne
       hodId: z.string().uuid().optional(),
       tlIds: z.array(z.string().uuid()).optional(),
       memberIds: z.array(z.string().uuid()).optional(),
+      tlAnalystMap: z.record(z.array(z.string().uuid())).optional(),
     }).parse(req.body)
+
+    const tlIds = body.tlIds || []
+    const memberIds = body.memberIds || []
+    const tlAnalystMap = body.tlAnalystMap || (
+      tlIds[0] && memberIds.length ? { [tlIds[0]]: memberIds } : {}
+    )
+
+    await assertTeamNameAvailable(body.name)
+    await assertTlIdsAvailable(tlIds)
 
     const team = await ArdTeam.create({
       name: body.name,
       description: body.description || null,
       hodId: body.hodId || null,
-      tlIds: body.tlIds || [],
-      memberIds: body.memberIds || [],
-      tlAnalystMap: {},
+      tlIds,
+      memberIds,
+      tlAnalystMap,
       tlAnalystCanReview: {},
       isActive: true,
       createdBy: user.id,
@@ -133,6 +188,14 @@ router.put('/teams/:teamId', authenticate, async (req: Request, res: Response, n
     const updates: any = { updatedAt: new Date() }
     const fields = ['name', 'description', 'hodId', 'tlIds', 'tlAnalystMap', 'isActive', 'tlAnalystCanReview', 'memberIds']
     fields.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k] })
+
+    if (updates.name !== undefined) {
+      await assertTeamNameAvailable(updates.name, team.id)
+    }
+    if (updates.tlIds !== undefined) {
+      await assertTlIdsAvailable(updates.tlIds, team.id)
+    }
+
     await team.update(updates)
     res.json(successResponse('Team updated', { ok: true }))
   } catch (err) { next(err) }
@@ -168,7 +231,10 @@ router.get('/workload', authenticate, async (req: Request, res: Response, next: 
     const quals = await ArdAnalystQualification.findAll({ attributes: ['userId', 'techniqueEntries'] as any })
     quals.forEach((q: any) => {
       const entries: any[] = (q.techniqueEntries as any[]) || []
-      qualMap[q.userId] = entries.map((e: any) => e.techniqueCode || e.technique || '').filter(Boolean)
+      qualMap[q.userId] = entries
+        .filter((e: any) => qualificationActive(e))
+        .map((e: any) => e.techniqueCode || e.technique || e.techniqueId || '')
+        .filter(Boolean)
     })
 
     const tests = await ArdTestRequest.findAll({

@@ -182,7 +182,11 @@ export function ardExperimentReportHtml(
   exp: any, notebook: any, project: any,
   creatorName: string, company = 'Laurus Labs'
 ): string {
-  const sections: any[] = notebook?.templateSnapshot?.sections ?? exp.sections ?? []
+  // exp.sections is stored as an object keyed by section id (not an array) —
+  // calling .map on it threw and made every PDF export fail silently (caught
+  // upstream and surfaced as a generic 500).
+  const rawSections = notebook?.templateSnapshot?.sections ?? exp.sections ?? []
+  const sections: any[] = Array.isArray(rawSections) ? rawSections : Object.values(rawSections || {})
 
   function renderSection(sec: any): string {
     const kind = sec.type ?? sec.kind ?? ''

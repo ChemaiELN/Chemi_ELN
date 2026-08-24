@@ -58,7 +58,7 @@ export default function ArdAtrsPage() {
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to withdraw ATR.'),
   })
 
-  const canCreateAtr = ['ANALYST', 'CHEM', 'TL', 'TEAM_LEAD', 'ADMIN', 'SUPER_ADMIN'].includes(user?.role_code ?? '') && user?.department_code !== 'QA'
+  const canCreateAtr = ['ANALYST', 'CHEM', 'TL', 'TEAM_LEAD', 'HOD', 'ADMIN', 'SUPER_ADMIN'].includes(user?.role_code ?? '') && user?.department_code !== 'QA'
   const isUnscopedAdmin = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'QA', 'QC_MANAGER'].includes(user?.role_code ?? '')
   const defaultScope = user?.role_code === 'TL' || user?.role_code === 'TEAM_LEAD' ? 'team' : isUnscopedAdmin ? 'all' : 'mine'
   const statusParam = params.get('status') ?? undefined
@@ -84,7 +84,7 @@ export default function ArdAtrsPage() {
     queryFn: () => ardAtrApi.getCounts(),
     staleTime: 30_000,
   })
-  const sc: Record<string, number> = countsData ?? {}
+  const sc: Record<string, number> = countsData?.counts ?? {}
 
   const items = data?.items ?? []
   const filteredItems = items   // already server-side filtered by tab

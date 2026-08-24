@@ -87,6 +87,8 @@ export class ArdTestGroup extends Model<InferAttributes<ArdTestGroup>, InferCrea
   declare name: string
   declare description: string | null
   declare isActive: CreationOptional<boolean>
+  declare createdBy: CreationOptional<string | null>
+  declare updatedBy: CreationOptional<string | null>
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 }
@@ -95,6 +97,8 @@ ArdTestGroup.init({
   name: { type: DataTypes.STRING(200), allowNull: false },
   description: { type: DataTypes.TEXT, allowNull: true },
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true, field: 'is_active' },
+  createdBy: { type: DataTypes.UUID, allowNull: true, field: 'created_by' },
+  updatedBy: { type: DataTypes.UUID, allowNull: true, field: 'updated_by' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, field: 'updated_at' },
 }, { sequelize, tableName: 'ard_test_groups', timestamps: false })
@@ -106,11 +110,13 @@ export class ArdTestGroupMember extends Model<InferAttributes<ArdTestGroupMember
   declare id: CreationOptional<string>
   declare testGroupId: string
   declare testConfigId: string
+  declare specOverrides: CreationOptional<any>
 }
 ArdTestGroupMember.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   testGroupId: { type: DataTypes.UUID, allowNull: false, field: 'test_group_id' },
   testConfigId: { type: DataTypes.UUID, allowNull: false, field: 'test_configuration_id' },
+  specOverrides: { type: DataTypes.JSONB, allowNull: false, defaultValue: {}, field: 'spec_overrides' },
 }, { sequelize, tableName: 'ard_test_group_members', timestamps: false })
 
 // ── ARD Form Types ────────────────────────────────────────────────────────────
@@ -188,7 +194,13 @@ export class ArdTeam extends Model<InferAttributes<ArdTeam>, InferCreationAttrib
   declare id: CreationOptional<string>
   declare name: string
   declare description: string | null
+  declare hodId: CreationOptional<string | null>
+  declare tlId: CreationOptional<string | null>
+  declare tlIds: CreationOptional<string[]>
+  declare memberIds: CreationOptional<string[]>
   declare tlAnalystMap: object | null
+  declare tlAnalystCanReview: CreationOptional<object>
+  declare createdBy: CreationOptional<string | null>
   declare isActive: CreationOptional<boolean>
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
@@ -197,7 +209,13 @@ ArdTeam.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   name: { type: DataTypes.STRING(200), allowNull: false },
   description: { type: DataTypes.TEXT, allowNull: true },
+  hodId: { type: DataTypes.UUID, allowNull: true, field: 'hod_id' },
+  tlId: { type: DataTypes.UUID, allowNull: true, field: 'tl_id' },
+  tlIds: { type: DataTypes.JSONB, allowNull: false, defaultValue: [], field: 'tl_ids' },
+  memberIds: { type: DataTypes.JSONB, allowNull: false, defaultValue: [], field: 'member_ids' },
   tlAnalystMap: { type: DataTypes.JSONB, allowNull: true, field: 'tl_analyst_map' },
+  tlAnalystCanReview: { type: DataTypes.JSONB, allowNull: false, defaultValue: {}, field: 'tl_analyst_can_review' },
+  createdBy: { type: DataTypes.UUID, allowNull: true, field: 'created_by' },
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true, field: 'is_active' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, field: 'updated_at' },
@@ -572,6 +590,7 @@ export class ArdTemplate extends Model<InferAttributes<ArdTemplate>, InferCreati
   declare id: CreationOptional<string>
   declare familyId: string | null
   declare name: string
+  declare code: CreationOptional<string | null>
   declare templateType: string | null
   declare version: CreationOptional<number>
   declare status: CreationOptional<string>
@@ -603,6 +622,7 @@ ArdTemplate.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   familyId: { type: DataTypes.UUID, allowNull: true, field: 'family_id' },
   name: { type: DataTypes.STRING(200), allowNull: false },
+  code: { type: DataTypes.STRING(50), allowNull: true },
   templateType: { type: DataTypes.STRING(50), allowNull: true, field: 'template_type' },
   version: { type: DataTypes.INTEGER, defaultValue: 0 },
   status: { type: DataTypes.STRING(30), defaultValue: 'DRAFT' },
@@ -779,6 +799,7 @@ export class ArdProject extends Model<InferAttributes<ArdProject>, InferCreation
   declare auditTrail: object | null
   declare createdBy: string | null
   declare createdById: string | null
+  declare updatedBy: CreationOptional<string | null>
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 }
@@ -803,6 +824,7 @@ ArdProject.init({
   auditTrail: { type: DataTypes.JSONB, allowNull: true, field: 'audit_trail' },
   createdBy: { type: DataTypes.STRING(200), allowNull: true, field: 'created_by' },
   createdById: { type: DataTypes.UUID, allowNull: true, field: 'created_by_id' },
+  updatedBy: { type: DataTypes.STRING(200), allowNull: true, field: 'updated_by' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, field: 'updated_at' },
 }, { sequelize, tableName: 'ard_projects', timestamps: false })
@@ -818,6 +840,8 @@ export class ArdAttachment extends Model<InferAttributes<ArdAttachment>, InferCr
   declare fileType: string | null
   declare sizeBytes: number | null
   declare attachmentLink: string | null
+  declare attachmentType: CreationOptional<string | null>
+  declare customTypeName: CreationOptional<string | null>
   declare uploadedBy: string | null
   declare uploadedById: string | null
   declare createdAt: CreationOptional<Date>
@@ -832,6 +856,8 @@ ArdAttachment.init({
   fileType: { type: DataTypes.STRING(100), allowNull: true, field: 'file_type' },
   sizeBytes: { type: DataTypes.INTEGER, allowNull: true, field: 'size_bytes' },
   attachmentLink: { type: DataTypes.TEXT, allowNull: true, field: 'attachment_link' },
+  attachmentType: { type: DataTypes.STRING(50), allowNull: true, field: 'attachment_type' },
+  customTypeName: { type: DataTypes.STRING(100), allowNull: true, field: 'custom_type_name' },
   uploadedBy: { type: DataTypes.STRING(200), allowNull: true, field: 'uploaded_by' },
   uploadedById: { type: DataTypes.UUID, allowNull: true, field: 'uploaded_by_id' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
@@ -964,12 +990,16 @@ export class ArdProjectSpecification extends Model<InferAttributes<ArdProjectSpe
   declare specCode: string
   declare version: CreationOptional<string>
   declare title: string
+  declare shortName: CreationOptional<string | null>
+  declare specType: CreationOptional<string | null>
+  declare description: CreationOptional<string | null>
   declare status: CreationOptional<string>
   declare testParameters: object
   declare createdBy: string
   declare createdById: string | null
   declare approvedBy: string | null
   declare approvedAt: Date | null
+  declare updatedBy: CreationOptional<string | null>
   declare createdAt: CreationOptional<Date>
   declare updatedAt: Date | null
 }
@@ -979,12 +1009,16 @@ ArdProjectSpecification.init({
   specCode: { type: DataTypes.STRING(50), allowNull: false, field: 'spec_code' },
   version: { type: DataTypes.STRING(20), defaultValue: '1.0' },
   title: { type: DataTypes.STRING(200), allowNull: false },
+  shortName: { type: DataTypes.STRING(60), allowNull: true, field: 'short_name' },
+  specType: { type: DataTypes.STRING(60), allowNull: true, field: 'spec_type' },
+  description: { type: DataTypes.TEXT, allowNull: true },
   status: { type: DataTypes.STRING(30), defaultValue: 'DRAFT' },
   testParameters: { type: DataTypes.JSONB, allowNull: false, defaultValue: [], field: 'test_parameters' },
   createdBy: { type: DataTypes.STRING(200), allowNull: false, field: 'created_by' },
   createdById: { type: DataTypes.UUID, allowNull: true, field: 'created_by_id' },
   approvedBy: { type: DataTypes.STRING(200), allowNull: true, field: 'approved_by' },
   approvedAt: { type: DataTypes.DATE, allowNull: true, field: 'approved_at' },
+  updatedBy: { type: DataTypes.STRING(200), allowNull: true, field: 'updated_by' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, allowNull: true, field: 'updated_at' },
 }, { sequelize, tableName: 'ard_project_specifications', timestamps: false })
@@ -1074,12 +1108,19 @@ ArdAttribute.init({
 }, { sequelize, tableName: 'ard_attributes', timestamps: false })
 
 // ── ARD Data Items (reusable data-item catalogue) ──────────────────────────────
+// dataType is a fixed enum in code — INTEGER | TEXT | DATE | LOV, matching the
+// legacy "Template DataItems" screen exactly (product owner review 2026-08-20).
+// lengthCategory (SHORT|LONG) is never user-entered — it's derived server-side
+// from dataType (INTEGER/DATE/LOV -> SHORT, TEXT -> LONG). LOV selectable values
+// come from the Inventory module's shared inv_general_lookup table, keyed by
+// lovLookupType (= inv_general_lookup.lookup_type) — not an ARD-local lookup.
 export class ArdDataItem extends Model<InferAttributes<ArdDataItem>, InferCreationAttributes<ArdDataItem>> {
   declare id: CreationOptional<string>
   declare name: string
   declare dataType: CreationOptional<string | null>
+  declare lengthCategory: CreationOptional<string | null>
+  declare lovLookupType: CreationOptional<string | null>
   declare uom: CreationOptional<string | null>
-  declare options: CreationOptional<any>
   declare description: CreationOptional<string | null>
   declare isActive: CreationOptional<boolean>
   declare createdBy: CreationOptional<string | null>
@@ -1091,8 +1132,9 @@ ArdDataItem.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   name: { type: DataTypes.STRING, allowNull: false },
   dataType: { type: DataTypes.STRING, allowNull: true, field: 'data_type' },
+  lengthCategory: { type: DataTypes.STRING(10), allowNull: true, field: 'length_category' },
+  lovLookupType: { type: DataTypes.STRING(100), allowNull: true, field: 'lov_lookup_type' },
   uom: { type: DataTypes.STRING, allowNull: true },
-  options: { type: DataTypes.JSON, allowNull: true },
   description: { type: DataTypes.TEXT, allowNull: true },
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: 'is_active' },
   createdBy: { type: DataTypes.UUID, allowNull: true, field: 'created_by' },

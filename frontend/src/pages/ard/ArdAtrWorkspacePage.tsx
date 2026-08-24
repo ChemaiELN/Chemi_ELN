@@ -2,26 +2,26 @@ import { useState, useMemo, useEffect } from 'react'
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Tabs, Tag, Button, Input, Form, Switch, Table, Modal, message, Card,
-  Popconfirm, Space, Empty, Select, Dropdown, Row, Col, Divider, Tooltip, DatePicker, Segmented, Spin,
+  Tabs, Tag, Button, Input, InputNumber, Form, Switch, Table, Modal, message, Card,
+  Popconfirm, Space, Empty, Select, Dropdown, Row, Col, Divider, Tooltip, DatePicker, Segmented, Spin, Radio, Checkbox,
 } from 'antd'
-import { FileText, ShieldCheck, Award, RotateCcw, Send, HelpCircle, ArrowLeft, Plus, FlaskConical, LayoutList, Clock, Link2, Edit3, Trash2 } from 'lucide-react'
+import { FileText, ShieldCheck, Award, RotateCcw, Send, HelpCircle, ArrowLeft, Plus, FlaskConical, LayoutList, Clock, Link2, Edit3, Trash2, Layers } from 'lucide-react'
 import dayjs from 'dayjs'
 import { ardApi, ardAtrApi, ardUserApi, ardTeamApi, type AtrStatus, type AtrSample, type AtrSupportingDoc } from '../../api/ard'
 import { userApi } from '../../api/adc'
 import ArdAttachmentsPanel from '../../components/ard/ArdAttachmentsPanel'
 import TestFinalReportLink from '../../components/ard/TestFinalReportLink'
 import { AtrCertificationPanel } from '../../components/ard/AtrCertificationPanel'
-import { AtrExpReferencePicker } from '../../components/ard/AtrExpReferencePicker'
 import { ESignatureModal } from '../../components/common/ESignatureModal'
 import { ArdMetadataBanner } from '../../components/ard/ArdMetadataBanner'
 import { ArdWorkflowStepper } from '../../components/ard/ArdWorkflowStepper'
 import { ApiError, apiDownloadBlob, apiGet, apiPost, apiPatch, apiDelete } from '../../api/client'
-import { inventoryApi } from '../../api/inventory'
+import { inventoryApi, manufacturerApi } from '../../api/inventory'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useHealthIndicator } from '../../hooks/useHealthIndicator'
+import { useBreadcrumbLabel } from '../../components/layout/ArdShell'
 
 const { TextArea } = Input
 
@@ -131,7 +131,7 @@ function ManageTestsModal({ atrId, sample, onClose }: { atrId: string; sample: A
       msg.success('Tests added.')
       setTestConfigIds([])
       setTestGroupIds([])
-      const newTests = (res?.created || []).map((t: any) => ({
+      const newTests = ((Array.isArray(res) ? res : res?.created) || []).map((t: any) => ({
         id: t.id,
         testType: t.testType || t.test_type,
         techniqueCode: t.techniqueCode || t.technique_code || '—',
@@ -336,7 +336,7 @@ function ManageTestsModal({ atrId, sample, onClose }: { atrId: string; sample: A
             value={testConfigIds}
             disabled={testGroupIds.length > 0}
             onChange={(v) => { setTestConfigIds(v); if (v.length > 0) setTestGroupIds([]) }}
-            options={(masterData?.testConfigs ?? []).filter((c) => c.active).map((c) => ({ value: c.id, label: `${c.code ?? c.techniqueName} — ${c.testType}` }))}
+            options={(masterData?.testConfigs ?? []).filter((c) => c.active).map((c) => ({ value: c.id, label: `${c.code ?? c.techniqueCode} — ${c.testType}` }))}
           />
         </div>
       </div>
@@ -347,9 +347,134 @@ function ManageTestsModal({ atrId, sample, onClose }: { atrId: string; sample: A
   )
 }
 
+function MaterialDetailsForm({ initial, materials, batches, vendors, onSave, onCancel }: {
+  initial: any
+  materials: any[]
+  batches: any[]
+  vendors: any[]
+  onSave: (chem: any) => void
+  onCancel: () => void
+}) {
+  const [chem, setChem] = useState<any>(initial)
+  const patch = (p: any) => setChem((prev: any) => ({ ...prev, ...p }))
+
+  const materialBatches = batches.filter((b: any) => !chem.materialId || String(b.material_id) === String(chem.materialId))
+
+  const handleSelectMaterial = (matId: string) => {
+    const mat = materials.find((m: any) => String(m.id) === String(matId))
+    patch({
+      materialId: String(matId),
+      name: mat?.name || '',
+      specification: mat?.code || '',
+      materialType: mat?.material_type || '',
+      batchId: '', lotNo: '', expiryDate: null, qtyAvailable: '',
+    })
+  }
+
+  const handleSelectBatch = (bId: number) => {
+    const b = batches.find((item: any) => item.id === bId)
+    if (b) {
+      patch({
+        batchId: String(b.id),
+        lotNo: b.batch_no || '',
+        name: b.material_name || chem.name || '',
+        uom: b.unit || chem.uom || '',
+        vendor: b.manufacturer_name || chem.vendor || '',
+        vendorId: b.manufacturer_id ? String(b.manufacturer_id) : chem.vendorId || '',
+        expiryDate: b.expiry_date || (b as any).exp_date || chem.expiryDate || null,
+        materialId: b.material_id ? String(b.material_id) : chem.materialId || '',
+        qtyAvailable: b.qty_available != null ? String(b.qty_available) : '',
+      })
+    }
+  }
+
+  const handleSelectVendor = (vId: string) => {
+    const v = vendors.find((item: any) => String(item.id) === String(vId))
+    patch({ vendorId: String(vId), vendor: v?.name || '' })
+  }
+
+  const canSave = chem.materialId && chem.vendorId && chem.batchId && chem.quantity
+
+  return (
+    <Modal {...glassModalProps} title="Material Details" open onCancel={onCancel} footer={null} width={640}>
+      <div className="grid grid-cols-2 gap-x-4 gap-y-3 pt-2">
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Chemical Name <span className="text-red-500">*</span></p>
+          <Select showSearch className="w-full" placeholder="Select"
+            value={chem.materialId ? String(chem.materialId) : undefined}
+            filterOption={(input, option) => (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
+            options={materials.map((m: any) => ({ value: String(m.id), label: `${m.code} — ${m.name}${m.cas_no ? ` (${m.cas_no})` : ''}` }))}
+            onChange={handleSelectMaterial}
+          />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Vendor Name <span className="text-red-500">*</span></p>
+          <Select showSearch className="w-full" placeholder="Select"
+            value={chem.vendorId ? String(chem.vendorId) : undefined}
+            filterOption={(input, option) => (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
+            options={vendors.map((v: any) => ({ value: String(v.id), label: v.name }))}
+            onChange={handleSelectVendor}
+          />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Batch/Lot No. <span className="text-red-500">*</span></p>
+          <Select showSearch className="w-full" placeholder="Select"
+            value={chem.batchId ? Number(chem.batchId) : undefined}
+            filterOption={(input, option) => (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
+            options={materialBatches.map((b: any) => ({ value: b.id, label: `Batch #${b.batch_no} (${b.qty_available} ${b.unit})` }))}
+            onChange={handleSelectBatch}
+          />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Expiry Date</p>
+          <DatePicker className="w-full" value={chem.expiryDate ? dayjs(chem.expiryDate) : null} format="YYYY-MM-DD"
+            onChange={(date) => patch({ expiryDate: date?.format('YYYY-MM-DD') ?? null })} />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Material Type</p>
+          <Input value={chem.materialType ?? ''} onChange={(e) => patch({ materialType: e.target.value })} />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Material Code</p>
+          <Input value={chem.specification ?? ''} onChange={(e) => patch({ specification: e.target.value })} />
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Specs</p>
+          <Input value={chem.specs ?? ''} onChange={(e) => patch({ specs: e.target.value })} />
+        </div>
+        <div />
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Qty Available</p>
+          <div className="flex gap-1">
+            <Input disabled value={chem.qtyAvailable ?? ''} />
+            <Input disabled style={{ width: 70 }} value={chem.uom ?? ''} />
+          </div>
+        </div>
+        <div>
+          <p className="text-xs font-semibold text-slate-600 mb-1">Qty Required <span className="text-red-500">*</span></p>
+          <div className="flex gap-1">
+            <Input value={chem.quantity ?? ''} onChange={(e) => patch({ quantity: e.target.value })} />
+            <Input style={{ width: 70 }} value={chem.uom ?? ''} onChange={(e) => patch({ uom: e.target.value })} />
+          </div>
+        </div>
+        <div className="col-span-2">
+          <p className="text-xs font-semibold text-slate-600 mb-1">Remarks</p>
+          <Input.TextArea rows={2} value={chem.remarks ?? ''} onChange={(e) => patch({ remarks: e.target.value })} />
+        </div>
+      </div>
+      <div className="flex justify-end gap-2 pt-4">
+        <Button onClick={onCancel}>Cancel</Button>
+        <Button type="primary" disabled={!canSave} onClick={() => onSave(chem)}>Save</Button>
+      </div>
+    </Modal>
+  )
+}
+
 function ManageChemicalsModal({ sample, onSave, onClose, readOnly }: { sample: AtrSample; onSave: (chems: any[]) => void; onClose: () => void; readOnly: boolean }) {
   const [chems, setChems] = useState<any[]>(sample.chemicals || [])
-  
+  const [editingIndex, setEditingIndex] = useState<number | null>(null)
+  const [formOpen, setFormOpen] = useState(false)
+
   const materialsQuery = useQuery({
     queryKey: ['inv-materials-lookup'],
     queryFn: () => inventoryApi.materials.listPaged({ pageSize: 250 }),
@@ -360,43 +485,29 @@ function ManageChemicalsModal({ sample, onSave, onClose, readOnly }: { sample: A
     queryFn: () => inventoryApi.batches.list({ pageSize: 250 }),
   })
 
+  const vendorsQuery = useQuery({
+    queryKey: ['inv-manufacturers-lookup'],
+    queryFn: () => manufacturerApi.list({ pageSize: 250 }),
+  })
+
   const materials = materialsQuery.data?.items || []
   const batches = batchesQuery.data || []
+  const vendors = vendorsQuery.data || []
 
-  const addChem = () => setChems([...chems, { name: '', materialId: '', batchId: '', lotNo: '', quantity: '', expiryDate: null, vendor: '', specification: '', uom: '', remarks: '', materialType: '', qtyAvailable: '' }])
-  const updateChem = (i: number, patch: any) => {
-    const next = chems.slice()
-    next[i] = { ...next[i], ...patch }
-    setChems(next)
-  }
+  const openAdd = () => { setEditingIndex(null); setFormOpen(true) }
+  const openEdit = (i: number) => { setEditingIndex(i); setFormOpen(true) }
   const removeChem = (i: number) => setChems(chems.filter((_, idx) => idx !== i))
 
-  const handleSelectMaterial = (i: number, matId: string) => {
-    const mat = materials.find((m: any) => String(m.id) === String(matId))
-    if (mat) {
-      updateChem(i, {
-        materialId: String(mat.id),
-        name: mat.name,
-        specification: mat.code || '',
-        materialType: mat.material_type || '',
-      })
+  const handleFormSave = (chem: any) => {
+    if (editingIndex == null) {
+      setChems([...chems, chem])
+    } else {
+      const next = chems.slice()
+      next[editingIndex] = chem
+      setChems(next)
     }
-  }
-
-  const handleSelectBatch = (i: number, bId: number) => {
-    const b = batches.find((item: any) => item.id === bId)
-    if (b) {
-      updateChem(i, {
-        batchId: String(b.id),
-        lotNo: b.batch_no || '',
-        name: b.material_name || chems[i]?.name || '',
-        uom: b.unit || chems[i]?.uom || '',
-        vendor: b.manufacturer_name || chems[i]?.vendor || '',
-        expiryDate: b.expiry_date || (b as any).exp_date || chems[i]?.expiryDate || null,
-        materialId: b.material_id ? String(b.material_id) : chems[i]?.materialId || '',
-        qtyAvailable: b.qty_available != null ? String(b.qty_available) : '',
-      })
-    }
+    setFormOpen(false)
+    setEditingIndex(null)
   }
 
   return (
@@ -407,89 +518,56 @@ function ManageChemicalsModal({ sample, onSave, onClose, readOnly }: { sample: A
         dataSource={chems}
         size="small"
         pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], size: 'small', showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
-        scroll={{ x: 1100 }}
-        footer={() => !readOnly && <Button size="small" icon={<Plus size={14} />} onClick={addChem}>Add Chemical Lot</Button>}
+        footer={() => !readOnly && <Button size="small" icon={<Plus size={14} />} onClick={openAdd}>Add Chemical Lot</Button>}
         columns={[
+          { title: 'Chemical / Material Name', dataIndex: 'name', render: (v) => v || '—' },
+          { title: 'Inventory Stock Batch', dataIndex: 'lotNo', render: (v) => v || '—' },
           {
-            title: 'Chemical / Material Name',
-            dataIndex: 'name',
-            width: 220,
-            render: (v, row, i) => readOnly ? (v || '—') : (
-              <Select
-                showSearch
-                size="small"
-                className="w-full"
-                placeholder="Search Inventory Materials..."
-                value={row.materialId ? String(row.materialId) : undefined}
-                filterOption={(input, option) => (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
-                options={materials.map((m: any) => ({
-                  value: String(m.id),
-                  label: `${m.code} — ${m.name}${m.cas_no ? ` (${m.cas_no})` : ''}`,
-                }))}
-                onChange={(val) => handleSelectMaterial(i, val)}
-              />
-            ),
-          },
-          {
-            title: 'Inventory Stock Batch',
-            dataIndex: 'batchId',
-            width: 200,
-            render: (v, row, i) => readOnly ? (v || '—') : (
-              <Select
-                showSearch
-                size="small"
-                className="w-full"
-                placeholder="Select Stock Batch..."
-                value={v ? Number(v) : undefined}
-                filterOption={(input, option) => (option?.label ?? '').toString().toLowerCase().includes(input.toLowerCase())}
-                options={batches.map(b => ({
-                  value: b.id,
-                  label: `Batch #${b.batch_no} — ${b.material_name || 'Material'} (${b.qty_available} ${b.unit})`,
-                }))}
-                onChange={(val) => handleSelectBatch(i, val)}
-              />
-            ),
-          },
-          {
-            title: 'Material Type', dataIndex: 'materialType', width: 120,
+            title: 'Material Type', dataIndex: 'materialType',
             render: (v) => v ? <Tag className="text-xs">{v}</Tag> : <span className="text-slate-400 text-xs">—</span>,
           },
           {
-            title: 'Qty Available', dataIndex: 'qtyAvailable', width: 110,
-            render: (v, row) => v ? (
-              <span className="font-mono text-xs font-semibold text-violet-700">{v} {row.uom || ''}</span>
-            ) : <span className="text-slate-400 text-xs">—</span>,
+            title: 'Qty Available', dataIndex: 'qtyAvailable',
+            render: (v, row) => v ? <span className="font-mono text-xs font-semibold text-violet-700">{v} {row.uom || ''}</span> : <span className="text-slate-400 text-xs">—</span>,
           },
-          { title: 'Lot Number', dataIndex: 'lotNo', width: 110, render: (v, _, i) => readOnly ? (v || '—') : <Input size="small" value={v} onChange={(e) => updateChem(i, { lotNo: e.target.value })} placeholder="Lot No" /> },
-          { title: 'Qty Used', dataIndex: 'quantity', width: 80, render: (v, _, i) => readOnly ? (v || '—') : <Input size="small" value={v} onChange={(e) => updateChem(i, { quantity: e.target.value })} placeholder="Qty" /> },
-          { title: 'UOM', dataIndex: 'uom', width: 80, render: (v, _, i) => readOnly ? (v || '—') : <Input size="small" value={v} onChange={(e) => updateChem(i, { uom: e.target.value })} placeholder="UOM" /> },
-          {
-            title: 'Expiry Date', dataIndex: 'expiryDate', width: 120,
-            render: (v, _, i) => readOnly
-              ? <span>{v || '—'}</span>
-              : <DatePicker size="small" value={v ? dayjs(v) : null} format="YYYY-MM-DD"
-                  onChange={(date) => updateChem(i, { expiryDate: date?.format('YYYY-MM-DD') ?? null })}
-                  style={{ width: '100%' }} placeholder="Expiry" />,
-          },
-          { title: 'Vendor / Mfr', dataIndex: 'vendor', width: 120, render: (v, _, i) => readOnly ? (v || '—') : <Input size="small" value={v} onChange={(e) => updateChem(i, { vendor: e.target.value })} placeholder="Vendor" /> },
-          { title: 'Specification', dataIndex: 'specification', width: 120, render: (v, _, i) => readOnly ? (v || '—') : <Input size="small" value={v} onChange={(e) => updateChem(i, { specification: e.target.value })} placeholder="Spec ref" /> },
-          { title: 'Remarks', dataIndex: 'remarks', width: 120, render: (v, _, i) => readOnly ? (v || '—') : <Input size="small" value={v} onChange={(e) => updateChem(i, { remarks: e.target.value })} placeholder="Remarks" /> },
-          ...(readOnly ? [] : [{ title: '', width: 70, render: (_: any, __: any, i: number) => <Button size="small" danger onClick={() => removeChem(i)}>Remove</Button> }]),
+          { title: 'Qty Required', dataIndex: 'quantity', render: (v, row) => v ? `${v} ${row.uom || ''}` : '—' },
+          { title: 'Expiry Date', dataIndex: 'expiryDate', render: (v) => v || '—' },
+          { title: 'Vendor / Mfr', dataIndex: 'vendor', render: (v) => v || '—' },
+          { title: 'Remarks', dataIndex: 'remarks', render: (v) => v || '—' },
+          ...(readOnly ? [] : [{
+            title: '', width: 90,
+            render: (_: any, __: any, i: number) => (
+              <Space size={4}>
+                <Button type="text" size="small" icon={<Edit3 size={13} className="text-indigo-500" />} onClick={() => openEdit(i)} />
+                <Button type="text" size="small" danger icon={<Trash2 size={13} />} onClick={() => removeChem(i)} />
+              </Space>
+            ),
+          }]),
         ]}
       />
+      {formOpen && (
+        <MaterialDetailsForm
+          initial={editingIndex == null
+            ? { name: '', materialId: '', vendorId: '', batchId: '', lotNo: '', quantity: '', expiryDate: null, vendor: '', specification: '', specs: '', uom: '', remarks: '', materialType: '', qtyAvailable: '' }
+            : chems[editingIndex]}
+          materials={materials}
+          batches={batches}
+          vendors={vendors}
+          onSave={handleFormSave}
+          onCancel={() => { setFormOpen(false); setEditingIndex(null) }}
+        />
+      )}
     </Modal>
   )
 }
 
-function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleIntegrityOptions = [], isQaUser, atrStatus }: {
+function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleIntegrityOptions = [] }: {
   atrId: string
   samples: AtrSample[]
   onChange: (s: AtrSample[]) => void
   readOnly: boolean
   uomOptions: { value: string; label: string }[]
   sampleIntegrityOptions?: { value: string; label: string }[]
-  isQaUser: boolean
-  atrStatus: string
 }) {
   const qc = useQueryClient()
   const [manageTests, setManageTests] = useState<AtrSample | null>(null)
@@ -503,14 +581,94 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
     .filter((l: any) => l.category === 'Sample Type' && l.active !== false)
     .map((l: any) => ({ value: l.code, label: l.label }))
 
-  const patchSample = useMutation({
-    mutationFn: ({ sampleId, body }: { sampleId: string; body: { internalSampleNo?: string | null; productName?: string | null } }) =>
-      ardAtrApi.patchSample(atrId, sampleId, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['ard-atr', atrId] }),
-    onError: () => msgApi.error('Failed to save QA field.'),
+  // Inline "Test Details" table state — per-sample draft row for adding a
+  // single test, and per-sample selection for adding a whole test group.
+  type TestDraft = { testType?: string; testSubtype?: string; quantity?: string; priority?: string; remarks?: string }
+  const [testDrafts, setTestDrafts] = useState<Record<string, TestDraft>>({})
+  const [addingGroupFor, setAddingGroupFor] = useState<string | null>(null)
+  const [groupSelection, setGroupSelection] = useState<string[]>([])
+
+  const testTypeOptions = useMemo(() => {
+    const types = Array.from(new Set((masterData?.testConfigs ?? []).filter((c: any) => c.active).map((c: any) => c.testType).filter(Boolean)))
+    return types.map((t) => ({ value: t as string, label: t as string }))
+  }, [masterData?.testConfigs])
+
+  const testSubtypeOptionsFor = (testType?: string) => {
+    const configs = (masterData?.testConfigs ?? []).filter((c: any) => c.active && (!testType || c.testType === testType))
+    const subtypes = Array.from(new Set(configs.map((c: any) => c.testSubtype).filter(Boolean)))
+    return subtypes.map((s) => ({ value: s as string, label: s as string }))
+  }
+
+  const addTestsMutation = useMutation({
+    mutationFn: ({ sampleId, body }: { sampleId: string; body: Parameters<typeof ardAtrApi.addTests>[2] }) =>
+      ardAtrApi.addTests(atrId, sampleId, body),
+    onSuccess: (res: any, { sampleId }) => {
+      // Merge the newly created tests into whatever `samples` currently holds
+      // (a saved-but-unsent draft, or the server copy) instead of only
+      // invalidating the query — invalidating alone leaves an existing draft
+      // stale, and hitting "Save Samples & Tests" afterwards would overwrite
+      // the server's freshly-added tests with that stale draft, making them
+      // "disappear".
+      const i = samples.findIndex((s) => s.id === sampleId)
+      if (i >= 0) {
+        // The backend's successResponse() returns array payloads bare (no
+        // `{created: [...]}` wrapper) — reading `res.created` was always
+        // undefined, so nothing ever got merged in and the newly added test
+        // never appeared until a full page reload.
+        const created = (Array.isArray(res) ? res : res?.created ?? []) as AtrSample['tests']
+        update(i, { tests: [...(samples[i].tests ?? []), ...created] })
+      }
+      qc.invalidateQueries({ queryKey: ['ard-atr', atrId] })
+      msgApi.success('Test(s) added.')
+    },
+    onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Failed to add test(s).'),
   })
 
-  const qaEditable = isQaUser && atrStatus !== 'DRAFT'
+  const submitTestDraft = (sample: AtrSample) => {
+    const draft = testDrafts[sample.id] || {}
+    if (!draft.testType || !draft.testSubtype) { msgApi.warning('Test Type and Sub Type are required.'); return }
+    const config = (masterData?.testConfigs ?? []).find((c: any) => c.testType === draft.testType && c.testSubtype === draft.testSubtype)
+    if (!config) { msgApi.warning('No matching test configuration found for this Test Type / Sub Type.'); return }
+    addTestsMutation.mutate({
+      sampleId: sample.id,
+      body: { testConfigIds: [config.id], quantity: draft.quantity, priority: draft.priority, remarks: draft.remarks },
+    })
+    setTestDrafts((prev) => ({ ...prev, [sample.id]: {} }))
+  }
+
+  const submitGroupAdd = (sample: AtrSample) => {
+    if (!groupSelection.length) { setAddingGroupFor(null); return }
+    addTestsMutation.mutate({ sampleId: sample.id, body: { testGroupIds: groupSelection } })
+    setAddingGroupFor(null)
+    setGroupSelection([])
+  }
+
+  const [selectedTestIds, setSelectedTestIds] = useState<Record<string, string[]>>({})
+  const removeTestMutation = useMutation({
+    mutationFn: ({ sampleId, testId }: { sampleId: string; testId: string }) => ardAtrApi.removeTest(atrId, sampleId, testId),
+  })
+  const removeSelectedTests = async (sample: AtrSample) => {
+    const ids = selectedTestIds[sample.id] || []
+    if (!ids.length) return
+    await Promise.all(ids.map((testId) => removeTestMutation.mutateAsync({ sampleId: sample.id, testId })))
+    const i = samples.findIndex((s) => s.id === sample.id)
+    if (i >= 0) {
+      update(i, { tests: (samples[i].tests ?? []).filter((t) => !ids.includes(t.id)) })
+    }
+    qc.invalidateQueries({ queryKey: ['ard-atr', atrId] })
+    msgApi.success('Selected test(s) removed.')
+    setSelectedTestIds((prev) => ({ ...prev, [sample.id]: [] }))
+  }
+
+  const removeOneTest = async (sample: AtrSample, testId: string) => {
+    await removeTestMutation.mutateAsync({ sampleId: sample.id, testId })
+    const i = samples.findIndex((s) => s.id === sample.id)
+    if (i >= 0) {
+      update(i, { tests: (samples[i].tests ?? []).filter((t) => t.id !== testId) })
+    }
+    qc.invalidateQueries({ queryKey: ['ard-atr', atrId] })
+    msgApi.success('Test removed.')
+  }
 
   const update = (i: number, patch: Partial<AtrSample>) => {
     const next = samples.slice()
@@ -538,17 +696,106 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
         expandable={{
           expandedRowRender: (row) => {
             const rowTests = row.tests ?? []
-            if (!rowTests.length) {
-              return <p className="text-xs text-slate-400 italic py-2 px-3">No tests added yet — use the Tests column to add some.</p>
-            }
+            const canAddTests = !readOnly && !row.id.startsWith('new-')
+            const draft = testDrafts[row.id] || {}
+            const setDraft = (patch: Partial<TestDraft>) => setTestDrafts((prev) => ({ ...prev, [row.id]: { ...prev[row.id], ...patch } }))
+            const selectedIds = selectedTestIds[row.id] || []
             return (
+              <div className="bg-slate-50/60 border border-slate-200 rounded-lg overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/60 border-b border-indigo-100">
+                  <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Test Details ({rowTests.length})</p>
+                  {canAddTests && (
+                    <Space size={4}>
+                      {selectedIds.length > 0 && (
+                        <Popconfirm title={`Remove ${selectedIds.length} selected test(s)?`} onConfirm={() => removeSelectedTests(row)}>
+                          <Button size="small" danger icon={<Trash2 size={12} />} loading={removeTestMutation.isPending} />
+                        </Popconfirm>
+                      )}
+                      <Tooltip title="Add Test Group">
+                        <Button size="small" icon={<Layers size={12} />}
+                          onClick={() => { setAddingGroupFor(row.id); setGroupSelection([]) }} />
+                      </Tooltip>
+                    </Space>
+                  )}
+                </div>
+
+                {row.id.startsWith('new-') && (
+                  <p className="text-xs text-slate-400 italic py-3 px-3">Save this sample first, then add tests.</p>
+                )}
+
+                {addingGroupFor === row.id && (
+                  <div className="flex items-center gap-2 px-3 py-2 bg-violet-50 border-b border-violet-100">
+                    <Select
+                      mode="multiple" size="small" style={{ flex: 1 }} showSearch optionFilterProp="label"
+                      placeholder="Select test group(s)…" value={groupSelection} onChange={setGroupSelection}
+                      options={(masterData?.testGroups ?? []).map((g: any) => ({ value: g.id, label: g.name }))}
+                    />
+                    <Button size="small" type="primary" loading={addTestsMutation.isPending} onClick={() => submitGroupAdd(row)}>Add</Button>
+                    <Button size="small" onClick={() => { setAddingGroupFor(null); setGroupSelection([]) }}>Cancel</Button>
+                  </div>
+                )}
+
+                {canAddTests && (
+                  <table className="w-full text-xs border-b border-slate-200">
+                    <thead>
+                      <tr className="bg-slate-100 text-left">
+                        <th className="px-2 py-1.5 w-8" />
+                        <th className="px-2 py-1.5 font-semibold text-slate-600">Test Type <span className="text-red-500">*</span></th>
+                        <th className="px-2 py-1.5 font-semibold text-slate-600">Sub Type <span className="text-red-500">*</span></th>
+                        <th className="px-2 py-1.5 font-semibold text-slate-600 w-24">Quantity</th>
+                        <th className="px-2 py-1.5 font-semibold text-slate-600 w-32">Priority</th>
+                        <th className="px-2 py-1.5 font-semibold text-slate-600">Remarks</th>
+                        <th className="px-2 py-1.5 w-16" />
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td className="px-2 py-1.5" />
+                        <td className="px-2 py-1.5">
+                          <Select size="small" className="w-full" showSearch optionFilterProp="label" allowClear
+                            placeholder="Select…" value={draft.testType} options={testTypeOptions}
+                            onChange={(v) => setDraft({ testType: v, testSubtype: undefined })} />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <Select size="small" className="w-full" showSearch optionFilterProp="label" allowClear
+                            placeholder="Select…" value={draft.testSubtype} options={testSubtypeOptionsFor(draft.testType)}
+                            onChange={(v) => setDraft({ testSubtype: v })} />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <Input size="small" value={draft.quantity ?? ''} onChange={(e) => setDraft({ quantity: e.target.value })} />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <Select size="small" className="w-full" allowClear placeholder="—" value={draft.priority}
+                            options={[{ value: 'LOW', label: 'Low' }, { value: 'MEDIUM', label: 'Medium' }, { value: 'HIGH', label: 'High' }]}
+                            onChange={(v) => setDraft({ priority: v })} />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <Input size="small" value={draft.remarks ?? ''} onChange={(e) => setDraft({ remarks: e.target.value })} />
+                        </td>
+                        <td className="px-2 py-1.5">
+                          <Button size="small" type="primary" icon={<Plus size={12} />} loading={addTestsMutation.isPending}
+                            onClick={() => submitTestDraft(row)} />
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                )}
+
+                {rowTests.length === 0 ? (
+                  <p className="text-xs text-slate-400 italic py-3 px-3">No tests added yet.</p>
+                ) : (
               <Table
                 rowKey="id"
                 dataSource={rowTests}
                 size="small"
                 pagination={false}
                 bordered
-                className="bg-white rounded overflow-hidden"
+                className="bg-white overflow-hidden"
+                rowSelection={canAddTests ? {
+                  selectedRowKeys: selectedIds,
+                  onChange: (keys) => setSelectedTestIds((prev) => ({ ...prev, [row.id]: keys as string[] })),
+                  getCheckboxProps: (test: any) => ({ disabled: normalizeTestStatus(test.status) !== 'UNASSIGNED' }),
+                } : undefined}
                 expandable={{
                   expandedRowRender: (test: any) => {
                     const config = (masterData?.testConfigs ?? []).find(
@@ -633,7 +880,11 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
                 }}
                 columns={[
                   { title: 'Test Type', dataIndex: 'testType' },
+                  { title: 'Sub Type', dataIndex: 'testSubtype', render: (v: string | null) => v || '—' },
                   { title: 'Technique', dataIndex: 'techniqueCode' },
+                  { title: 'Quantity', dataIndex: 'testQuantity', width: 90, render: (v: string | null) => v || '—' },
+                  { title: 'Priority', dataIndex: 'priority', width: 90, render: (v: string | null) => v ? <Tag color={v === 'HIGH' ? 'red' : v === 'MEDIUM' ? 'orange' : 'default'} className="text-xs">{v}</Tag> : '—' },
+                  { title: 'Remarks', dataIndex: 'remarks', render: (v: string | null) => v || '—' },
                   { title: 'AR Number', dataIndex: 'arNumber', render: (v: string) => v ? <span className="font-mono text-xs">{v}</span> : <span className="text-slate-400 text-xs">—</span> },
                   {
                     title: 'Status', dataIndex: 'status',
@@ -643,15 +894,25 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
                     title: '', key: 'finalReport',
                     render: (_: any, t: any) => <TestFinalReportLink atrId={atrId} testId={t.id} status={normalizeTestStatus(t.status)} />,
                   },
+                  ...(canAddTests ? [{
+                    title: '', key: 'remove', width: 40,
+                    render: (_: any, t: any) => normalizeTestStatus(t.status) === 'UNASSIGNED' ? (
+                      <Popconfirm title="Remove this test?" onConfirm={() => removeOneTest(row, t.id)}>
+                        <Button type="text" size="small" danger icon={<Trash2 size={13} />} loading={removeTestMutation.isPending} />
+                      </Popconfirm>
+                    ) : null,
+                  }] : []),
                 ]}
               />
+                )}
+              </div>
             )
           },
-          rowExpandable: (row) => !!(row.tests ?? []).length,
+          rowExpandable: () => true,
         }}
         columns={[
           {
-            title: 'Sample Code', dataIndex: 'sampleCode', render: (v, row, i) => (
+            title: <span>Sample Code <span className="text-red-500">*</span></span>, dataIndex: 'sampleCode', render: (v, row, i) => (
               <div className="flex items-center gap-1.5">
                 {readOnly ? <span>{v}</span> : <Input size="small" value={v} onChange={(e) => update(i, { sampleCode: e.target.value })} />}
                 {(row as any).hazardWarningFlag && (
@@ -661,7 +922,7 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
             )
           },
           {
-            title: 'Type', dataIndex: 'sampleType',
+            title: <span>Sample Type <span className="text-red-500">*</span></span>, dataIndex: 'sampleType',
             render: (v, _r, i) => readOnly
               ? (sampleTypeOptions.find(o => o.value === v)?.label ?? v)
               : (
@@ -673,43 +934,30 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
                 />
               ),
           },
-          { title: 'Batch No', dataIndex: 'batchNo', render: (v, _r, i) => readOnly ? v : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { batchNo: e.target.value })} /> },
-          ...(qaEditable ? [
-            {
-              title: <Tooltip title="QA only — Internal Sample No."><span className="text-violet-600 font-semibold">Int. Sample No.</span></Tooltip>,
-              dataIndex: 'internalSampleNo',
-              render: (v: string | null, row: AtrSample) => row.id.startsWith('new-') ? (
-                <span className="text-slate-400 text-xs">Save first</span>
-              ) : (
-                <Input
-                  size="small"
-                  defaultValue={v ?? ''}
-                  placeholder="Internal no."
-                  onBlur={(e) => {
-                    const val = e.target.value.trim() || null
-                    if (val !== (v ?? null)) patchSample.mutate({ sampleId: row.id, body: { internalSampleNo: val } })
-                  }}
+          {
+            title: <span>Batch No. <span className="text-red-500">*</span></span>, dataIndex: 'batchNo',
+            render: (v, _r, i) => readOnly ? v : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { batchNo: e.target.value })} />,
+          },
+          {
+            title: 'Description', dataIndex: 'sampleDescription',
+            render: (v, _r, i) => readOnly ? (v || '—') : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { sampleDescription: e.target.value })} />,
+          },
+          {
+            title: <span>Sample Qty. <span className="text-red-500">*</span></span>, dataIndex: 'quantity',
+            render: (v, r: any, i) => readOnly ? (
+              <span>{[v, r.uom].filter(Boolean).join(' ') || '—'}</span>
+            ) : (
+              <div className="flex gap-1">
+                <Input size="small" style={{ width: 70 }} value={v ?? ''} onChange={(e) => update(i, { quantity: e.target.value })} />
+                <Select
+                  size="small" showSearch allowClear style={{ minWidth: 90 }}
+                  value={r.uom ?? undefined} placeholder="UOM" options={uomOptions}
+                  onChange={(val) => update(i, { uom: val ?? null })}
+                  filterOption={(input, opt) => (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
                 />
-              ),
-            },
-            {
-              title: <Tooltip title="QA only — Product Name"><span className="text-violet-600 font-semibold">Product Name</span></Tooltip>,
-              dataIndex: 'productName',
-              render: (v: string | null, row: AtrSample) => row.id.startsWith('new-') ? (
-                <span className="text-slate-400 text-xs">Save first</span>
-              ) : (
-                <Input
-                  size="small"
-                  defaultValue={v ?? ''}
-                  placeholder="Product name"
-                  onBlur={(e) => {
-                    const val = e.target.value.trim() || null
-                    if (val !== (v ?? null)) patchSample.mutate({ sampleId: row.id, body: { productName: val } })
-                  }}
-                />
-              ),
-            },
-          ] : []),
+              </div>
+            ),
+          },
           {
             title: <span className="text-red-500">Mfg Date *</span>, dataIndex: 'mfgDate', width: 130,
             render: (v, _r: any, i) => readOnly
@@ -743,29 +991,13 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
                   onChange={(date) => update(i, { expDate: date?.format('YYYY-MM-DD') ?? null })}
                   style={{ width: '100%' }} placeholder="Exp date" />,
           },
-          { title: 'Qty', dataIndex: 'quantity', render: (v, _r, i) => readOnly ? v : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { quantity: e.target.value })} /> },
           {
-            title: 'UOM',
-            dataIndex: 'uom',
-            width: 110,
-            render: (v, _r, i) =>
-              readOnly ? (
-                <span>{v || '—'}</span>
-              ) : (
-                <Select
-                  size="small"
-                  showSearch
-                  allowClear
-                  value={v ?? undefined}
-                  onChange={(val) => update(i, { uom: val ?? null })}
-                  options={uomOptions}
-                  style={{ width: '100%' }}
-                  placeholder="Select UOM"
-                  filterOption={(input, opt) =>
-                    (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
-                  }
-                />
-              ),
+            title: 'Storage Condition & Period', dataIndex: 'storageCondition',
+            render: (v, _r, i) => readOnly ? (v || '—') : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { storageCondition: e.target.value })} />,
+          },
+          {
+            title: 'Packing', dataIndex: 'packType',
+            render: (v, _r, i) => readOnly ? (v || '—') : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { packType: e.target.value })} />,
           },
           {
             title: 'Hazardous', dataIndex: 'hazardWarningFlag', render: (v, _r, i) => (
@@ -773,18 +1005,17 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
             )
           },
           {
-            title: 'Chemical Lots', dataIndex: 'chemicals', render: (chems: any[], row, i) => (
-              <Button size="small" onClick={() => setManageChems({ sample: row, index: i })}>
-                {(chems || []).length} Lot(s)
-              </Button>
-            )
-          },
-          {
-            title: 'Tests', dataIndex: 'tests', render: (tests: AtrSample['tests'], row) => (
-              !row.id.startsWith('new-') ? (
-                <Button size="small" onClick={() => setManageTests(row)}>{tests.length} test(s)</Button>
-              ) : <span className="text-slate-400 text-xs">Save sample first</span>
-            )
+            title: '', key: 'materialDetails', width: 44, align: 'center' as const,
+            render: (_: any, row, i) => (
+              <Tooltip title="Material Details">
+                <Button
+                  shape="circle" size="small"
+                  className="bg-slate-800 text-white border-none hover:bg-slate-700"
+                  icon={<span className="text-[10px] font-bold italic">i</span>}
+                  onClick={() => setManageChems({ sample: row, index: i })}
+                />
+              </Tooltip>
+            ),
           },
           ...(readOnly ? [] : [{ title: '', render: (_: any, _r: any, i: number) => <Button size="small" danger onClick={() => remove(i)}>Remove</Button> }]),
         ]}
@@ -1121,8 +1352,35 @@ export default function ArdAtrWorkspacePage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const [activeTab, setActiveTab] = useState<string>(searchParams.get('tab') || 'basic')
 
+  // Ad-hoc Form Attributes — user-added key/value pairs on top of whatever
+  // the linked Form Type already declares.
+  const [addAttrOpen, setAddAttrOpen] = useState(false)
+  const [addAttrName, setAddAttrName] = useState('')
+  const [addAttrType, setAddAttrType] = useState<'Text' | 'Number' | 'Date'>('Text')
+  const [addAttrMaxLength, setAddAttrMaxLength] = useState<number | undefined>(undefined)
+  const [addAttrValue, setAddAttrValue] = useState('')
+  const submitAddAttr = () => {
+    const name = addAttrName.trim()
+    if (!name) { msg.warning('Attribute name is required.'); return }
+    if (addAttrValue.trim() === '') { msg.warning('Value is required.'); return }
+    if (!atr) return
+    const attributeValues = (atr.attributeValues as Record<string, unknown>) ?? {}
+    if (name in attributeValues) { msg.warning('An attribute with this name already exists.'); return }
+    const updated = {
+      ...attributeValues,
+      [name]: { value: addAttrValue, type: addAttrType, maxLength: addAttrType === 'Text' ? addAttrMaxLength : undefined },
+    }
+    save.mutate({ attributeValues: updated })
+    setAddAttrOpen(false)
+    setAddAttrName('')
+    setAddAttrType('Text')
+    setAddAttrMaxLength(undefined)
+    setAddAttrValue('')
+  }
+
   const { data: settingsMap } = useQuery({ queryKey: ['ard-settings-map'], queryFn: ardApi.settingsMap })
   const { data: atr, isLoading } = useQuery({ queryKey: ['ard-atr', atrId], queryFn: () => ardAtrApi.get(atrId!), enabled: !!atrId })
+  useBreadcrumbLabel(atrId ?? '', atr?.formNo ?? null)
   const { data: masterData } = useQuery({ queryKey: ['ard-master-data'], queryFn: ardApi.getMasterData })
   const { data: auditLogData } = useQuery({
     queryKey: ['ard-atr-audit', atrId],
@@ -1143,58 +1401,38 @@ export default function ArdAtrWorkspacePage() {
   const { data: teamDirectoryData } = useQuery({ queryKey: ['ard-team-directory'], queryFn: ardTeamApi.teamDirectory })
 
   const tlIdOptions = useMemo(() => {
+    // Any TL can hand this ATR off to any team's TL (including themselves) —
+    // not just their own team — so this always lists every active team's
+    // primary TL, regardless of who's viewing.
     const rawTeams = (teamDirectoryData?.items ?? []).filter((t: any) => t.active !== false)
     if (rawTeams.length > 0) {
-      // Filter teams for regular lab users (Analyst / TL) to their logged-in team
-      const isGlobalView = !user || ['HOD', 'SUPER_ADMIN', 'ADMIN'].includes(user.role_code) || user.department_code === 'QA'
-      const matchedTeams = isGlobalView
-        ? rawTeams
-        : rawTeams.filter((t: any) => {
-            const isHod = t.hodId === user.id || t.hodName === user.username
-            const isTl = (t.tlIds || []).includes(user.id) || (t.tlNames || []).includes(user.username) || (t.tls || []).some((tl: any) => tl.id === user.id || tl.name === user.username)
-            const isMember = (t.memberIds || []).includes(user.id) || (t.tls || []).some((tl: any) => (tl.analysts || []).some((a: any) => a.id === user.id || a.name === user.username))
-            return isHod || isTl || isMember
-          })
-
-      const teamsToUse = matchedTeams.length > 0 ? matchedTeams : rawTeams
       const seenIds = new Set<string>()
 
-      const groups = teamsToUse.map((t: any) => {
-        const members: { value: string; label: string }[] = []
-        const tlsList = t.tls || []
-        const mainTl = tlsList[0]
-        if (mainTl && mainTl.id && !seenIds.has(mainTl.id)) {
+      const flat = rawTeams
+        .map((t: any) => {
+          const mainTl = (t.tls || [])[0]
+          if (!mainTl || !mainTl.id || seenIds.has(mainTl.id)) return null
           seenIds.add(mainTl.id)
-          members.push({
-            value: mainTl.id,
-            label: `${mainTl.name || mainTl.id} (${t.teamName} — Main TL)`,
-          })
-        }
-        return {
-          label: `Team: ${t.teamName}`,
-          options: members,
-        }
-      }).filter((g: any) => g.options.length > 0)
+          return { value: mainTl.id, label: `${mainTl.name || mainTl.id} - ${t.teamName}` }
+        })
+        .filter((o): o is { value: string; label: string } => !!o)
 
-      if (groups.length > 0) return groups
+      if (flat.length > 0) return flat
     }
 
     const seenFallback = new Set<string>()
-    return [{
-      label: 'Team Leads',
-      options: (tlUsers?.items ?? [])
-        .filter((u) => u.role_code === 'TL')
-        .filter((u) => {
-          if (seenFallback.has(u.id)) return false
-          seenFallback.add(u.id)
-          return true
-        })
-        .map((u) => ({
-          value: u.id,
-          label: `${u.username} (Team Lead)`,
-        }))
-    }]
-  }, [teamDirectoryData, tlUsers, user])
+    return (tlUsers?.items ?? [])
+      .filter((u) => u.role_code === 'TL')
+      .filter((u) => {
+        if (seenFallback.has(u.id)) return false
+        seenFallback.add(u.id)
+        return true
+      })
+      .map((u) => ({
+        value: u.id,
+        label: `${u.username} (Team Lead)`,
+      }))
+  }, [teamDirectoryData, tlUsers])
 
   const qaIdOptions = useMemo(() => {
     const items = allUsersData?.items ?? []
@@ -1214,10 +1452,41 @@ export default function ArdAtrWorkspacePage() {
     return opts
   }, [allUsersData])
 
+  // Change Owner should only offer this ATR's own assigned team's members
+  // (TL + analysts) — not every TL/user across unrelated departments/modules.
+  const changeOwnerOptions = useMemo(() => {
+    const teams = teamDirectoryData?.items ?? []
+    let team = (atr as any)?.assignedTeamId ? teams.find((t: any) => t.id === (atr as any).assignedTeamId) : undefined
+    if (!team && (atr as any)?.assignedTlId) {
+      team = teams.find((t: any) =>
+        (t.tlIds || []).includes((atr as any).assignedTlId) ||
+        (t.tls || []).some((tl: any) => tl.id === (atr as any).assignedTlId)
+      )
+    }
+    if (!team) {
+      return (tlUsers?.items ?? []).map((u) => ({ value: u.id, label: `${u.username} (${u.role_code})` }))
+    }
+    const seen = new Set<string>()
+    const opts: { value: string; label: string }[] = []
+    ;(team.tls || []).forEach((tl: any) => {
+      if (tl.id && !seen.has(tl.id)) {
+        seen.add(tl.id)
+        opts.push({ value: tl.id, label: `${tl.name} (TL)` })
+      }
+      ;(tl.analysts || []).forEach((a: any) => {
+        if (a.id && !seen.has(a.id)) {
+          seen.add(a.id)
+          opts.push({ value: a.id, label: `${a.name} (${a.role || 'Analyst'})` })
+        }
+      })
+    })
+    return opts
+  }, [teamDirectoryData, atr, tlUsers])
+
   useEffect(() => {
     if (tlModalOpen) {
       if (!selectedTl && tlIdOptions.length > 0) {
-        const firstTl = tlIdOptions[0]?.options?.[0]?.value || (tlIdOptions[0] as any)?.value || ''
+        const firstTl = tlIdOptions[0]?.value || ''
         if (firstTl) setSelectedTl(firstTl)
       }
       if (!selectedQa && qaIdOptions.length > 0) {
@@ -1381,9 +1650,12 @@ export default function ArdAtrWorkspacePage() {
   )
   const editable = STRUCT_EDITABLE.includes(atr.status) || canPrepareReceivedRequest
   const selectedFormType = masterData?.formTypes?.find(ft => ft.id === atr.formTypeId)
-  const mandatePreApproval = (settingsMap as any)?.qaMandateSubmission?.value === 'Y' || (settingsMap as any)?.qaMandateSubmission?.value === true
-  const isQaMandated = atr?.mandateCertification || mandatePreApproval || !!selectedFormType?.mandateCertification || !!selectedFormType?.mandateQaSubmission
-  const isQaUser = user?.department_code === 'QA' || user?.role_code === 'QA' || (user?.username || '').toLowerCase().includes('qa') || ['HOD', 'SUPER_ADMIN'].includes(user?.role_code || '')
+  // QA Pre-Approval / QA Reviewer selection is driven solely by this ATR's own
+  // "Mandate Certification" toggle (Basic & Business Details tab) — off means
+  // submission goes straight to NEW with no QA reviewer prompt; on means QA
+  // Pre-Approval with a required QA reviewer. Form-type/global defaults only
+  // seed that toggle's initial value at creation, they don't override it here.
+  const isQaMandated = !!atr?.mandateCertification
 
   const isDeptTl = isExternalRequester && (user?.role_code === 'TL' || user?.role_code === 'TEAM_LEAD')
 
@@ -1412,7 +1684,12 @@ export default function ArdAtrWorkspacePage() {
     }
 
     if (atr.status === 'QA_PRE_APPROVAL') {
-      if (isQaUser) {
+      // Segregation of duties: the ATR's own creator/HOD (whoever raised and
+      // routed it to QA in the first place) must not also see "Approve QA
+      // Pre-Approval" / "Return for Rework" on their own submission — only
+      // actual QA can act on this gate.
+      const canReviewQaPreApproval = user?.department_code === 'QA' || user?.role_code === 'QA' || (user?.username || '').toLowerCase().includes('qa') || user?.role_code === 'SUPER_ADMIN'
+      if (canReviewQaPreApproval) {
         return target === 'NEW' || target === 'PRE_APPROVAL_REWORK' || target === 'WITHDRAWN'
       } else {
         return target === 'WITHDRAWN'
@@ -1421,6 +1698,19 @@ export default function ArdAtrWorkspacePage() {
 
     if (atr.status === 'NEW' && target === 'QA_PRE_APPROVAL') {
       return false
+    }
+
+    // Once the ATR is past DRAFT/SAVED, the work belongs to whichever TL it's
+    // currently assigned to — not whoever originally raised it. A reassigned
+    // ATR must stop offering "Request Clarification" / "Start Testing" /
+    // "Reject Request" to the previous TL; the only thing the original
+    // requester should still be able to do on someone else's assignment is
+    // withdraw their own request.
+    const isAssignedTl = atr.assignedTlId === user?.id
+    const isPrivileged = ['HOD', 'SUPER_ADMIN'].includes(user?.role_code ?? '') || user?.department_code === 'QA'
+    if (!isPrivileged && !isAssignedTl) {
+      const isCreator = atr.createdById === user?.id || atr.createdBy === user?.username || atr.raisedBy === user?.username
+      return target === 'WITHDRAWN' && isCreator
     }
 
     return true
@@ -1438,7 +1728,7 @@ export default function ArdAtrWorkspacePage() {
         msg.warning('Please add at least one sample and test before submitting.')
         return
       }
-      const defaultTl = tlIdOptions[0]?.options?.[0]?.value ?? (tlIdOptions[0] as any)?.value ?? ''
+      const defaultTl = tlIdOptions[0]?.value ?? ''
       setExternalSubmitTl(atr.assignedTlId || defaultTl)
       setExternalSubmitPassword('')
       setExternalSubmitOpen(true)
@@ -1485,7 +1775,7 @@ export default function ArdAtrWorkspacePage() {
       }
       const target = isQaMandated ? 'QA_PRE_APPROVAL' : 'NEW'
       setPendingTargetStatus(target)
-      const defaultTlVal = tlIdOptions[0]?.options?.[0]?.value ?? ''
+      const defaultTlVal = tlIdOptions[0]?.value ?? ''
       setSelectedTl(atr.assignedTlId || defaultTlVal)
       setSelectedQa(atr.qaReviewerId || (qaIdOptions[0]?.value ?? ''))
       setTlModalOpen(true)
@@ -1495,7 +1785,7 @@ export default function ArdAtrWorkspacePage() {
     // Prompt to select TL if missing when transitioning to active status
     if (!isExternalRequester && !atr.assignedTlId && ['NEW', 'PENDING_APPROVAL'].includes(to)) {
       setPendingTargetStatus(to)
-      const defaultTlVal = tlIdOptions[0]?.options?.[0]?.value ?? ''
+      const defaultTlVal = tlIdOptions[0]?.value ?? ''
       setSelectedTl(atr.assignedTlId || defaultTlVal)
       setSelectedQa(atr.qaReviewerId || (qaIdOptions[0]?.value ?? ''))
       setTlModalOpen(true)
@@ -1758,62 +2048,20 @@ export default function ArdAtrWorkspacePage() {
               <Card className="border-none p-0">
                 <Form layout="vertical" disabled={!editable}>
                   <Row gutter={16}>
-                    <Col span={8}>
+                    <Col span={12}>
                       <Form.Item label="Project Code *" className="font-semibold text-xs">
-                        <Input defaultValue={atr.projectCode} onBlur={(e) => save.mutate({ projectCode: e.target.value })} placeholder="e.g. PRJ-2026-001" />
+                        <Input value={atr.projectCode} disabled placeholder="e.g. PRJ-2026-001" />
                       </Form.Item>
                     </Col>
-                    <Col span={8}>
+                    <Col span={12}>
                       <Form.Item label="Product Name *" className="font-semibold text-xs">
-                        <Input defaultValue={atr.productName} onBlur={(e) => save.mutate({ productName: e.target.value })} placeholder="e.g. Paracetamol API" />
-                      </Form.Item>
-                    </Col>
-                    <Col span={8}>
-                      <Form.Item label="QC / AR Reference No." className="font-semibold text-xs">
-                        <Input defaultValue={atr.qcRef ?? ''} onBlur={(e) => save.mutate({ qcRef: e.target.value })} placeholder="e.g. QC-REF-9921" />
-                      </Form.Item>
-                    </Col>
-                  </Row>
-                  
-                  <Row gutter={16}>
-                    {!isExternalRequester && (user?.role_code !== 'ANALYST' || !!(atr.associatedExpCodes || atr.referenceExperimentCode)) && (
-                      <Col span={12}>
-                        <Form.Item label="Reference Notebook Experiment" className="font-semibold text-xs">
-                          <AtrExpReferencePicker
-                            value={atr.associatedExpCodes || atr.referenceExperimentCode || ''}
-                            readOnly={!editable}
-                            onChange={(val) => save.mutate({ associatedExpCodes: val })}
-                            onLink={(exp) => ardAtrApi.linkExperiment(atr.id, { experimentId: exp.id, experimentCode: exp.expCode })}
-                          />
-                        </Form.Item>
-                      </Col>
-                    )}
-                    <Col span={!isExternalRequester && (user?.role_code !== 'ANALYST' || !!(atr.associatedExpCodes || atr.referenceExperimentCode)) ? 12 : 24}>
-                      <Form.Item label="Mandate Certification" className="font-semibold text-xs">
-                        <div className="flex items-center gap-3 pt-1">
-                          <Switch checked={atr.mandateCertification} onChange={(v) => save.mutate({ mandateCertification: v })} />
-                          <span className="text-xs text-slate-500">Require QA Sign-off prior to ATR closure</span>
-                        </div>
+                        <Input value={atr.productName} disabled placeholder="e.g. Paracetamol API" />
                       </Form.Item>
                     </Col>
                   </Row>
 
                   <Row gutter={16}>
-                    <Col span={8}>
-                      <Form.Item label="ATR Type" className="font-semibold text-xs">
-                        <Select
-                          defaultValue={atr.formCategory ?? undefined}
-                          allowClear
-                          placeholder="Select ATR type..."
-                          onChange={(v) => save.mutate({ formCategory: v ?? null })}
-                          options={[
-                            { value: 'ROUTINE', label: 'Routine Analysis' },
-                            { value: 'METHOD_DEV', label: 'Method Development' },
-                          ]}
-                        />
-                      </Form.Item>
-                    </Col>
-                    <Col span={16}>
+                    <Col span={12}>
                       <Form.Item label="Report Type" className="font-semibold text-xs">
                         <Select
                           defaultValue={atr.reportType ?? undefined}
@@ -1822,6 +2070,14 @@ export default function ArdAtrWorkspacePage() {
                           onChange={(v) => save.mutate({ reportType: v ?? null })}
                           options={['COA', 'Detailed Report', 'Summary Report'].map(v => ({ value: v, label: v }))}
                         />
+                      </Form.Item>
+                    </Col>
+                    <Col span={12}>
+                      <Form.Item label="Mandate Certification" className="font-semibold text-xs">
+                        <div className="flex items-center gap-3 pt-1">
+                          <Switch checked={atr.mandateCertification} onChange={(v) => save.mutate({ mandateCertification: v })} />
+                          <span className="text-xs text-slate-500">Require QA Sign-off prior to ATR closure</span>
+                        </div>
                       </Form.Item>
                     </Col>
                   </Row>
@@ -1839,26 +2095,182 @@ export default function ArdAtrWorkspacePage() {
                   </Form.Item>
 
                   {/* Form Attributes (custom per form type) */}
-                  {selectedFormType && (selectedFormType as any).attributes && Array.isArray((selectedFormType as any).attributes) && (selectedFormType as any).attributes.length > 0 && (
-                    <div className="mt-2 mb-4 border border-indigo-100 rounded-lg p-3 bg-indigo-50/40">
-                      <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider mb-2">Form Attributes</p>
-                      <div className="grid grid-cols-3 gap-3">
-                        {((selectedFormType as any).attributes as Array<{key: string; label: string; required?: boolean}>).map((attr) => (
-                          <Form.Item key={attr.key} label={attr.label} className="mb-0 font-semibold text-xs">
-                            <Input
-                              size="small"
-                              defaultValue={(atr.attributeValues as any)?.[attr.key] ?? ''}
-                              onBlur={(e) => {
-                                const updated = { ...((atr.attributeValues as any) ?? {}), [attr.key]: e.target.value }
+                  {(() => {
+                    const links = selectedFormType?.attributeLinks ?? []
+                    const resolved = links
+                      .map((l) => ({ link: l, attr: masterData?.attributes?.find((a) => a.id === l.attributeId) }))
+                      .filter((r) => !!r.attr)
+                      .sort((a, b) => a.link.sequence - b.link.sequence)
+                    const resolvedKeys = new Set(resolved.map((r) => r.attr!.id))
+                    const attributeValues = (atr.attributeValues as Record<string, unknown>) ?? {}
+                    // Ad-hoc attributes the user added on top of the form type's own,
+                    // stored as { value, type, maxLength } so type is remembered across reloads.
+                    // Any key in attributeValues that isn't one of the form type's linked
+                    // attribute IDs is treated as a custom entry.
+                    const customEntries = Object.entries(attributeValues)
+                      .filter(([k]) => !resolvedKeys.has(k))
+                      .map(([name, raw]) => {
+                        const rec = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : { value: raw, type: 'Text' }
+                        return { name, value: rec.value, type: (rec.type as string) || 'Text', maxLength: rec.maxLength as number | undefined }
+                      })
+
+                    const removeCustomAttr = (name: string) => {
+                      const updated = { ...attributeValues }
+                      delete updated[name]
+                      save.mutate({ attributeValues: updated })
+                    }
+
+                    const updateCustomAttrValue = (name: string, type: string, maxLength: number | undefined, value: unknown) => {
+                      const updated = { ...attributeValues, [name]: { value, type, maxLength } }
+                      save.mutate({ attributeValues: updated })
+                    }
+
+                    return (
+                      <div className="mt-2 mb-4 border border-indigo-100 rounded-lg overflow-hidden">
+                        <div className="flex items-center justify-between px-3 py-2 bg-indigo-50/60 border-b border-indigo-100">
+                          <p className="text-[10px] font-bold text-indigo-600 uppercase tracking-wider">Form Attributes</p>
+                          {editable && (
+                            <Button type="text" size="small" icon={<Plus size={13} className="text-indigo-600" />}
+                              className="text-indigo-600"
+                              onClick={() => setAddAttrOpen(true)} />
+                          )}
+                        </div>
+
+                        {resolved.length > 0 && (
+                          <div className="grid grid-cols-3 gap-3 p-3 border-b border-indigo-100">
+                            {resolved.map(({ link, attr }) => {
+                              const key = attr!.id
+                              const value = attributeValues?.[key]
+                              const required = link.requiredOverride ?? attr!.required
+                              const opts = (attr!.options ?? []).map((o) => ({ label: o.label, value: o.value }))
+                              const commit = (v: unknown) => {
+                                if (required && (v === '' || v === null || v === undefined)) {
+                                  msg.warning(`"${attr!.label}" is required.`)
+                                  return
+                                }
+                                const updated = { ...attributeValues, [key]: v }
                                 save.mutate({ attributeValues: updated })
-                              }}
-                              placeholder={attr.label}
-                            />
-                          </Form.Item>
-                        ))}
+                              }
+                              return (
+                                <Form.Item key={key} label={`${attr!.label}${required ? ' *' : ''}`} className="mb-0 font-semibold text-xs">
+                                  {attr!.type === 'number' ? (
+                                    <InputNumber size="small" className="w-full" defaultValue={value as number | undefined}
+                                      onBlur={(e) => commit((e.target as HTMLInputElement).value ? Number((e.target as HTMLInputElement).value) : '')} />
+                                  ) : attr!.type === 'date' ? (
+                                    <DatePicker size="small" className="w-full" defaultValue={value ? dayjs(value as string) : undefined}
+                                      onChange={(d) => commit(d ? d.format('YYYY-MM-DD') : '')} />
+                                  ) : attr!.type === 'textarea' ? (
+                                    <Input.TextArea rows={2} defaultValue={(value as string) ?? ''} onBlur={(e) => commit(e.target.value)} placeholder={attr!.label} />
+                                  ) : attr!.type === 'select' ? (
+                                    <Select size="small" className="w-full" allowClear defaultValue={(value as string) || undefined}
+                                      options={opts} onChange={(v) => commit(v ?? '')} placeholder={attr!.label} />
+                                  ) : attr!.type === 'radio' ? (
+                                    <Radio.Group size="small" defaultValue={(value as string) || undefined}
+                                      onChange={(e) => commit(e.target.value)}>
+                                      {opts.map((o) => <Radio key={o.value} value={o.value}>{o.label}</Radio>)}
+                                    </Radio.Group>
+                                  ) : attr!.type === 'checkbox' ? (
+                                    <Checkbox.Group defaultValue={Array.isArray(value) ? value as string[] : []}
+                                      options={opts} onChange={(v) => commit(v)} />
+                                  ) : attr!.type === 'switch' ? (
+                                    <Switch checked={!!value} onChange={(v) => commit(v)} />
+                                  ) : (
+                                    <Input size="small" defaultValue={(value as string) ?? ''} onBlur={(e) => commit(e.target.value)} placeholder={attr!.label} />
+                                  )}
+                                </Form.Item>
+                              )
+                            })}
+                          </div>
+                        )}
+
+                        {customEntries.length === 0 ? (
+                          <p className="text-xs text-slate-400 italic px-3 py-3">No custom attributes yet. {editable ? 'Click "+" to add one.' : ''}</p>
+                        ) : (
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="bg-slate-50 border-b border-slate-200 text-left">
+                                <th className="px-3 py-2 font-semibold text-slate-600">Name</th>
+                                <th className="px-3 py-2 font-semibold text-slate-600 w-24">Type</th>
+                                <th className="px-3 py-2 font-semibold text-slate-600">Value</th>
+                                {editable && <th className="w-10" />}
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {customEntries.map(({ name, value, type, maxLength }) => (
+                                <tr key={name} className="border-b border-slate-100 last:border-0">
+                                  <td className="px-3 py-2 font-medium text-slate-700">{name}</td>
+                                  <td className="px-3 py-2 text-slate-500">{type}</td>
+                                  <td className="px-3 py-2">
+                                    {type === 'Number' ? (
+                                      <InputNumber size="small" className="w-full" defaultValue={value as number | undefined}
+                                        disabled={!editable}
+                                        onBlur={(e) => updateCustomAttrValue(name, type, maxLength, (e.target as HTMLInputElement).value ? Number((e.target as HTMLInputElement).value) : '')} />
+                                    ) : type === 'Date' ? (
+                                      <DatePicker size="small" className="w-full" disabled={!editable}
+                                        defaultValue={value ? dayjs(value as string) : undefined}
+                                        onChange={(d) => updateCustomAttrValue(name, type, maxLength, d ? d.format('YYYY-MM-DD') : '')} />
+                                    ) : (
+                                      <Input size="small" defaultValue={(value as string) ?? ''} disabled={!editable} maxLength={maxLength}
+                                        onBlur={(e) => updateCustomAttrValue(name, type, maxLength, e.target.value)} />
+                                    )}
+                                  </td>
+                                  {editable && (
+                                    <td className="px-2 py-2 text-right">
+                                      <Button type="text" size="small" icon={<Trash2 size={13} className="text-red-400" />}
+                                        onClick={() => removeCustomAttr(name)} />
+                                    </td>
+                                  )}
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        )}
+                      </div>
+                    )
+                  })()}
+
+                  <Modal
+                    {...glassModalProps}
+                    title="Add New Attribute"
+                    open={addAttrOpen}
+                    onCancel={() => setAddAttrOpen(false)}
+                    footer={null}
+                    width={480}
+                  >
+                    <div className="space-y-3 pt-2">
+                      <div>
+                        <p className="text-xs font-semibold text-slate-600 mb-1">Name <span className="text-red-500">*</span></p>
+                        <Input value={addAttrName} onChange={(e) => setAddAttrName(e.target.value)} placeholder="e.g. Column Type" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold text-slate-600 mb-1">Type <span className="text-red-500">*</span></p>
+                        <Select className="w-full" value={addAttrType} onChange={(v) => setAddAttrType(v)}
+                          options={[{ value: 'Text', label: 'Text' }, { value: 'Number', label: 'Number' }, { value: 'Date', label: 'Date' }]} />
+                      </div>
+                      {addAttrType === 'Text' && (
+                        <div>
+                          <p className="text-xs font-semibold text-slate-600 mb-1">Max Length</p>
+                          <InputNumber className="w-full" min={1} value={addAttrMaxLength} onChange={(v) => setAddAttrMaxLength(v ?? undefined)} />
+                        </div>
+                      )}
+                      <div>
+                        <p className="text-xs font-semibold text-slate-600 mb-1">Value <span className="text-red-500">*</span></p>
+                        {addAttrType === 'Number' ? (
+                          <InputNumber className="w-full" value={addAttrValue === '' ? undefined : Number(addAttrValue)}
+                            onChange={(v) => setAddAttrValue(v == null ? '' : String(v))} />
+                        ) : addAttrType === 'Date' ? (
+                          <DatePicker className="w-full" value={addAttrValue ? dayjs(addAttrValue) : undefined}
+                            onChange={(d) => setAddAttrValue(d ? d.format('YYYY-MM-DD') : '')} />
+                        ) : (
+                          <Input value={addAttrValue} maxLength={addAttrMaxLength} onChange={(e) => setAddAttrValue(e.target.value)} />
+                        )}
+                      </div>
+                      <div className="flex justify-end gap-2 pt-2">
+                        <Button onClick={() => setAddAttrOpen(false)}>Cancel</Button>
+                        <Button type="primary" onClick={submitAddAttr}>Submit</Button>
                       </div>
                     </div>
-                  )}
+                  </Modal>
 
 
                   {/* System Generated Business Metadata (At bottom of Section 1) */}
@@ -1897,7 +2309,7 @@ export default function ArdAtrWorkspacePage() {
                         )}
                       </>
                     )}
-                    {Boolean(atr.originSnapshot) && typeof atr.originSnapshot === 'object' && Object.keys(atr.originSnapshot as Record<string, unknown>).length > 0 && (
+                    {!!atr.originSnapshot && typeof atr.originSnapshot === 'object' && Object.keys(atr.originSnapshot as Record<string, unknown>).length > 0 && (
                       <div className="col-span-full">
                         <p className="text-xs text-slate-500 font-medium mb-2">Origin Experiment Data (snapshot at ATR creation)</p>
                         <div className="bg-indigo-50 border border-indigo-200 rounded-lg p-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
@@ -1958,7 +2370,7 @@ export default function ArdAtrWorkspacePage() {
           {
             key: 'samples', label: `2. Samples & Test Results (${samples.length})`, children: (
               <div>
-                <SamplesEditor atrId={atr.id} samples={samples} onChange={setSamplesDraft} readOnly={!editable} uomOptions={uomOptions} sampleIntegrityOptions={sampleIntegrityOptions} isQaUser={isQaUser} atrStatus={atr.status} />
+                <SamplesEditor atrId={atr.id} samples={samples} onChange={setSamplesDraft} readOnly={!editable} uomOptions={uomOptions} sampleIntegrityOptions={sampleIntegrityOptions} />
                 {editable && samplesDraft && (
                   <div className="mt-3 flex justify-end">
                     <Button type="primary" onClick={() => save.mutate({ samples: samplesDraft })} loading={save.isPending}>
@@ -2388,30 +2800,32 @@ export default function ArdAtrWorkspacePage() {
               ? "This form type mandates QA pre-approval. Select the Team Lead and QA Reviewer. Upon QA approval, it will convert to NEW and move to the Team Lead."
               : "Select the Team Lead who will review and manage this Analytical Test Request."}
           </p>
-          <div>
-            <label className="block text-xs font-semibold text-slate-700 mb-1">Select Team Lead (TL) *</label>
-            <Select
-              showSearch
-              className="w-full"
-              placeholder="Select Team Lead..."
-              value={selectedTl}
-              onChange={setSelectedTl}
-              options={tlIdOptions}
-            />
-          </div>
-          {isQaMandated && (
+          <div className={isQaMandated ? 'grid grid-cols-2 gap-4' : ''}>
             <div>
-              <label className="block text-xs font-semibold text-slate-700 mb-1">Select QA Reviewer (QA) *</label>
+              <label className="block text-xs font-semibold text-slate-700 mb-1">Select Team Lead (TL) *</label>
               <Select
                 showSearch
                 className="w-full"
-                placeholder="Select QA Reviewer..."
-                value={selectedQa}
-                onChange={setSelectedQa}
-                options={qaIdOptions}
+                placeholder="Select Team Lead..."
+                value={selectedTl}
+                onChange={setSelectedTl}
+                options={tlIdOptions}
               />
             </div>
-          )}
+            {isQaMandated && (
+              <div>
+                <label className="block text-xs font-semibold text-slate-700 mb-1">Select QA Reviewer (QA) *</label>
+                <Select
+                  showSearch
+                  className="w-full"
+                  placeholder="Select QA Reviewer..."
+                  value={selectedQa}
+                  onChange={setSelectedQa}
+                  options={qaIdOptions}
+                />
+              </div>
+            )}
+          </div>
         </div>
       </Modal>
 
@@ -2536,7 +2950,7 @@ export default function ArdAtrWorkspacePage() {
             value={changeOwnerUserId}
             onChange={setChangeOwnerUserId}
             optionFilterProp="label"
-            options={(tlUsers?.items ?? []).map(u => ({ value: u.id, label: `${u.username} (${u.role_code})` }))}
+            options={changeOwnerOptions}
           />
           <label className="block text-xs font-semibold text-slate-700 mt-2 mb-1">Remarks *</label>
           <TextArea

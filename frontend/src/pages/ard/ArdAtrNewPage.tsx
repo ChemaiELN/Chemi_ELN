@@ -4,7 +4,6 @@ import { useQuery, useMutation } from '@tanstack/react-query'
 import { Form, Input, Select, Button, message, Card, Spin, Checkbox } from 'antd'
 import { ardApi, ardAtrApi } from '../../api/ard'
 import { ardProjectsApi } from '../../api/ard-projects'
-import { AtrExpReferencePicker } from '../../components/ard/AtrExpReferencePicker'
 import { ApiError } from '../../api/client'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
@@ -91,14 +90,6 @@ export default function ArdAtrNewPage() {
               options={['COA', 'Detailed Report', 'Summary Report'].map(v => ({ value: v, label: v }))} />
           </Form.Item>
 
-          <Form.Item name="formCategory" label="ATR Type">
-            <Select placeholder="Select ATR type..." allowClear
-              options={[
-                { value: 'ROUTINE', label: 'Routine Analysis' },
-                { value: 'METHOD_DEV', label: 'Method Development' },
-              ]} />
-          </Form.Item>
-
           <Form.Item name="mandateCertification" label="Mandate Certification" valuePropName="checked">
             <Checkbox onChange={(e) => setMandateChecked(e.target.checked)}>Require QA Approval before closure</Checkbox>
           </Form.Item>
@@ -119,22 +110,12 @@ export default function ArdAtrNewPage() {
           <Form.Item name="projectCode" label="Project Code" rules={[{ required: true }]}>
             <Input placeholder="Auto-populated from selected project" className="font-mono" />
           </Form.Item>
-          <Form.Item name="qcRef" label="QC Reference No.">
-            <Input placeholder="e.g. QC/2024/001" />
-          </Form.Item>
           <Form.Item name="objectives" label="Objectives">
             <Input.TextArea rows={3} placeholder="Describe the objectives of this analytical test request..." />
           </Form.Item>
           <Form.Item name="requestRemarks" label="Form Remarks">
             <Input.TextArea rows={2} placeholder="Optional remarks for this ATR form..." />
           </Form.Item>
-          {user?.role_code !== 'ANALYST' && (
-            <Form.Item name="associatedExpCodes" label="Reference Notebook Experiment">
-              <AtrExpReferencePicker
-                onChange={(val) => form.setFieldValue('associatedExpCodes', val)}
-              />
-            </Form.Item>
-          )}
           <div className="flex justify-end gap-2">
             <Button onClick={() => navigate('/ard/atrs')}>Cancel</Button>
             <Button type="primary" htmlType="submit" loading={create.isPending}>Create</Button>

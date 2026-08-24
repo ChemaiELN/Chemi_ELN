@@ -1,21 +1,24 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Tabs, Table, Button, Modal, Form, Input, InputNumber, Select, Switch,
-  Tag, message, Card, Empty, DatePicker, Tooltip, Space, Alert, Segmented, Upload,
+  Tabs, Table, Button, Modal, Form, Input, InputNumber, Select, Switch, Checkbox,
+  Tag, message, Card, Empty, DatePicker, Tooltip, Space, Alert, Segmented, Upload, Popconfirm,
 } from 'antd'
-import { Plus, Edit3, Trash2, Search, Users as UsersIcon, Eye, FileText, AlertTriangle, LayoutList, Award, ShieldCheck, Download, Upload as UploadIcon, Settings } from 'lucide-react'
+import { Plus, Edit3, Trash2, Search, Users as UsersIcon, Eye, FileText, AlertTriangle, LayoutList, Award, ShieldCheck, Download, Upload as UploadIcon, Settings, Check, X } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
-  ardApi, type ArdAttribute, type ArdFormType, type ArdLookup, type ArdMasterDataState,
+  ardApi, ardSectionApi, ardDataItemApi, ardTemplateApi,
+  type ArdAttribute, type ArdFormType, type FormTypeAttrLink, type ArdLookup, type ArdMasterDataState,
   type ArdQualificationAlert, type ArdSetting, type ArdTechnique, type ArdTestConfiguration,
-  type ArdTestGroup, type ArdDataItem, type ArdAnalystQualification, type ResultParam,
-  type ArdContentBlock,
+  type ArdTestGroup, type ArdDataItem, type ArdDataItemType, type ArdDataItemLengthCategory,
+  type ArdAnalystQualification, type ResultParam,
+  type ArdContentBlock, type ArdMasterSection, type SectionType,
 } from '../../api/ard'
 import { adminApi, type UserOut } from '../../api/admin'
 import { ApiError, apiDownloadBlob, apiPost } from '../../api/client'
 import RichEditor from '../../components/RichEditor'
-import { glassModalProps } from '../../utils/modalStyles'
+import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 
@@ -57,15 +60,37 @@ function TechniquesTab({ data }: { data: ArdMasterDataState }) {
 
   const save = useMutation({
     mutationFn: ardApi.saveTechnique,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Technique saved.'); setOpen(false) },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save technique.'),
   })
+
+  const toggleActive = (row: ArdTechnique, checked: boolean) => {
+    save.mutate({ ...row, active: checked }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(checked ? `"${row.code}" enabled.` : `"${row.code}" disabled.`)
+      },
+    })
+  }
+
+  const submitForm = (values: { code: string; name: string }) => {
+    const isEdit = !!editing
+    save.mutate({ ...values, id: editing?.id, active: editing ? editing.active : true }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(isEdit ? `"${values.code}" updated.` : `"${values.code}" added.`)
+        setOpen(false)
+      },
+    })
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return data.techniques
     return data.techniques.filter((t) => t.code.toLowerCase().includes(q) || t.name.toLowerCase().includes(q))
   }, [data.techniques, search])
+
+  const [pageSize, setPageSize] = useState(10)
+  const [page, setPage] = useState(1)
 
   const openModal = (row?: ArdTechnique) => {
     setEditing(row ?? null)
@@ -84,11 +109,14 @@ function TechniquesTab({ data }: { data: ArdMasterDataState }) {
         rowKey="id"
         dataSource={filtered}
         size="small"
-        pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
+        pagination={{
+          current: page, pageSize, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'],
+          showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}`,
+          onChange: (p, ps) => { setPage(p); setPageSize(ps) },
+        }}
         columns={[
-          { title: 'Technique Name', dataIndex: 'code', render: (v) => <span className="font-mono text-xs font-semibold text-indigo-600">{v}</span> },
+          { title: 'Technique Name', dataIndex: 'code' },
           { title: 'Description', dataIndex: 'name' },
-          { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
           { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
           { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
           {
@@ -98,10 +126,10 @@ function TechniquesTab({ data }: { data: ArdMasterDataState }) {
                 <Switch
                   size="small"
                   checked={row.active}
-                  onChange={(checked) => save.mutate({ ...row, active: checked })}
+                  onChange={(checked) => toggleActive(row, checked)}
                 />
-                <Tooltip title="Edit">
-                  <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
                 </Tooltip>
               </Space>
             ),
@@ -109,7 +137,7 @@ function TechniquesTab({ data }: { data: ArdMasterDataState }) {
         ]}
       />
       <Modal {...glassModalProps} destroyOnClose title={editing ? 'Edit Technique' : 'Add Technique'} open={open} onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))} confirmLoading={save.isPending}>
+        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="Technique Name" rules={[{ required: true }]}><Input className="font-mono" /></Form.Item>
           <Form.Item name="name" label="Description" rules={[{ required: true }]}><Input /></Form.Item>
@@ -141,16 +169,32 @@ function ResultParamsEditor({
 
   return (
     <div className="space-y-3">
+      {/* The parent Form.Item's validation error would otherwise cascade a red
+          border onto every antd input inside this custom field, not just the
+          one that's actually invalid. Neutralize that and mark only the
+          Parameter Name input, which is the one field that's truly required. */}
+      <style>{`
+        .rp-editor.ant-form-item-has-error .ant-input,
+        .rp-editor.ant-form-item-has-error .ant-select-selector,
+        .rp-editor.ant-form-item-has-error .ant-input-number { border-color: #d9d9d9 !important; box-shadow: none !important; }
+        .rp-editor .rp-name-error .ant-input { border-color: #ff4d4f !important; }
+      `}</style>
       {params.map((p, i) => (
         <div key={p.id} className="border border-slate-200/90 rounded-lg p-3 bg-slate-50/60 space-y-2.5">
           {/* Row 1: Parameter Name + Data Type + Delete Button */}
           <div className="flex items-center gap-2">
-            <Input
-              className="flex-1"
-              placeholder="Parameter name (e.g. Assay % or Description)"
-              value={p.name}
-              onChange={(e) => update(i, { name: e.target.value })}
-            />
+            <div className="flex-1">
+              <label className="block text-[11px] font-medium text-slate-500 mb-0.5">
+                Parameter Name <span className="text-red-500">*</span>
+              </label>
+              <div className={!p.name?.trim() ? 'rp-name-error' : undefined}>
+                <Input
+                  placeholder="e.g. Assay % or Description"
+                  value={p.name}
+                  onChange={(e) => update(i, { name: e.target.value })}
+                />
+              </div>
+            </div>
             <Select
               style={{ width: 120 }}
               className="shrink-0"
@@ -179,15 +223,9 @@ function ResultParamsEditor({
             </Tooltip>
           </div>
 
-          {/* Row 2: Text Placeholder + Specification OR Number Validation Controls */}
+          {/* Row 2: Specification OR Number Validation Controls */}
           {p.dataType === 'text' ? (
             <div className="flex gap-2">
-              <Input
-                className="flex-1"
-                placeholder="Placeholder text (e.g. Off-white to pale yellow powder)"
-                value={p.placeholder ?? ''}
-                onChange={(e) => update(i, { placeholder: e.target.value })}
-              />
               <Input
                 className="flex-1"
                 placeholder="Specification (e.g. Complies / NMT 0.5%)"
@@ -226,6 +264,7 @@ function ResultParamsEditor({
                   <InputNumber
                     className="w-full"
                     placeholder="Lower Limit"
+                    status={p.validationType === 'RANGE' && p.lowerLimit != null && p.upperLimit != null && p.lowerLimit >= p.upperLimit ? 'error' : undefined}
                     value={p.lowerLimit ?? undefined}
                     onChange={(v) => update(i, { lowerLimit: v ?? null })}
                   />
@@ -236,6 +275,7 @@ function ResultParamsEditor({
                   <InputNumber
                     className="w-full"
                     placeholder="Upper Limit"
+                    status={p.validationType === 'RANGE' && p.lowerLimit != null && p.upperLimit != null && p.lowerLimit >= p.upperLimit ? 'error' : undefined}
                     value={p.upperLimit ?? undefined}
                     onChange={(v) => update(i, { upperLimit: v ?? null })}
                   />
@@ -272,9 +312,31 @@ function TestConfigsTab({ data }: { data: ArdMasterDataState }) {
 
   const save = useMutation({
     mutationFn: ardApi.saveTestConfig,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Test configuration saved.'); setOpen(false) },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save test configuration.'),
   })
+
+  const testConfigLabel = (row: { testType: string; testSubtype?: string | null }) =>
+    row.testSubtype ? `${row.testType} - ${row.testSubtype}` : row.testType
+
+  const toggleActive = (row: ArdTestConfiguration, checked: boolean) => {
+    save.mutate({ ...row, active: checked } as Record<string, unknown>, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(checked ? `"${testConfigLabel(row)}" enabled.` : `"${testConfigLabel(row)}" disabled.`)
+      },
+    })
+  }
+
+  const submitForm = (values: Record<string, unknown>) => {
+    const isEdit = !!editing
+    save.mutate({ ...values, id: editing?.id, active: editing ? editing.active : true }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(`"${testConfigLabel(values as any)}" ${isEdit ? 'updated' : 'added'}.`)
+        setOpen(false)
+      },
+    })
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -282,17 +344,19 @@ function TestConfigsTab({ data }: { data: ArdMasterDataState }) {
     return data.testConfigs.filter((c) =>
       (c.code ?? '').toLowerCase().includes(q) ||
       c.testType.toLowerCase().includes(q) ||
+      (c.techniqueCode ?? '').toLowerCase().includes(q) ||
       (c.techniqueName ?? '').toLowerCase().includes(q)
     )
   }, [data.testConfigs, search])
 
   const openModal = (row?: ArdTestConfiguration) => {
     setEditing(row ?? null)
+    form.resetFields()
     form.setFieldsValue(row ? {
       ...row,
       techniqueId: data.techniques.find((t) => t.code === row.techniqueCode)?.id,
       analysisCode: (row as any).analysisCode ?? '',
-    } : { testType: '', testSubtype: '', resultParams: [], analysisCode: '', methodReference: '' })
+    } : { testType: '', testSubtype: '', resultParams: [], analysisCode: '', techniqueId: undefined })
     setOpen(true)
   }
 
@@ -314,7 +378,7 @@ function TestConfigsTab({ data }: { data: ArdMasterDataState }) {
                   msg.success(`Imported ${res.created} test config(s)${res.skipped > 0 ? `, ${res.skipped} skipped` : ''}.`)
                   qc.invalidateQueries({ queryKey: ['ard-master-data'] })
                 })
-                .catch(() => msg.error('CSV import failed.'))
+                .catch(() => msg.error('CSV import failed. Expected columns: techniqueCode, techniqueName, testType, testSubtype (optional).'))
               return false
             }}
           >
@@ -329,12 +393,10 @@ function TestConfigsTab({ data }: { data: ArdMasterDataState }) {
         size="small"
         pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
         columns={[
-          { title: 'Code', dataIndex: 'code', render: (v) => <span className="font-mono text-xs font-semibold text-indigo-600">{v ?? '—'}</span> },
-          { title: 'Technique', dataIndex: 'techniqueName' },
+          { title: 'Technique', dataIndex: 'techniqueCode', render: (v) => v ?? '—' },
           { title: 'Test Type', dataIndex: 'testType' },
           { title: 'Sub Type', dataIndex: 'testSubtype' },
           { title: 'Params', dataIndex: 'resultParams', render: (v: ResultParam[]) => <Tag color="blue">{v.length}</Tag> },
-          { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
           { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
           { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
           {
@@ -344,10 +406,10 @@ function TestConfigsTab({ data }: { data: ArdMasterDataState }) {
                 <Switch
                   size="small"
                   checked={row.active}
-                  onChange={(checked) => save.mutate({ ...row, active: checked })}
+                  onChange={(checked) => toggleActive(row, checked)}
                 />
-                <Tooltip title="Edit">
-                  <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
                 </Tooltip>
               </Space>
             ),
@@ -355,17 +417,29 @@ function TestConfigsTab({ data }: { data: ArdMasterDataState }) {
         ]}
       />
       <Modal {...glassModalProps} destroyOnClose width={720} title={editing ? 'Edit Test Configuration' : 'Add Test Configuration'} open={open} onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))} confirmLoading={save.isPending}>
+        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
         <Form form={form} layout="vertical">
-          <Form.Item name="techniqueId" label="Test Technique" rules={[{ required: true }]}>
+          <Form.Item name="techniqueId" label="Test Technique">
             <Select showSearch optionFilterProp="label"
-              options={data.techniques.map((t) => ({ value: t.id, label: t.name }))} />
+              options={data.techniques.filter((t) => t.active).map((t) => ({ value: t.id, label: t.code }))} />
           </Form.Item>
           <Form.Item name="analysisCode" label="Analysis Technical Code" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="testType" label="ATR Test Type" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="testSubtype" label="ATR Test Sub Type"><Input /></Form.Item>
-          <Form.Item name="methodReference" label="Method Reference / SOP No."><Input placeholder="e.g. SOP-HPLC-001, ICH Q1A" /></Form.Item>
-          <Form.Item name="resultParams" label="Result Parameters"><ResultParamsEditor uomOptions={uomOptions} /></Form.Item>
+          <Form.Item name="testSubtype" label="ATR Test Sub Type" rules={[{ required: true, message: 'Sub type is required' }]}><Input /></Form.Item>
+          <Form.Item name="resultParams" label="Result Parameters" className="rp-editor"
+            rules={[{
+              validator: (_, v: ResultParam[]) => {
+                if (!v || v.length === 0) return Promise.reject(new Error('At least one result parameter is required'))
+                if (v.some((p) => !p.name?.trim())) return Promise.reject(new Error('Every result parameter needs a name'))
+                const badRange = v.find((p) =>
+                  p.validationType === 'RANGE' && p.lowerLimit != null && p.upperLimit != null && p.lowerLimit >= p.upperLimit
+                )
+                if (badRange) return Promise.reject(new Error(`"${badRange.name}": Lower Limit must be less than Upper Limit`))
+                return Promise.resolve()
+              },
+            }]}>
+            <ResultParamsEditor uomOptions={uomOptions} />
+          </Form.Item>
         </Form>
       </Modal>
     </div>
@@ -373,6 +447,105 @@ function TestConfigsTab({ data }: { data: ArdMasterDataState }) {
 }
 
 // ── Test Groups ─────────────────────────────────────────────────────────
+
+// Per-group override of a result parameter's Specification — scoped to one
+// test-group ↔ test-config membership row, never touches the shared Test
+// Configuration record other groups may also be linked to.
+function SpecOverrideCell({
+  groupId, memberId, param, overrideValue,
+}: { groupId: string; memberId?: string; param: ResultParam; overrideValue?: string }) {
+  const qc = useQueryClient()
+  const [msgApi, ctx] = message.useMessage()
+  const [editing, setEditing] = useState(false)
+  const isNumber = param.dataType === 'number'
+  const sharedValue = param.specification ?? ''
+  const displayValue = overrideValue ?? sharedValue
+
+  const [draftText, setDraftText] = useState(displayValue)
+  const [draftValidationType, setDraftValidationType] = useState(param.validationType ?? 'NONE')
+  const [draftLower, setDraftLower] = useState<number | null>(param.lowerLimit ?? null)
+  const [draftUpper, setDraftUpper] = useState<number | null>(param.upperLimit ?? null)
+
+  const buildNumberSpec = () => {
+    if (draftValidationType === 'NMT') return draftUpper != null ? `NMT ${draftUpper}` : ''
+    if (draftValidationType === 'NLT') return draftLower != null ? `NLT ${draftLower}` : ''
+    if (draftValidationType === 'RANGE') return draftLower != null && draftUpper != null ? `${draftLower} - ${draftUpper}` : ''
+    return ''
+  }
+
+  const mut = useMutation({
+    mutationFn: (v: string) => ardApi.saveTestGroupSpecOverride(groupId, memberId!, param.id, v || null),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); setEditing(false) },
+    onError: () => msgApi.error('Failed to save specification.'),
+  })
+
+  if (!memberId) return <span>{displayValue || '—'}</span>
+
+  const startEdit = () => {
+    setDraftText(displayValue)
+    setDraftValidationType(param.validationType ?? 'NONE')
+    setDraftLower(param.lowerLimit ?? null)
+    setDraftUpper(param.upperLimit ?? null)
+    setEditing(true)
+  }
+
+  if (editing) {
+    return (
+      <Space size={4} wrap>
+        {ctx}
+        {isNumber ? (
+          <>
+            <Select
+              size="small" style={{ width: 130 }} value={draftValidationType} onChange={setDraftValidationType}
+              options={[
+                { value: 'NONE', label: 'No Limit' },
+                { value: 'NMT', label: 'NMT (Upper)' },
+                { value: 'NLT', label: 'NLT (Lower)' },
+                { value: 'RANGE', label: 'Range (Min-Max)' },
+              ]}
+            />
+            {(draftValidationType === 'NLT' || draftValidationType === 'RANGE') && (
+              <InputNumber
+                size="small" style={{ width: 90 }} placeholder="Lower Limit"
+                status={draftValidationType === 'RANGE' && draftLower != null && draftUpper != null && draftLower >= draftUpper ? 'error' : undefined}
+                value={draftLower ?? undefined} onChange={(v) => setDraftLower(v ?? null)}
+              />
+            )}
+            {(draftValidationType === 'NMT' || draftValidationType === 'RANGE') && (
+              <InputNumber
+                size="small" style={{ width: 90 }} placeholder="Upper Limit"
+                status={draftValidationType === 'RANGE' && draftLower != null && draftUpper != null && draftLower >= draftUpper ? 'error' : undefined}
+                value={draftUpper ?? undefined} onChange={(v) => setDraftUpper(v ?? null)}
+              />
+            )}
+          </>
+        ) : (
+          <Input size="small" value={draftText} onChange={(e) => setDraftText(e.target.value)} style={{ width: 200 }} autoFocus />
+        )}
+        <Tooltip title={isNumber && draftValidationType === 'RANGE' && draftLower != null && draftUpper != null && draftLower >= draftUpper ? 'Lower Limit must be less than Upper Limit' : 'Save'}>
+          <Button
+            type="text" size="small" icon={<Check size={14} className="text-emerald-600" />} loading={mut.isPending}
+            disabled={isNumber && draftValidationType === 'RANGE' && draftLower != null && draftUpper != null && draftLower >= draftUpper}
+            onClick={() => mut.mutate(isNumber ? buildNumberSpec() : draftText)}
+          />
+        </Tooltip>
+        <Tooltip title="Cancel">
+          <Button type="text" size="small" icon={<X size={14} className="text-slate-400" />} onClick={() => setEditing(false)} />
+        </Tooltip>
+      </Space>
+    )
+  }
+
+  return (
+    <Space size={4}>
+      {ctx}
+      <span>{displayValue || '—'}</span>
+      <Tooltip title="Edit specification for this group">
+        <Button type="text" size="small" icon={<Edit3 size={12} className="text-indigo-600" />} onClick={startEdit} />
+      </Tooltip>
+    </Space>
+  )
+}
 
 function TestGroupsTab({ data }: { data: ArdMasterDataState }) {
   const qc = useQueryClient()
@@ -384,9 +557,39 @@ function TestGroupsTab({ data }: { data: ArdMasterDataState }) {
 
   const save = useMutation({
     mutationFn: ardApi.saveTestGroup,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Test group saved.'); setOpen(false) },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save test group.'),
   })
+
+  const remove = useMutation({
+    mutationFn: ardApi.deleteTestGroup,
+    onSuccess: (_, id) => {
+      qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+      const g = data.testGroups.find((x) => x.id === id)
+      msg.success(g ? `"${g.name}" deleted.` : 'Test group deleted.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to delete test group.'),
+  })
+
+  const removeTestFromGroup = (row: ArdTestGroup, testConfigId: string, testLabel: string) => {
+    const nextIds = (row.testConfigIds ?? []).filter((id) => id !== testConfigId)
+    save.mutate({ ...row, testConfigIds: nextIds } as Record<string, unknown>, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(`"${testLabel}" removed from "${row.name}".`)
+      },
+    })
+  }
+
+  const submitForm = (values: Record<string, unknown>) => {
+    const isEdit = !!editing
+    save.mutate({ ...values, id: editing?.id, active: editing ? editing.active : true }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(`"${(values as any).name}" ${isEdit ? 'updated' : 'added'}.`)
+        setOpen(false)
+      },
+    })
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -396,6 +599,7 @@ function TestGroupsTab({ data }: { data: ArdMasterDataState }) {
 
   const openModal = (row?: ArdTestGroup) => {
     setEditing(row ?? null)
+    form.resetFields()
     form.setFieldsValue(row ?? { name: '', description: '', testConfigIds: [] })
     setOpen(true)
   }
@@ -417,19 +621,76 @@ function TestGroupsTab({ data }: { data: ArdMasterDataState }) {
             const configs = data.testConfigs.filter((c) => (row.testConfigIds ?? []).includes(c.id))
             return (
               <div className="p-2 bg-slate-50/80 rounded border border-slate-200">
-                <p className="text-xs font-semibold text-slate-700 mb-2">Linked Test Configurations ({configs.length})</p>
+                <div className="flex items-center justify-between gap-2 mb-2">
+                  <p className="text-xs font-semibold text-slate-700 m-0">Linked Tests ({configs.length})</p>
+                  <Button type="primary" size="small" icon={<Plus size={12} />} onClick={() => openModal(row)}>
+                    Link tests
+                  </Button>
+                </div>
                 <Table
                   size="small"
-                  pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
+                  pagination={false}
                   rowKey="id"
                   dataSource={configs}
+                  expandable={{
+                    expandedRowRender: (test) => {
+                      const member = row.members?.find((m) => m.testConfigId === test.id)
+                      return (
+                        <div className="p-2 bg-white rounded border border-slate-200">
+                          <p className="text-xs font-semibold text-slate-700 m-0 mb-2">
+                            Result Parameters ({(test.resultParams ?? []).length})
+                          </p>
+                          {(test.resultParams ?? []).length === 0 ? (
+                            <p className="text-xs text-slate-400 italic m-0">No result parameters defined for this test.</p>
+                          ) : (
+                            <Table
+                              size="small"
+                              pagination={false}
+                              rowKey="id"
+                              dataSource={test.resultParams as ResultParam[]}
+                              columns={[
+                                { title: 'Result Parameter', dataIndex: 'name' },
+                                { title: 'Result Data Type', dataIndex: 'dataType', render: (v) => v === 'number' ? 'Number' : 'Text' },
+                                {
+                                  title: 'Specification', dataIndex: 'specification',
+                                  render: (_, param) => (
+                                    <SpecOverrideCell
+                                      groupId={row.id}
+                                      memberId={member?.id}
+                                      param={param}
+                                      overrideValue={member?.specOverrides?.[param.id]}
+                                    />
+                                  ),
+                                },
+                                { title: 'UoM', dataIndex: 'uom', render: (v) => v || '—' },
+                              ]}
+                            />
+                          )}
+                          <p className="text-[11px] text-slate-400 mt-2 mb-0">
+                            Editing here only overrides the Specification for this group — the shared Test Configuration is unchanged.
+                          </p>
+                        </div>
+                      )
+                    },
+                  }}
                   columns={[
-                    { title: 'Code', dataIndex: 'code', render: (v) => <span className="font-mono text-xs font-semibold text-indigo-600">{v ?? '—'}</span> },
-                    { title: 'Technique', dataIndex: 'techniqueName' },
+                    { title: 'Technique', dataIndex: 'techniqueCode', render: (v) => v ?? '—' },
                     { title: 'Test Type', dataIndex: 'testType' },
                     { title: 'Sub Type', dataIndex: 'testSubtype', render: (v) => v || '—' },
                     { title: 'Params', dataIndex: 'resultParams', render: (v: ResultParam[]) => <Tag>{v?.length ?? 0}</Tag> },
-                    { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
+                    {
+                      title: '', width: 50,
+                      render: (_, test) => (
+                        <Popconfirm
+                          title="Remove this test from the group?"
+                          onConfirm={() => removeTestFromGroup(row, test.id, test.code || test.testType)}
+                        >
+                          <Tooltip title="Remove from group">
+                            <Button type="text" size="small" danger icon={<Trash2 size={14} />} />
+                          </Tooltip>
+                        </Popconfirm>
+                      ),
+                    },
                   ]}
                 />
               </div>
@@ -437,36 +698,44 @@ function TestGroupsTab({ data }: { data: ArdMasterDataState }) {
           },
         }}
         columns={[
-          { title: 'Name', dataIndex: 'name' },
-          { title: 'Test Configs', dataIndex: 'testConfigIds', render: (v: string[]) => <Tag color="blue">{v?.length ?? 0}</Tag> },
-          { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
+          { title: 'Test Group Name', dataIndex: 'name' },
+          { title: 'Description', dataIndex: 'description', render: (v) => v || '—' },
+          { title: 'Tests', dataIndex: 'testConfigIds', render: (v: string[]) => <Tag color="blue">{v?.length ?? 0}</Tag> },
           { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
           { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
           {
-            title: 'Actions', width: 120,
+            title: 'Actions', width: 100,
             render: (_, row) => (
               <Space size={8} onClick={(e) => e.stopPropagation()}>
-                <Switch
-                  size="small"
-                  checked={row.active}
-                  onChange={(checked) => save.mutate({ ...row, active: checked })}
-                />
                 <Tooltip title="Edit">
                   <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
                 </Tooltip>
+                <Popconfirm
+                  title="Delete this test group?"
+                  description={`"${row.name}" will be permanently removed.`}
+                  okButtonProps={{ danger: true }}
+                  onConfirm={() => remove.mutate(row.id)}
+                >
+                  <Tooltip title="Delete">
+                    <Button type="text" size="small" danger icon={<Trash2 size={15} />} onClick={(e) => e.stopPropagation()} />
+                  </Tooltip>
+                </Popconfirm>
               </Space>
             ),
           },
         ]}
       />
       <Modal {...glassModalProps} destroyOnClose title={editing ? 'Edit Test Group' : 'Add Test Group'} open={open} onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))} confirmLoading={save.isPending}>
+        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
         <Form form={form} layout="vertical">
           <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="description" label="Description"><TextArea rows={2} /></Form.Item>
-          <Form.Item name="testConfigIds" label="Test Configurations" rules={[{ required: true, type: 'array', min: 1, message: 'Select at least one test' }]}>
-            <Select mode="multiple" optionFilterProp="label"
-              options={data.testConfigs.map((c) => ({ value: c.id, label: `${c.code ?? c.id} — ${c.testType}` }))} />
+          <Form.Item name="testConfigIds" label="Tests" extra="Optional — you can add or remove tests after the group is created.">
+            <Select mode="multiple" optionFilterProp="label" placeholder="Select tests"
+              options={data.testConfigs.filter((c) => c.active).map((c) => ({
+                value: c.id,
+                label: c.testSubtype ? `${c.testType} - ${c.testSubtype}` : c.testType,
+              }))} />
           </Form.Item>
         </Form>
       </Modal>
@@ -489,9 +758,28 @@ function AttributesTab({ data }: { data: ArdMasterDataState }) {
 
   const save = useMutation({
     mutationFn: ardApi.saveAttribute,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Attribute saved.'); setOpen(false) },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save attribute.'),
   })
+
+  const toggleActive = (row: ArdAttribute, checked: boolean) => {
+    save.mutate({ ...row, active: checked } as Record<string, unknown>, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(checked ? `"${row.label}" enabled.` : `"${row.label}" disabled.`)
+      },
+    })
+  }
+
+  const submitForm = (values: Record<string, unknown>) => {
+    const isEdit = !!editing
+    save.mutate({ ...values, id: editing?.id, active: editing ? editing.active : true }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(isEdit ? 'Attribute updated.' : 'Attribute added.')
+        setOpen(false)
+      },
+    })
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -501,6 +789,7 @@ function AttributesTab({ data }: { data: ArdMasterDataState }) {
 
   const openModal = (row?: ArdAttribute) => {
     setEditing(row ?? null)
+    form.resetFields()
     form.setFieldsValue(row ?? { label: '', type: 'text', required: false })
     setOpen(true)
   }
@@ -520,7 +809,6 @@ function AttributesTab({ data }: { data: ArdMasterDataState }) {
         columns={[
           { title: 'ATR Attribute Name', dataIndex: 'label' },
           { title: 'ATR Attribute Type', dataIndex: 'type' },
-          { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
           { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
           { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
           {
@@ -530,10 +818,10 @@ function AttributesTab({ data }: { data: ArdMasterDataState }) {
                 <Switch
                   size="small"
                   checked={row.active}
-                  onChange={(checked) => save.mutate({ ...row, active: checked })}
+                  onChange={(checked) => toggleActive(row, checked)}
                 />
-                <Tooltip title="Edit">
-                  <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
                 </Tooltip>
               </Space>
             ),
@@ -541,7 +829,7 @@ function AttributesTab({ data }: { data: ArdMasterDataState }) {
         ]}
       />
       <Modal {...glassModalProps} destroyOnClose title={editing ? 'Edit Attribute' : 'Add Attribute'} open={open} onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))} confirmLoading={save.isPending}>
+        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
         <Form form={form} layout="vertical">
           <Form.Item name="label" label="ATR Attribute Name" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="type" label="ATR Attribute Type" rules={[{ required: true }]}>
@@ -578,42 +866,121 @@ function AttributesTab({ data }: { data: ArdMasterDataState }) {
 
 // ── Form Types ──────────────────────────────────────────────────────────
 
+const FORM_MANDATE_FIELDS: { name: string; label: string }[] = [
+  { name: 'mandateCertification', label: 'Mandate Certification' },
+  { name: 'mandateBatchNo', label: 'Mandate Batch Number' },
+  { name: 'mandateQaSubmission', label: 'Mandate QA Submission' },
+  { name: 'mandateSampleQty', label: 'Mandate Sample Quantity' },
+]
+
 function FormTypesTab({ data }: { data: ArdMasterDataState }) {
   const qc = useQueryClient()
   const [msg, ctx] = message.useMessage()
+  const [search, setSearch] = useState('')
+
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<ArdFormType | null>(null)
-  const [search, setSearch] = useState('')
   const [form] = Form.useForm()
-  const attributeIds: string[] = Form.useWatch('attributeIds', form) ?? []
+
+  // Attribute links and test group ids are edited locally inside the Add/Edit
+  // modal and only persisted when the modal's own Save is clicked.
+  const [attributeLinks, setAttributeLinks] = useState<FormTypeAttrLink[]>([])
+  const [testGroupIds, setTestGroupIds] = useState<string[]>([])
+  const [attrAddSel, setAttrAddSel] = useState<string[]>([])
+  const [testGroupSel, setTestGroupSel] = useState<string | undefined>(undefined)
 
   const save = useMutation({
-    mutationFn: (v: any) => ardApi.saveFormType({
-      ...v,
-      attributeLinks: (v.attributeIds ?? []).map((aid: string, i: number) => ({
-        attributeId: aid, sequence: i, requiredOverride: null, displayInReport: true,
-      })),
-    }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Form type saved.'); setOpen(false) },
+    mutationFn: (v: Record<string, unknown>) => ardApi.saveFormType(v),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ard-master-data'] }),
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save form type.'),
   })
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return data.formTypes
-    return data.formTypes.filter((f) => f.name.toLowerCase().includes(q) || (f.code ?? '').toLowerCase().includes(q))
+    return data.formTypes.filter((f) => f.name.toLowerCase().includes(q))
   }, [data.formTypes, search])
 
   const openModal = (row?: ArdFormType) => {
     setEditing(row ?? null)
-    form.setFieldsValue(row ? {
-      ...row,
-      attributeIds: (row.attributeLinks ?? []).sort((a, b) => a.sequence - b.sequence).map((l) => l.attributeId),
-    } : {
-      name: '', description: '', category: undefined, attributeIds: [], testGroupIds: [],
-      mandateCertification: false, mandateBatchNo: false, mandateSampleQty: false, mandateQaSubmission: false, allowPostApprovalChanges: false,
+    form.setFieldsValue(row ? { ...row } : {
+      name: '', description: '',
+      mandateCertification: false, mandateBatchNo: false, mandateSampleQty: false, mandateQaSubmission: false,
     })
+    setAttributeLinks(row?.attributeLinks ?? [])
+    setTestGroupIds(row?.testGroupIds ?? [])
+    setAttrAddSel([])
+    setTestGroupSel(undefined)
     setOpen(true)
+  }
+
+  const submitFormType = (values: Record<string, unknown>) => {
+    const isEdit = !!editing
+    save.mutate({
+      ...values, id: editing?.id, active: editing ? editing.active : true,
+      attributeLinks, testGroupIds,
+    }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(`"${values.name}" ${isEdit ? 'updated' : 'added'}.`)
+        setOpen(false)
+      },
+    })
+  }
+
+  const toggleActive = (row: ArdFormType, checked: boolean) => {
+    save.mutate({ ...row, active: checked }, {
+      onSuccess: () => msg.success(checked ? `"${row.name}" enabled.` : `"${row.name}" disabled.`),
+    })
+  }
+
+  const attributeRows = useMemo(() => {
+    return attributeLinks
+      .slice()
+      .sort((a, b) => a.sequence - b.sequence)
+      .map((link) => ({ link, attr: data.attributes.find((a) => a.id === link.attributeId) }))
+      .filter((r) => !!r.attr)
+  }, [attributeLinks, data.attributes])
+
+  const availableAttrOptions = useMemo(() => {
+    const linked = new Set(attributeLinks.map((l) => l.attributeId))
+    return data.attributes.filter((a) => a.active && !linked.has(a.id)).map((a) => ({ value: a.id, label: a.label }))
+  }, [data.attributes, attributeLinks])
+
+  const addAttributes = () => {
+    if (attrAddSel.length === 0) return
+    setAttributeLinks([
+      ...attributeLinks,
+      ...attrAddSel.map((aid, i) => ({ attributeId: aid, sequence: attributeLinks.length + i, requiredOverride: false, displayInReport: true })),
+    ])
+    setAttrAddSel([])
+  }
+
+  const updateAttrLink = (attributeId: string, patch: Partial<FormTypeAttrLink>) => {
+    setAttributeLinks(attributeLinks.map((l) => l.attributeId === attributeId ? { ...l, ...patch } : l))
+  }
+
+  const removeAttrLink = (attributeId: string) => {
+    setAttributeLinks(attributeLinks.filter((l) => l.attributeId !== attributeId))
+  }
+
+  const availableTestGroupOptions = useMemo(() => {
+    const linked = new Set(testGroupIds)
+    return data.testGroups.filter((g) => g.active && !linked.has(g.id)).map((g) => ({ value: g.id, label: g.name }))
+  }, [data.testGroups, testGroupIds])
+
+  const linkedTestGroups = useMemo(() => {
+    return testGroupIds.map((id) => data.testGroups.find((g) => g.id === id)).filter(Boolean) as ArdTestGroup[]
+  }, [testGroupIds, data.testGroups])
+
+  const addTestGroup = () => {
+    if (!testGroupSel) return
+    setTestGroupIds([...testGroupIds, testGroupSel])
+    setTestGroupSel(undefined)
+  }
+
+  const removeTestGroup = (groupId: string) => {
+    setTestGroupIds(testGroupIds.filter((id) => id !== groupId))
   }
 
   return (
@@ -629,71 +996,168 @@ function FormTypesTab({ data }: { data: ArdMasterDataState }) {
         size="small"
         pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
         columns={[
-          { title: 'Name', dataIndex: 'name' },
-          { title: 'Code', dataIndex: 'code', render: (v) => <span className="font-mono text-xs font-semibold text-indigo-600">{v}</span> },
+          { title: 'Name', dataIndex: 'name', render: (v) => <span className="font-medium text-slate-700">{v}</span> },
           { title: 'Attributes', dataIndex: 'attributeLinks', render: (v: any[]) => <Tag color="blue">{v.length}</Tag> },
-          {
-            title: 'Flags', render: (_, row) => (
-              <div className="flex gap-1 flex-wrap">
-                {row.mandateQaSubmission && <Tag color="purple">QA pre-approval</Tag>}
-                {row.mandateBatchNo && <Tag color="blue">Batch required</Tag>}
-                {row.mandateSampleQty && <Tag color="cyan">Sample Qty</Tag>}
-                {row.mandateCertification && <Tag color="gold">Cert</Tag>}
-              </div>
-            )
-          },
-          { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
+          { title: 'Test Groups', dataIndex: 'testGroupIds', render: (v: any[]) => <Tag color="purple">{v?.length ?? 0}</Tag> },
           { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
           { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
           {
             title: 'Actions', width: 120,
             render: (_, row) => (
               <Space size={8} onClick={(e) => e.stopPropagation()}>
-                <Switch
-                  size="small"
-                  checked={row.active}
-                  onChange={(checked) => save.mutate({ ...row, active: checked })}
-                />
-                <Tooltip title="Edit">
-                  <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
+                <Switch size="small" checked={row.active} onChange={(checked) => toggleActive(row, checked)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
                 </Tooltip>
               </Space>
             ),
           },
         ]}
       />
-      <Modal {...glassModalProps} destroyOnClose width={640} title={editing ? 'Edit Form Type' : 'Add Form Type'} open={open} onCancel={() => setOpen(false)}
-        styles={{ body: { maxHeight: '65vh', overflowY: 'auto' } }}
-        onOk={() => form.validateFields().then((v) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))} confirmLoading={save.isPending}>
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
+
+      {/* Add / Edit Form Type — rules, attributes, and test groups, all in one place. Every
+          add/remove/toggle here is a single click; nothing hides behind a nested modal. */}
+      <Modal
+        {...glassModalProps}
+        destroyOnClose
+        width="min(880px, 92vw)"
+        style={{ top: 24 }}
+        styles={{ ...glassModalStyles, body: { ...glassModalStyles.body, maxHeight: '76vh', overflowY: 'auto' } }}
+        title={editing ? 'Edit Form Type' : 'Add Form Type'} open={open} onCancel={() => setOpen(false)}
+        onOk={() => form.validateFields().then(submitFormType)} confirmLoading={save.isPending}
+        okText="Save"
+      >
+        <Form form={form} layout="vertical" className="space-y-1">
+          <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input size="large" /></Form.Item>
           <Form.Item name="description" label="Description"><TextArea rows={2} /></Form.Item>
-          <Form.Item name="category" label="Category (ATR Type)">
-            <Select allowClear placeholder="e.g. Method Development, Routine, Stability..."
-              options={['Method Development', 'Routine Analysis', 'Stability', 'Validation', 'Transfer', 'Other'].map((v) => ({ value: v, label: v }))} />
-          </Form.Item>
-          <Form.Item name="mandateQaSubmission" label="Mandate QA pre-approval submission" valuePropName="checked"
-            extra="Routes new ATRs through QA before team lead assignment"><Switch /></Form.Item>
-          <Form.Item name="mandateBatchNo" label="Mandate batch number on samples" valuePropName="checked"><Switch /></Form.Item>
-          <Form.Item name="mandateCertification" label="Mandate certification" valuePropName="checked"><Switch /></Form.Item>
-          <Form.Item name="mandateSampleQty" label="Mandate sample quantity" valuePropName="checked"><Switch /></Form.Item>
-          <Form.Item name="allowPostApprovalChanges" label="Allow adding samples/tests after approval" valuePropName="checked"
-            extra="When enabled, new test requests can be added to an APPROVED ATR"><Switch /></Form.Item>
-          <Form.Item name="attributeIds" label="Attributes" rules={[{ required: true, type: 'array', min: 1, message: 'Select at least one attribute' }]}>
-            <Select mode="multiple" optionFilterProp="label"
-              options={data.attributes.filter((a) => a.active).map((a) => ({ value: a.id, label: a.label }))} />
-          </Form.Item>
-          {attributeIds.length > 0 && (
-            <div className="mb-4 text-xs text-slate-500">
-              Sequence follows selection order — {attributeIds.length} attribute(s) linked.
+
+          <div className="mb-1 text-[13px] font-medium text-slate-700">Mandatory Checks</div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 mb-5">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-2">
+              {FORM_MANDATE_FIELDS.map((f) => (
+                <Form.Item key={f.name} name={f.name} valuePropName="checked" noStyle>
+                  <Checkbox><span className="text-sm text-slate-700">{f.label}</span></Checkbox>
+                </Form.Item>
+              ))}
             </div>
-          )}
-          <Form.Item name="testGroupIds" label="Test Groups">
-            <Select mode="multiple" optionFilterProp="label"
-              options={data.testGroups.filter((g) => g.active).map((g) => ({ value: g.id, label: g.name }))} />
-          </Form.Item>
-          <p className="text-xs text-slate-400">Changes are versioned in the audit trail when saved.</p>
+          </div>
         </Form>
+
+        <div className="rounded-lg border border-slate-200 p-3 mb-5">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[13px] font-medium text-slate-700">Attributes</span>
+            <Tag className="m-0 text-[11px] leading-4">{attributeRows.length}</Tag>
+          </div>
+          <div className="flex items-center gap-2 mb-3">
+            <Select
+              mode="multiple" showSearch optionFilterProp="label" allowClear
+              placeholder="Search and pick attributes..."
+              style={{ flex: 1 }}
+              value={attrAddSel}
+              onChange={setAttrAddSel}
+              options={availableAttrOptions}
+            />
+            <Button type="primary" ghost disabled={attrAddSel.length === 0} onClick={addAttributes}>Add</Button>
+          </div>
+          {attributeRows.length > 0 ? (
+            <Table
+              rowKey={(r) => r.link.attributeId}
+              dataSource={attributeRows}
+              size="small"
+              pagination={false}
+              className="pt-1 border-t border-slate-100"
+              columns={[
+                { title: 'Attribute', render: (_, r) => <span className="font-medium text-slate-700">{r.attr!.label}</span> },
+                { title: 'Type', render: (_, r) => <span className="text-slate-500">{r.attr!.type}</span>, width: 120 },
+                {
+                  title: 'Mandatory', width: 90, align: 'center' as const,
+                  render: (_, r) => (
+                    <Checkbox
+                      checked={r.link.requiredOverride ?? r.attr!.required}
+                      onChange={(e) => updateAttrLink(r.link.attributeId, { requiredOverride: e.target.checked })}
+                    />
+                  ),
+                },
+                {
+                  title: 'Show in Report', width: 110, align: 'center' as const,
+                  render: (_, r) => (
+                    <Checkbox
+                      checked={r.link.displayInReport ?? true}
+                      onChange={(e) => updateAttrLink(r.link.attributeId, { displayInReport: e.target.checked })}
+                    />
+                  ),
+                },
+                {
+                  title: '', width: 40,
+                  render: (_, r) => <Button type="text" danger size="small" icon={<Trash2 size={14} />} onClick={() => removeAttrLink(r.link.attributeId)} />,
+                },
+              ]}
+            />
+          ) : (
+            <p className="text-xs text-slate-400 mt-1 mb-0">No attributes linked yet.</p>
+          )}
+        </div>
+
+        <div className="rounded-lg border border-slate-200 p-3">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-[13px] font-medium text-slate-700">Test Groups</span>
+            <Tag className="m-0 text-[11px] leading-4">{linkedTestGroups.length}</Tag>
+          </div>
+          <div className="flex items-center gap-2 mb-3">
+            <Select
+              showSearch optionFilterProp="label" allowClear
+              placeholder="Search and pick a test group..."
+              style={{ flex: 1 }}
+              value={testGroupSel}
+              onChange={setTestGroupSel}
+              options={availableTestGroupOptions}
+            />
+            <Button type="primary" ghost disabled={!testGroupSel} onClick={addTestGroup}>Add</Button>
+          </div>
+          {linkedTestGroups.length > 0 ? (
+            <Table
+              rowKey="id"
+              dataSource={linkedTestGroups}
+              size="small"
+              pagination={false}
+              className="pt-1 border-t border-slate-100"
+              expandable={{
+                expandedRowRender: (group) => {
+                  const configs = data.testConfigs.filter((c) => (group.testConfigIds ?? []).includes(c.id))
+                  const paramRows = configs.flatMap((c) => (c.resultParams ?? []).map((p) => ({ config: c, param: p })))
+                  if (paramRows.length === 0) {
+                    return <p className="text-xs text-slate-400 italic px-3 py-2 m-0">No result parameters for the tests in this group.</p>
+                  }
+                  return (
+                    <Table
+                      size="small"
+                      pagination={false}
+                      rowKey={(r) => `${r.config.id}-${r.param.id}`}
+                      dataSource={paramRows}
+                      columns={[
+                        { title: 'Test Type', render: (_, r) => r.config.testType },
+                        { title: 'Sub Type', render: (_, r) => r.config.testSubtype || '—' },
+                        { title: 'Result Type', render: (_, r) => r.param.dataType === 'number' ? 'NUMERIC' : 'TEXT' },
+                        { title: 'UoM', render: (_, r) => r.param.uom || '—' },
+                        { title: 'Specification', render: (_, r) => r.param.specification || '—' },
+                      ]}
+                    />
+                  )
+                },
+              }}
+              columns={[
+                { title: 'Test Group', dataIndex: 'name' },
+                { title: 'Description', dataIndex: 'description', render: (v) => v || '—' },
+                {
+                  title: '', width: 40,
+                  render: (_, row) => <Button type="text" danger size="small" icon={<Trash2 size={14} />} onClick={() => removeTestGroup(row.id)} />,
+                },
+              ]}
+            />
+          ) : (
+            <p className="text-xs text-slate-400 mt-1 mb-0">No test groups linked yet.</p>
+          )}
+        </div>
       </Modal>
     </div>
   )
@@ -713,7 +1177,11 @@ function LookupsTab({ data }: { data: ArdMasterDataState }) {
 
   const save = useMutation({
     mutationFn: ardApi.saveLookup,
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Lookup saved.'); setOpen(false) },
+    onSuccess: (_, variables: any) => {
+      qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+      msg.success(`"${variables.label}" ${variables.id ? 'updated' : 'added'}.`)
+      setOpen(false)
+    },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save lookup.'),
   })
 
@@ -733,7 +1201,7 @@ function LookupsTab({ data }: { data: ArdMasterDataState }) {
     <div>
       {ctx}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-slate-50/70 p-3 rounded-lg border border-slate-200/80">
-        <Input prefix={<Search size={16} className="text-slate-400" />} allowClear placeholder="Search lookups by category, code or label..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 300 }} />
+        <Input prefix={<Search size={16} className="text-slate-400" />} allowClear placeholder="Search lookups by type, value code or value..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 300 }} />
         <Button type="primary" icon={<Plus size={14} />} onClick={() => openModal()}>Add Lookup</Button>
       </div>
       <Table
@@ -742,11 +1210,10 @@ function LookupsTab({ data }: { data: ArdMasterDataState }) {
         size="small"
         pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
         columns={[
-          { title: 'Category', dataIndex: 'category' },
-          { title: 'Code', dataIndex: 'code', render: (v) => <span className="font-mono text-xs font-semibold text-indigo-600">{v}</span> },
-          { title: 'Label', dataIndex: 'label' },
+          { title: 'Lookup Type', dataIndex: 'category' },
+          { title: 'Lookup Value Code', dataIndex: 'code', render: (v) => <span className="font-mono text-xs">{v}</span> },
+          { title: 'Lookup Value', dataIndex: 'label' },
           { title: 'Description', dataIndex: 'description', render: (v) => v ?? '—' },
-          { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
           { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
           { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
           {
@@ -758,8 +1225,8 @@ function LookupsTab({ data }: { data: ArdMasterDataState }) {
                   checked={row.active}
                   onChange={(checked) => save.mutate({ ...row, active: checked })}
                 />
-                <Tooltip title="Edit">
-                  <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
                 </Tooltip>
               </Space>
             ),
@@ -769,10 +1236,10 @@ function LookupsTab({ data }: { data: ArdMasterDataState }) {
       <Modal {...glassModalProps} destroyOnClose title={editing ? 'Edit Lookup' : 'Add Lookup'} open={open} onCancel={() => setOpen(false)}
         onOk={() => form.validateFields().then((v) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))} confirmLoading={save.isPending}>
         <Form form={form} layout="vertical">
-          <Form.Item name="category" label="Category" rules={[{ required: true }]} extra="Categories are defined by the admin module">
+          <Form.Item name="category" label="Lookup Type" rules={[{ required: true }]} extra="Lookup types are defined by the admin module">
             <Select showSearch options={(categories ?? []).map((c) => ({ value: c, label: c }))} />
           </Form.Item>
-          <Form.Item name="code" label="Lookup Code" rules={[{ required: true }]}><Input className="font-mono" /></Form.Item>
+          <Form.Item name="code" label="Lookup Value Code" rules={[{ required: true }]}><Input className="font-mono" /></Form.Item>
           <Form.Item name="label" label="Lookup Value" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="description" label="Lookup Desc" rules={[{ required: true, message: 'Lookup description is required' }]}><Input /></Form.Item>
         </Form>
@@ -781,11 +1248,18 @@ function LookupsTab({ data }: { data: ArdMasterDataState }) {
   )
 }
 
-// ── Data Items ──────────────────────────────────────────────────────────
+// ── Data Items ("Template DataItems") ───────────────────────────────────
+// Matches the legacy "Template DataItems" screen exactly (product owner review
+// 2026-08-20): Data Type is Integer | Text | Date | LOV; Length Category is
+// server-derived, never entered by the user; the Add modal is just
+// Name / Data Type / Description, with a "Select LOV Lookup Type" field that
+// appears only for LOV, sourced from the Inventory module's shared lookup
+// table. Uses the dedicated ardDataItemApi (§3.2) for real server-side
+// validation (duplicate name+lengthCategory, usage-guarded delete).
 
-const DATA_ITEM_TYPES = [
-  { value: 'text', label: 'Text' }, { value: 'number', label: 'Number' }, { value: 'date', label: 'Date' },
-  { value: 'select', label: 'Dropdown' }, { value: 'radio', label: 'Radio group' }, { value: 'checkbox', label: 'Checkbox' },
+const DATA_ITEM_TYPES: { value: ArdDataItemType; label: string }[] = [
+  { value: 'INTEGER', label: 'Integer' }, { value: 'TEXT', label: 'Text' },
+  { value: 'DATE', label: 'Date' }, { value: 'LOV', label: 'LOV' },
 ]
 
 function DataItemsTab({ data }: { data: ArdMasterDataState }) {
@@ -797,32 +1271,53 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
   const [form] = Form.useForm()
   const dataType = Form.useWatch('dataType', form)
 
+  const { data: lovLookupTypes } = useQuery({
+    queryKey: ['ard-data-item-lov-lookup-types'],
+    queryFn: ardDataItemApi.lovLookupTypes,
+  })
+
   const save = useMutation({
-    mutationFn: (v: any) => ardApi.saveDataItem({
-      ...v,
-      options: v.optionsText
-        ? v.optionsText.split(',').map((tok: string) => {
-            const [label, value] = tok.includes(':') ? tok.split(':') : [tok, tok]
-            return { label: label.trim(), value: (value ?? label).trim() }
-          })
-        : null,
-    }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Data item saved.'); setOpen(false) },
+    mutationFn: (v: Record<string, unknown>) =>
+      editing ? ardDataItemApi.save(editing.id, v) : ardDataItemApi.create(v),
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save data item.'),
   })
+
+  const toggleActive = (row: ArdDataItem, checked: boolean) => {
+    ardDataItemApi.save(row.id, { ...row, active: checked }).then(
+      () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        qc.invalidateQueries({ queryKey: ['ard-data-items-active'] })
+        msg.success(checked ? `"${row.name}" enabled.` : `"${row.name}" disabled.`)
+      },
+      (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to update data item.'),
+    )
+  }
+
+  const submitForm = (values: Record<string, unknown>) => {
+    const isEdit = !!editing
+    save.mutate({ ...values, active: editing ? editing.active : true }, {
+      onSuccess: () => {
+        // A newly created/edited data item must also show up immediately in the
+        // Sections tab's data-item picker (queryKey ['ard-data-items-active']) —
+        // without this, it stayed invisible there until a full page reload.
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        qc.invalidateQueries({ queryKey: ['ard-data-items-active'] })
+        msg.success(`"${values.name}" ${isEdit ? 'updated' : 'added'}.`)
+        setOpen(false)
+      },
+    })
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return data.dataItems
-    return data.dataItems.filter((d) => d.name.toLowerCase().includes(q) || d.dataType.toLowerCase().includes(q))
+    return data.dataItems.filter((d) => d.name.toLowerCase().includes(q) || (d.description ?? '').toLowerCase().includes(q))
   }, [data.dataItems, search])
 
   const openModal = (row?: ArdDataItem) => {
     setEditing(row ?? null)
-    form.setFieldsValue(row ? {
-      ...row,
-      optionsText: (row.options ?? []).map((o) => `${o.label}:${o.value}`).join(', '),
-    } : { name: '', dataType: 'text' })
+    form.resetFields()
+    form.setFieldsValue(row ? { ...row } : { name: '', dataType: 'INTEGER', description: '' })
     setOpen(true)
   }
 
@@ -839,12 +1334,12 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
         size="small"
         pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
         columns={[
-          { title: 'Name', dataIndex: 'name' },
+          { title: 'Dataitem Name', dataIndex: 'name' },
+          { title: 'Description', dataIndex: 'description', render: (v) => v ?? '—' },
           { title: 'Data Type', dataIndex: 'dataType', render: (v) => DATA_ITEM_TYPES.find((t) => t.value === v)?.label ?? v },
-          { title: 'UOM', dataIndex: 'uom', render: (v) => v ?? '—' },
-          { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
-          { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
-          { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
+          { title: 'Length Category', dataIndex: 'lengthCategory', render: (v) => v ?? '—' },
+          { title: 'Created By (On)', key: 'created', render: renderCreatedByOn },
+          { title: 'Last Updated By (On)', key: 'updated', render: renderUpdatedByOn },
           {
             title: 'Actions', width: 120,
             render: (_, row) => (
@@ -852,10 +1347,10 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
                 <Switch
                   size="small"
                   checked={row.active}
-                  onChange={(checked) => save.mutate({ ...row, active: checked })}
+                  onChange={(checked) => toggleActive(row, checked)}
                 />
-                <Tooltip title="Edit">
-                  <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
                 </Tooltip>
               </Space>
             ),
@@ -863,18 +1358,293 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
         ]}
       />
       <Modal {...glassModalProps} destroyOnClose title={editing ? 'Edit Data Item' : 'Add Data Item'} open={open} onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))} confirmLoading={save.isPending}>
+        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="name" label="Dataitem Name" rules={[{ required: true }]}><Input /></Form.Item>
           <Form.Item name="dataType" label="Data Type" rules={[{ required: true }]}><Select options={DATA_ITEM_TYPES} /></Form.Item>
-          <Form.Item name="uom" label="UOM"><Input /></Form.Item>
-          {(dataType === 'select' || dataType === 'radio') && (
-            <Form.Item name="optionsText" label="Options" rules={[{ required: true, message: 'Provide at least one option' }]}
-              extra="Comma-separated. Use Label:value to set a distinct value.">
-              <Input placeholder="Pass, Fail  or  Pass:P, Fail:F" />
+          {dataType === 'LOV' && (
+            <Form.Item name="lovLookupType" label="Select LOV Lookup Type" rules={[{ required: true, message: 'Select which Inventory lookup type supplies the selectable values' }]}>
+              <Select showSearch options={(lovLookupTypes?.items ?? []).map((t) => ({ value: t, label: t }))} placeholder="Select a lookup type..." />
             </Form.Item>
           )}
           <Form.Item name="description" label="Description"><TextArea rows={2} /></Form.Item>
+        </Form>
+      </Modal>
+    </div>
+  )
+}
+
+// ── Sections (reusable master data — rearchitecture prompt §1.1-§1.9) ───────
+// Sections authored here become attachable from more than one Template in the
+// Template Builder — content authoring moved out of the builder into this tab.
+
+const RICHTEXT_SECTION_TYPES: SectionType[] = ['richtext', 'standard_preparation']
+const DATATABLE_SECTION_TYPES: SectionType[] = ['table', 'combined']
+const SINGLE_DATA_ITEM_SECTION_TYPES: SectionType[] = ['data_item', 'autocomplete_data_item']
+// 'combined' = Param block + Data Table block together, matching the legacy
+// "Combined" section screen (product owner review 2026-08-20).
+const MULTI_DATA_ITEM_SECTION_TYPES: SectionType[] = ['params', 'combined']
+const EMBEDDED_FILE_SECTION_TYPES: SectionType[] = ['preconfigured_excel']
+
+function SectionsTab() {
+  const qc = useQueryClient()
+  const [msg, ctx] = message.useMessage()
+  const [open, setOpen] = useState(false)
+  const [editing, setEditing] = useState<ArdMasterSection | null>(null)
+  const [search, setSearch] = useState('')
+  const [form] = Form.useForm()
+  const sectionType: SectionType | undefined = Form.useWatch('sectionType', form)
+  const [columns, setColumns] = useState<{ dataItemId: string; relativeWidth: number; isMandatory: boolean }[]>([])
+  const [dataItemLinks, setDataItemLinks] = useState<{ dataItemId: string; isMandatory: boolean }[]>([])
+  const [singleDataItemId, setSingleDataItemId] = useState<string | undefined>()
+  const [uploadFile, setUploadFile] = useState<File | null>(null)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['ard-sections'],
+    queryFn: () => ardSectionApi.list({ pageSize: 200 }),
+  })
+  const { data: sectionTypes } = useQuery({ queryKey: ['ard-section-types'], queryFn: ardTemplateApi.sectionTypes })
+  const { data: dataItems } = useQuery({
+    queryKey: ['ard-data-items-active'],
+    queryFn: () => ardDataItemApi.list({ is_active: 'true', pageSize: 500 }),
+  })
+
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ['ard-sections'] })
+    qc.invalidateQueries({ queryKey: ['ard-data-items-active'] })
+  }
+
+  const save = useMutation({
+    mutationFn: (body: Record<string, unknown>) => (editing ? ardSectionApi.save(editing.id, body) : ardSectionApi.create(body)),
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save section.'),
+  })
+
+  const toggleActive = (row: ArdMasterSection, checked: boolean) => {
+    ardSectionApi.save(row.id, {
+      name: row.name, description: row.description, uniqueIdentifier: row.uniqueIdentifier,
+      sectionType: row.sectionType, deptId: row.deptId, active: checked,
+    }).then(
+      () => { invalidate(); msg.success(checked ? `"${row.name}" enabled.` : `"${row.name}" disabled.`) },
+      (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to update section.'),
+    )
+  }
+
+  const filtered = useMemo(() => {
+    const q = search.trim().toLowerCase()
+    const items = data?.items ?? []
+    if (!q) return items
+    return items.filter((s) => s.name.toLowerCase().includes(q) || s.sectionType.toLowerCase().includes(q))
+  }, [data, search])
+
+  const openModal = (row?: ArdMasterSection) => {
+    setEditing(row ?? null)
+    form.resetFields()
+    if (row) {
+      form.setFieldsValue({
+        name: row.name, description: row.description, uniqueIdentifier: row.uniqueIdentifier,
+        sectionType: row.sectionType, defaultContent: row.richtext?.defaultContent ?? '',
+      })
+      setColumns((row.datatable?.columns ?? []).map((c) => ({ dataItemId: c.dataItemId, relativeWidth: c.relativeWidth, isMandatory: c.isMandatory })))
+      setDataItemLinks((row.dataItemLinks ?? []).map((l) => ({ dataItemId: l.dataItemId, isMandatory: l.isMandatory })))
+      setSingleDataItemId(row.dataItemLinks?.[0]?.dataItemId)
+    } else {
+      form.setFieldsValue({ name: '', description: '', uniqueIdentifier: '', sectionType: 'richtext', defaultContent: '' })
+      setColumns([])
+      setDataItemLinks([])
+      setSingleDataItemId(undefined)
+    }
+    setUploadFile(null)
+    setOpen(true)
+  }
+
+  const submitForm = (values: Record<string, unknown>) => {
+    const isEdit = !!editing
+    const stype = values.sectionType as SectionType
+    const body: Record<string, unknown> = {
+      name: values.name, description: values.description ?? null, uniqueIdentifier: values.uniqueIdentifier ?? null,
+      sectionType: stype, active: editing ? editing.active : true,
+    }
+    if (RICHTEXT_SECTION_TYPES.includes(stype)) {
+      body.richtext = { defaultContent: values.defaultContent ?? null }
+    }
+    if (DATATABLE_SECTION_TYPES.includes(stype)) {
+      body.datatable = { typicalRowCount: 3, columns: columns.map((c, i) => ({ ...c, sequenceNumber: i })) }
+    }
+    if (SINGLE_DATA_ITEM_SECTION_TYPES.includes(stype)) {
+      if (!singleDataItemId) { msg.error('Select a linked data item.'); return }
+      body.dataItemLink = { dataItemId: singleDataItemId, isMandatory: true }
+    }
+    if (MULTI_DATA_ITEM_SECTION_TYPES.includes(stype)) {
+      body.dataItemLinks = dataItemLinks.map((l, i) => ({ ...l, sequenceNumber: i }))
+    }
+
+    save.mutate(body, {
+      onSuccess: (saved) => {
+        invalidate()
+        msg.success(`"${values.name}" ${isEdit ? 'updated' : 'added'}.`)
+        setOpen(false)
+        if (!isEdit && EMBEDDED_FILE_SECTION_TYPES.includes(stype) && uploadFile) {
+          ardSectionApi.uploadEmbeddedFile(saved.id, uploadFile).then(
+            () => { invalidate(); msg.success('Spreadsheet uploaded.') },
+            (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to upload spreadsheet.'),
+          )
+        }
+      },
+    })
+  }
+
+  const columnWidthSum = columns.reduce((acc, c) => acc + (c.relativeWidth || 0), 0)
+  const dataItemOptions = (dataItems?.items ?? []).map((d) => ({ value: d.id, label: `${d.name} (${d.dataType})` }))
+
+  return (
+    <div>
+      {ctx}
+      <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-slate-50/70 p-3 rounded-lg border border-slate-200/80">
+        <Input prefix={<Search size={16} className="text-slate-400" />} allowClear placeholder="Search sections..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 300 }} />
+        <Button type="primary" icon={<Plus size={14} />} onClick={() => openModal()}>Add Section</Button>
+      </div>
+      <Table
+        rowKey="id"
+        loading={isLoading}
+        dataSource={filtered}
+        size="small"
+        pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
+        columns={[
+          { title: 'Name', dataIndex: 'name' },
+          { title: 'Type', dataIndex: 'sectionType', render: (v) => sectionTypes?.find((t) => t.type === v)?.label ?? v },
+          { title: 'Identifier', dataIndex: 'uniqueIdentifier', render: (v) => v ?? '—' },
+          { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
+          { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
+          {
+            title: 'Actions', width: 120,
+            render: (_, row) => (
+              <Space size={8} onClick={(e) => e.stopPropagation()}>
+                <Switch size="small" checked={row.active} onChange={(checked) => toggleActive(row, checked)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
+                </Tooltip>
+              </Space>
+            ),
+          },
+        ]}
+      />
+      <Modal
+        {...glassModalProps}
+        destroyOnClose
+        width="min(1400px, 94vw)"
+        style={{ top: 24 }}
+        styles={{ ...glassModalStyles, body: { ...glassModalStyles.body, maxHeight: '78vh', overflowY: 'auto' } }}
+        title={editing ? 'Edit Section' : 'Add Section'} open={open} onCancel={() => setOpen(false)}
+        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
+        <Form form={form} layout="vertical">
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+            <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
+            <Form.Item name="uniqueIdentifier" label="Unique Identifier" extra="Optional — combined with Name must be unique."><Input className="font-mono text-xs" /></Form.Item>
+            <Form.Item name="sectionType" label="Section Type" rules={[{ required: true }]}>
+              <Select options={(sectionTypes ?? []).map((t) => ({ value: t.type, label: t.label }))} disabled={!!editing} />
+            </Form.Item>
+          </div>
+          {editing && <p className="text-[11px] text-slate-400 -mt-2 mb-3">Section type cannot be changed after creation.</p>}
+          <Form.Item name="description" label="Description"><TextArea rows={2} /></Form.Item>
+
+          {sectionType === 'combined' && (
+            <p className="text-[11px] text-slate-500 bg-indigo-50/60 border border-indigo-100 rounded px-2.5 py-1.5 -mt-1 mb-3">
+              Combined sections carry both a Param block and a Data Table block — fill in the ones you need below.
+            </p>
+          )}
+
+          {sectionType && RICHTEXT_SECTION_TYPES.includes(sectionType) && (
+            <Form.Item name="defaultContent" label="Default Content">
+              <TextArea rows={4} placeholder="Rich text body shown when this section is attached..." />
+            </Form.Item>
+          )}
+
+          {sectionType && SINGLE_DATA_ITEM_SECTION_TYPES.includes(sectionType) && (
+            <Form.Item label="Linked Data Item" required>
+              <Select showSearch optionFilterProp="label" placeholder="Select a data item..." value={singleDataItemId} onChange={setSingleDataItemId} options={dataItemOptions} />
+            </Form.Item>
+          )}
+
+          {sectionType && MULTI_DATA_ITEM_SECTION_TYPES.includes(sectionType) && (
+            <div className="space-y-2 border-t border-slate-100 pt-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold tracking-wide text-slate-700 uppercase">Param</label>
+                <Select
+                  size="small" showSearch optionFilterProp="label" placeholder="Add a data item..." style={{ width: 220 }}
+                  value={null}
+                  onChange={(v: string) => { if (!dataItemLinks.some((l) => l.dataItemId === v)) setDataItemLinks([...dataItemLinks, { dataItemId: v, isMandatory: false }]) }}
+                  options={dataItemOptions.filter((o) => !dataItemLinks.some((l) => l.dataItemId === o.value))}
+                />
+              </div>
+              {dataItemLinks.map((l, i) => {
+                const item = (dataItems?.items ?? []).find((d) => d.id === l.dataItemId)
+                return (
+                  <div key={l.dataItemId} className="flex items-center gap-2 bg-slate-50/70 p-2 rounded border border-slate-200">
+                    <span className="text-xs flex-1 truncate">{item?.name ?? l.dataItemId}</span>
+                    <Checkbox checked={l.isMandatory} onChange={(e) => setDataItemLinks(dataItemLinks.map((x, xi) => xi === i ? { ...x, isMandatory: e.target.checked } : x))}>
+                      <span className="text-xs">Mandatory</span>
+                    </Checkbox>
+                    <Button type="text" danger size="small" icon={<Trash2 size={13} />} onClick={() => setDataItemLinks(dataItemLinks.filter((_, xi) => xi !== i))} />
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {sectionType && DATATABLE_SECTION_TYPES.includes(sectionType) && (
+            <div className="space-y-2 border-t border-slate-100 pt-3">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold tracking-wide text-slate-700 uppercase">Data Table</label>
+                <span className={`text-[11px] ${columnWidthSum > 100 ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>Width total: {columnWidthSum}/100</span>
+              </div>
+              {columns.map((c, i) => {
+                const item = (dataItems?.items ?? []).find((d) => d.id === c.dataItemId)
+                return (
+                  <div key={`${c.dataItemId}-${i}`} className="flex items-center gap-2 bg-slate-50/70 p-2 rounded border border-slate-200">
+                    <span className="text-xs flex-1 truncate">{item?.name ?? c.dataItemId}</span>
+                    <InputNumber size="small" min={1} max={100} value={c.relativeWidth} onChange={(v) => setColumns(columns.map((x, xi) => xi === i ? { ...x, relativeWidth: Number(v) || 0 } : x))} style={{ width: 70 }} />
+                    <Checkbox checked={c.isMandatory} onChange={(e) => setColumns(columns.map((x, xi) => xi === i ? { ...x, isMandatory: e.target.checked } : x))}>
+                      <span className="text-xs">Mandatory</span>
+                    </Checkbox>
+                    <Button type="text" danger size="small" icon={<Trash2 size={13} />} onClick={() => setColumns(columns.filter((_, xi) => xi !== i))} />
+                  </div>
+                )
+              })}
+              <Select
+                size="small" showSearch optionFilterProp="label" placeholder="Add a column (data item)..." style={{ width: '100%' }}
+                value={null}
+                onChange={(v: string) => { if (!columns.some((c) => c.dataItemId === v)) setColumns([...columns, { dataItemId: v, relativeWidth: 20, isMandatory: false }]) }}
+                options={dataItemOptions.filter((o) => !columns.some((c) => c.dataItemId === o.value))}
+              />
+              <p className="text-[11px] text-slate-400">At most 10 columns; widths must sum to 100 or less.</p>
+            </div>
+          )}
+
+          {sectionType && EMBEDDED_FILE_SECTION_TYPES.includes(sectionType) && (
+            <div className="space-y-2 border-t border-slate-100 pt-3">
+              <label className="text-xs font-semibold text-slate-700">Preconfigured Spreadsheet (.xlsx / .xls)</label>
+              {editing ? (
+                <div className="space-y-2">
+                  <p className="text-[11px] text-slate-500">
+                    Current file: <span className="font-mono">{editing.embeddedFile?.fileName ?? 'none uploaded'}</span>
+                  </p>
+                  <Upload beforeUpload={(f) => {
+                    ardSectionApi.uploadEmbeddedFile(editing.id, f).then(
+                      () => { invalidate(); msg.success('Spreadsheet uploaded.') },
+                      (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to upload spreadsheet.'),
+                    )
+                    return false
+                  }}>
+                    <Button icon={<UploadIcon size={14} />} size="small">Upload / Replace</Button>
+                  </Upload>
+                </div>
+              ) : (
+                <Upload beforeUpload={(f) => { setUploadFile(f); return false }} onRemove={() => setUploadFile(null)} maxCount={1}>
+                  <Button icon={<UploadIcon size={14} />} size="small">Choose File</Button>
+                </Upload>
+              )}
+            </div>
+          )}
         </Form>
       </Modal>
     </div>
@@ -900,9 +1670,28 @@ function ContentLibraryTab({ data }: { data: ArdMasterDataState }) {
 
   const save = useMutation({
     mutationFn: (v: Record<string, unknown>) => ardApi.saveContentBlock({ ...v, body: bodyHtml }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-master-data'] }); msg.success('Content block saved.'); setOpen(false) },
     onError: (e: unknown) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save content block.'),
   })
+
+  const toggleActive = (row: ArdContentBlock, checked: boolean) => {
+    save.mutate({ ...row, id: row.id, active: checked }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(checked ? `"${row.name}" enabled.` : `"${row.name}" disabled.`)
+      },
+    })
+  }
+
+  const submitForm = (values: Record<string, unknown>) => {
+    const isEdit = !!editing
+    save.mutate({ ...values, id: editing?.id, active: editing ? editing.active : true }, {
+      onSuccess: () => {
+        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+        msg.success(isEdit ? 'Template section updated.' : 'Template section added.')
+        setOpen(false)
+      },
+    })
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
@@ -913,6 +1702,7 @@ function ContentLibraryTab({ data }: { data: ArdMasterDataState }) {
   const openModal = (row?: ArdContentBlock) => {
     setEditing(row ?? null)
     setBodyHtml(row?.body ?? '')
+    form.resetFields()
     form.setFieldsValue(row ? { name: row.name, contentType: row.contentType, displayHeight: row.displayHeight } : { name: '', contentType: 'richtext', displayHeight: 250 })
     setOpen(true)
   }
@@ -922,7 +1712,7 @@ function ContentLibraryTab({ data }: { data: ArdMasterDataState }) {
       {ctx}
       <div className="flex flex-wrap items-center justify-between gap-3 mb-4 bg-slate-50/70 p-3 rounded-lg border border-slate-200/80">
         <Input prefix={<Search size={16} className="text-slate-400" />} allowClear placeholder="Search content blocks..." value={search} onChange={(e) => setSearch(e.target.value)} style={{ width: 300 }} />
-        <Button type="primary" icon={<Plus size={14} />} onClick={() => openModal()}>Add Content Block</Button>
+        <Button type="primary" icon={<Plus size={14} />} onClick={() => openModal()}>Add Template Section</Button>
       </div>
       <Table
         rowKey="id"
@@ -939,9 +1729,9 @@ function ContentLibraryTab({ data }: { data: ArdMasterDataState }) {
             title: 'Actions', width: 120,
             render: (_: unknown, row: ArdContentBlock) => (
               <Space size={8} onClick={(e) => e.stopPropagation()}>
-                <Switch size="small" checked={row.active} onChange={(checked) => save.mutate({ ...row, id: row.id, active: checked })} />
-                <Tooltip title="Edit">
-                  <Button type="text" size="small" icon={<Edit3 size={15} className="text-indigo-600" />} onClick={() => openModal(row)} />
+                <Switch size="small" checked={row.active} onChange={(checked) => toggleActive(row, checked)} />
+                <Tooltip title={row.active ? 'Edit' : 'Enable this record to edit it'}>
+                  <Button type="text" size="small" disabled={!row.active} icon={<Edit3 size={15} className={row.active ? 'text-indigo-600' : 'text-slate-300'} />} onClick={() => openModal(row)} />
                 </Tooltip>
               </Space>
             ),
@@ -951,15 +1741,15 @@ function ContentLibraryTab({ data }: { data: ArdMasterDataState }) {
       <Modal
         {...glassModalProps}
         destroyOnClose
-        title={editing ? 'Edit Content Block' : 'Add Content Block'}
+        title={editing ? 'Edit Template Section' : 'Add Template Section'}
         open={open}
         width={780}
         onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v: Record<string, unknown>) => save.mutate({ ...v, id: editing?.id, active: editing ? editing.active : true }))}
+        onOk={() => form.validateFields().then((v: Record<string, unknown>) => submitForm(v))}
         confirmLoading={save.isPending}
       >
         <Form form={form} layout="vertical">
-          <Form.Item name="name" label="Block Name" rules={[{ required: true, message: 'Name is required' }]}>
+          <Form.Item name="name" label="Section Name" rules={[{ required: true, message: 'Name is required' }]}>
             <Input placeholder="e.g. Standard Disclaimer, SOP Reference Text" />
           </Form.Item>
           <Form.Item name="contentType" label="Content Type" rules={[{ required: true }]}>
@@ -1008,6 +1798,7 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
     endDate?: string | null
     certificationPath?: string | null
   } | null>(null)
+  const [certPreviewUrl, setCertPreviewUrl] = useState<string | null>(null)
   const [alertOpen, setAlertOpen] = useState(false)
   const [editing, setEditing] = useState<ArdAnalystQualification | null>(null)
   const [editingAlert, setEditingAlert] = useState<ArdQualificationAlert | null>(null)
@@ -1020,7 +1811,7 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
   const [approvingId, setApprovingId] = useState<string | null>(null)
 
   const approveQualMut = useMutation({
-    mutationFn: (id: string) => apiPost(`/api/ard/qualifications/${id}/approve`, {}),
+    mutationFn: (id: string) => apiPost(`/api/ard/master-data/qualifications/${id}/approve`, {}),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-master-data'] })
       msg.success('Qualification approved.')
@@ -1037,7 +1828,7 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
   const qualifiedUserIds = new Set(data.qualifications.map((q) => q.userId))
   const analystOptions = (analystUsers?.items ?? [])
     .filter((u) => !qualifiedUserIds.has(u.id) || u.id === editing?.userId)
-    .map((u) => ({ value: u.id, label: `${u.username} — ${u.full_name || u.email}` }))
+    .map((u) => ({ value: u.id, label: `${u.display_name || u.username} (${u.emp_no || u.id})` }))
 
   const [pendingCertFiles, setPendingCertFiles] = useState<Record<string, File>>({})
 
@@ -1091,6 +1882,18 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to upload certificate.'),
   })
+
+  useEffect(() => {
+    if (!certModal?.certificationPath) { setCertPreviewUrl(null); return }
+    let revoked = false
+    apiDownloadBlob(`/api/ard/qualifications/certificate?qualification_id=${certModal.qualificationId}&technique_id=${certModal.techniqueId}`)
+      .then(({ blob }) => { if (!revoked) setCertPreviewUrl(URL.createObjectURL(blob)) })
+      .catch(() => setCertPreviewUrl(null))
+    return () => {
+      revoked = true
+      setCertPreviewUrl((prev) => { if (prev) URL.revokeObjectURL(prev); return null })
+    }
+  }, [certModal?.qualificationId, certModal?.techniqueId, certModal?.certificationPath])
 
   const downloadCertificate = async (qualificationId: string, techniqueId: string, filename: string) => {
     try {
@@ -1149,7 +1952,30 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
             <h3 className="text-sm font-bold text-slate-800">Analyst Qualifications Matrix</h3>
             <p className="text-xs text-slate-400">Technique qualifications, validity periods, and certificate metadata</p>
           </div>
-          <Button type="primary" icon={<Plus size={14} />} onClick={() => openModal()}>Add Analyst</Button>
+          <div className="flex gap-2">
+            <Upload
+              accept=".csv"
+              showUploadList={false}
+              beforeUpload={(file) => {
+                const fd = new FormData()
+                fd.append('file', file)
+                fetch('/api/ard/master-data/qualifications/import-csv', { method: 'POST', body: fd, headers: { Authorization: `Bearer ${localStorage.getItem('access_token') || ''}` } })
+                  .then((r) => r.json())
+                  .then((res) => {
+                    const body = res?.data ?? res
+                    msg.success(`Imported ${body.created} qualification(s)${body.skipped > 0 ? `, ${body.skipped} skipped` : ''}.`)
+                    if (body.errors?.length) msg.warning(`${body.errors.length} row(s) had errors — see console.`)
+                    if (body.errors?.length) console.warn('Qualification CSV import errors:', body.errors)
+                    qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+                  })
+                  .catch(() => msg.error('CSV import failed. Expected columns: username (or empNo), techniqueCode, startDate, endDate, validTill.'))
+                return false
+              }}
+            >
+              <Button icon={<UploadIcon size={14} />}>Bulk Upload</Button>
+            </Upload>
+            <Button type="primary" icon={<Plus size={14} />} onClick={() => openModal()}>Add Analyst Qualification</Button>
+          </div>
         </div>
         <Table
           rowKey="id"
@@ -1290,8 +2116,7 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
           columns={[
             { title: 'Alert Name', dataIndex: 'name', render: (v) => <span className="font-medium text-slate-800">{v}</span> },
             { title: 'Days Before Expiry', dataIndex: 'daysBeforeExpiry', render: (v) => <Tag color="orange">{v} Days</Tag> },
-            { title: 'Status', dataIndex: 'active', render: (v) => <Tag color={v ? 'green' : 'default'}>{v ? 'Active' : 'Inactive'}</Tag> },
-            { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
+              { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
             { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
             {
               title: 'Actions', width: 120,
@@ -1372,7 +2197,7 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
           </Form.Item>
           <Form.Item name="techniqueIds" label="Qualified Techniques" rules={[{ required: true, type: 'array', min: 1, message: 'Select at least one technique' }]}>
             <Select mode="multiple" optionFilterProp="label" placeholder="Select techniques"
-              options={data.techniques.map((t) => ({ value: t.id, label: `${t.code} — ${t.name}` }))} />
+              options={data.techniques.map((t) => ({ value: t.id, label: t.code }))} />
           </Form.Item>
           {techniqueIds.map((tid) => {
             const t = data.techniques.find((x) => x.id === tid)
@@ -1519,6 +2344,26 @@ function QualificationsTab({ data }: { data: ArdMasterDataState }) {
                 </div>
               </div>
             </div>
+
+            {certModal.certificationPath ? (
+              <div className="border border-slate-200 rounded-lg overflow-hidden">
+                <div className="flex items-center justify-between px-3 py-2 bg-slate-50/70 border-b border-slate-200">
+                  <span className="text-xs font-semibold text-slate-700">Uploaded Certificate Document</span>
+                  {certPreviewUrl && (
+                    <Button size="small" type="link" onClick={() => window.open(certPreviewUrl, '_blank', 'noopener')}>
+                      Open in new tab
+                    </Button>
+                  )}
+                </div>
+                {certPreviewUrl ? (
+                  <iframe title="Uploaded certificate PDF" className="w-full" style={{ height: 360, border: 'none' }} src={certPreviewUrl} />
+                ) : (
+                  <div className="h-24 flex items-center justify-center text-xs text-slate-400">Loading document…</div>
+                )}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 text-center py-2">No uploaded certificate document yet — use "Upload PDF File" below.</p>
+            )}
           </div>
         )}
       </Modal>
@@ -1602,6 +2447,9 @@ export default function ArdConfigurationPage() {
   const { data, isLoading } = useMasterData()
   const user = useAppSelector(selectUser)
   const [viewMode, setViewMode] = useState<'tabbed' | 'single'>('tabbed')
+  const location = useLocation()
+  const initialTab = (location.state as { tab?: string } | null)?.tab
+  const [activeKey, setActiveKey] = useState(initialTab ?? 'techniques')
 
   const isAllowed = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'QA', 'QC_MANAGER'].includes(user?.role_code ?? '')
 
@@ -1628,8 +2476,9 @@ export default function ArdConfigurationPage() {
     { key: 'form-types', label: `Form Types (${data.formTypes.length})`, children: <FormTypesTab data={data} /> },
     { key: 'lookups', label: `Lookups (${data.lookups.length})`, children: <LookupsTab data={data} /> },
     { key: 'data-items', label: `Data Items (${data.dataItems.length})`, children: <DataItemsTab data={data} /> },
-    { key: 'content-library', label: `Content Library (${(data.contentBlocks ?? []).length})`, children: <ContentLibraryTab data={data} /> },
-    { key: 'qualification', label: `Qualifications (${data.qualifications.length})`, children: <QualificationsTab data={data} /> },
+    { key: 'sections', label: 'Sections', children: <SectionsTab /> },
+    { key: 'content-library', label: `Template Section (${(data.contentBlocks ?? []).length})`, children: <ContentLibraryTab data={data} /> },
+    { key: 'qualification', label: `Analyst Qualification (${data.qualifications.length})`, children: <QualificationsTab data={data} /> },
     { key: 'settings', label: 'Settings', children: <SettingsTab data={data} /> },
   ]
 
@@ -1653,7 +2502,7 @@ export default function ArdConfigurationPage() {
 
       {viewMode === 'tabbed' ? (
         <div className="glass-card rounded-lg p-4">
-          <Tabs type="card" items={items} />
+          <Tabs type="card" items={items} activeKey={activeKey} onChange={setActiveKey} />
         </div>
       ) : (
         <div className="space-y-6">

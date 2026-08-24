@@ -195,9 +195,6 @@ interface TestDetail {
   trfFormId?: string | null
   // Reassignment remarks
   testReassignRemarks?: string | null
-  // Not currently returned by the test-detail endpoint (see
-  // ArdTestExecutePage's canAcceptTest / priority Tag) — declared optional so
-  // both read sites type-check without asserting the backend sends them.
   formCreatedById?: string | null
   priority?: string | null
 }
@@ -438,6 +435,24 @@ export default function ArdTestExecutePage() {
     return true
   }, [qualifiedData, user?.id, user?.username])
 
+  // Member ids of only the team(s) the current user actually LEADS (as HOD
+  // or TL) — scopes the analyst picker's fallback branch to "my team" only,
+  // matching the backend's ledTeamMemberIds. Deliberately excludes teams
+  // where this user is merely a plain member (e.g. a TL seconded onto
+  // another team's roster) — that team's analysts aren't theirs to assign.
+  // HOD/QA/Admin get the unscoped list from the backend directly
+  // (qualifiedData already reflects that), so this only narrows things for
+  // a plain TL/analyst.
+  const myTeamMemberIds = useMemo(() => {
+    const rawTeams = teamDirectoryData?.items ?? []
+    const myTeams = rawTeams.filter((t: any) =>
+      t.hodId === user?.id || (t.tlIds ?? []).includes(user?.id)
+    )
+    const ids = new Set<string>()
+    myTeams.forEach((t: any) => (t.memberIds ?? []).forEach((id: string) => ids.add(id)))
+    return ids
+  }, [teamDirectoryData, user?.id])
+
   const analystOptions = useMemo(() => {
     if (qualifiedData?.items && qualifiedData.items.length > 0) {
       return qualifiedData.items.map((u) => ({
@@ -447,11 +462,12 @@ export default function ArdTestExecutePage() {
     }
     return (teamUsersData?.items ?? [])
       .filter((u) => ['ANALYST', 'CHEM'].includes(u.role_code) && u.department_code !== 'QA')
+      .filter((u) => myTeamMemberIds.size === 0 || myTeamMemberIds.has(u.id))
       .map((u) => ({
         value: u.id,
         label: `${u.username} (${u.role_code})`,
       }))
-  }, [qualifiedData, teamUsersData])
+  }, [qualifiedData, teamUsersData, myTeamMemberIds])
 
   const { data, isLoading, error } = useQuery<TestDetail>({
     queryKey: ['ard-test', atrId, testId],
@@ -480,6 +496,7 @@ export default function ArdTestExecutePage() {
       invalidate()
       qc.invalidateQueries({ queryKey: ['ard-tests'] })
     },
+    onError: (e: any) => message.error(e?.detail || e?.message || 'Failed to claim test.'),
   })
 
   const assignMut = useMutation({
@@ -597,8 +614,8 @@ export default function ArdTestExecutePage() {
   })
 
   const withdrawMut = useMutation({
-    mutationFn: () => apiPost(`/api/ard/tests/${atrId}/${testId}/withdraw`, {
-      actorUserName: user?.username, actionRemarks: withdrawRemarks,
+    mutationFn: (password?: string) => apiPost(`/api/ard/tests/${atrId}/${testId}/withdraw`, {
+      actorUserName: user?.username, actionRemarks: withdrawRemarks, password,
     }),
     onSuccess: () => { setWithdrawOpen(false); setWithdrawRemarks(''); invalidate() },
     onError: (e: any) => message.error(e?.detail || e?.message || 'Failed to withdraw test.'),
@@ -1485,11 +1502,7 @@ export default function ArdTestExecutePage() {
           } else if (esignTargetAction === 'VERIFY') {
             await verifyMut.mutateAsync(payload.password)
           } else if (esignTargetAction === 'WITHDRAW') {
-            // withdrawMut takes no argument — it reads `withdrawRemarks` from
-            // component state, not the e-signature payload. The signed
-            // password isn't actually sent to the withdraw endpoint at all
-            // (a pre-existing gap, not introduced here).
-            await withdrawMut.mutateAsync()
+            await withdrawMut.mutateAsync(payload.password)
           }
           setEsignTargetAction(null)
         }}

@@ -9,14 +9,34 @@ import { ApiError } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
 import dayjs from 'dayjs'
 
-const ROLE_COLOR: Record<string, string> = { HOD: 'gold', TL: 'blue', CHEM: 'green', ANALYST: 'green' }
+const ROLE_COLOR: Record<string, string> = { HOD: 'gold', TL: 'blue', TEAM_LEAD: 'blue', CHEM: 'green', CHEMIST: 'green', ANALYST: 'green' }
 const roleTag = (role: string) => {
   const r = (role || '').toUpperCase()
-  const label = r === 'CHEM' || r === 'ANALYST' ? 'Analyst' : r
+  const label = ['CHEM', 'CHEMIST', 'ANALYST'].includes(r) ? 'Analyst' : r === 'TEAM_LEAD' ? 'TL' : r
   return <Tag color={ROLE_COLOR[r] ?? 'default'} className="text-xs">{label}</Tag>
 }
 
+const ARD_DEPTS = new Set(['AD', 'ARD'])
+const QA_DEPTS = new Set(['QA'])
+const HOD_ROLES = new Set(['HOD', 'HEAD_OF_DEPT', 'MANAGER'])
+const TL_ROLES = new Set(['TL', 'TEAM_LEAD'])
+const ANALYST_ROLES = new Set(['ANALYST', 'CHEM', 'CHEMIST'])
+
+function userRole(u: { role_code?: string; roleCode?: string }): string {
+  return String(u.role_code || u.roleCode || '').toUpperCase()
+}
+function userDept(u: { department_code?: string | null; departmentCode?: string | null }): string {
+  return String(u.department_code || u.departmentCode || '').toUpperCase()
+}
+
 // ── Directory Tab ─────────────────────────────────────────────────────────────
+
+const MEMBER_ROLE_OPTIONS = [
+  { value: 'ANALYST', label: 'Analyst' },
+  { value: 'TL', label: 'Team Lead' },
+  { value: 'HOD', label: 'HOD' },
+  { value: 'QA', label: 'QA' },
+]
 
 function DirectoryTab({
   isHodOrAdmin,
@@ -25,6 +45,8 @@ function DirectoryTab({
   hodOptions,
   tlOptions,
   analystOptions,
+  memberOptionsByRole,
+  userLookup,
   usersLoading,
 }: {
   isHodOrAdmin: boolean
@@ -33,6 +55,8 @@ function DirectoryTab({
   hodOptions: { value: string; label: string }[]
   tlOptions: { value: string; label: string }[]
   analystOptions: { value: string; label: string }[]
+  memberOptionsByRole: Record<string, { value: string; label: string }[]>
+  userLookup: Map<string, { username: string; roleBucket: string }>
   usersLoading: boolean
 }) {
   const qc = useQueryClient()
@@ -40,11 +64,27 @@ function DirectoryTab({
   const [modalOpen, setModalOpen] = useState(false)
   const [editingTeam, setEditingTeam] = useState<any | null>(null)
   const [addingFor, setAddingFor] = useState<{ teamId: string; tlId: string } | null>(null)
+  const [addRole, setAddRole] = useState<string>('ANALYST')
   const [addSelected, setAddSelected] = useState<string[]>([])
-  const [addingTlFor, setAddingTlFor] = useState<string | null>(null)
-  const [addTlSelected, setAddTlSelected] = useState<string[]>([])
   const [form] = Form.useForm()
   const [msg, ctx] = message.useMessage()
+
+  // Team Members are picked role-first: choose a role, then the people with
+  // that role, then add them to the roster being built for this team.
+  const [teamMembers, setTeamMembers] = useState<{ id: string; name: string; role: string }[]>([])
+  const [pendingRole, setPendingRole] = useState<string | undefined>(undefined)
+  const [pendingUserIds, setPendingUserIds] = useState<string[]>([])
+
+  const addPendingMembers = () => {
+    if (!pendingRole || pendingUserIds.length === 0) return
+    const roleOptions = memberOptionsByRole[pendingRole] || []
+    const existingIds = new Set(teamMembers.map((m) => m.id))
+    const toAdd = pendingUserIds
+      .filter((id) => !existingIds.has(id))
+      .map((id) => ({ id, name: roleOptions.find((o) => o.value === id)?.label || id, role: pendingRole }))
+    setTeamMembers([...teamMembers, ...toAdd])
+    setPendingUserIds([])
+  }
 
   const { data, isLoading } = useQuery({ queryKey: ['ard-team-directory'], queryFn: ardOpsApi.teamDirectory })
   const items = data?.items ?? []
@@ -99,16 +139,12 @@ function DirectoryTab({
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed.'),
   })
 
-  const addTlMutation = useMutation({
-    mutationFn: ({ teamId, tlIds }: { teamId: string; tlIds: string[] }) =>
-      ardOpsApi.updateTeam(teamId, { tlIds }),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-team-directory'] }); msg.success('TL added.') },
-    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed.'),
-  })
-
   const openCreate = () => {
     setEditingTeam(null)
     form.resetFields()
+    setTeamMembers([])
+    setPendingRole(undefined)
+    setPendingUserIds([])
     if (hodOptions.find((o) => o.value === currentUserId)) {
       form.setFieldsValue({ hodId: currentUserId })
     }
@@ -122,9 +158,16 @@ function DirectoryTab({
       name: team.teamName,
       hodId: team.hodId,
       mainTlId: tlList[0] || undefined,
-      memberTlIds: tlList.slice(1),
       description: team.description,
     })
+    setTeamMembers(
+      (team.memberIds || []).map((id: string) => {
+        const u = userLookup.get(id)
+        return { id, name: u?.username || id, role: u?.roleBucket || 'ANALYST' }
+      })
+    )
+    setPendingRole(undefined)
+    setPendingUserIds([])
     setModalOpen(true)
   }
 
@@ -148,7 +191,7 @@ function DirectoryTab({
             <div className="flex flex-wrap gap-1">
               {v.map((n, idx) => (
                 <Tag key={n} color={idx === 0 ? 'purple' : 'blue'} className="text-xs m-0 font-medium">
-                  {idx === 0 ? `Main TL: ${n}` : `TL: ${n}`}
+                  {n}
                 </Tag>
               ))}
             </div>
@@ -268,20 +311,27 @@ function DirectoryTab({
                         {canManage && !isAdding && (
                           <Button type="text" size="small" icon={<Plus size={12} />}
                             className="text-violet-600 text-xs"
-                            onClick={() => { setAddingFor({ teamId: row.id, tlId: tl.id }); setAddSelected([]) }}>
+                            onClick={() => { setAddingFor({ teamId: row.id, tlId: tl.id }); setAddRole('ANALYST'); setAddSelected([]) }}>
                             Add Analyst
                           </Button>
                         )}
                       </div>
 
-                      {/* Add analyst inline */}
+                      {/* Add analyst inline — same role-first, then user-select concept as Team Members in Create Team */}
                       {isAdding && (
                         <div className="flex items-center gap-2 px-3 py-2 bg-violet-50 border-b border-violet-100">
+                          <Select
+                            size="small"
+                            style={{ width: 120 }}
+                            value={addRole}
+                            onChange={(v) => { setAddRole(v); setAddSelected([]) }}
+                            options={MEMBER_ROLE_OPTIONS}
+                          />
                           <Select mode="multiple" size="small" style={{ flex: 1 }} showSearch loading={usersLoading}
                             value={addSelected} onChange={setAddSelected}
                             filterOption={(inp, opt) => (opt?.label ?? '').toString().toLowerCase().includes(inp.toLowerCase())}
-                            options={analystOptions.filter((o) => !existingIds.includes(o.value))}
-                            placeholder="Select analysts..." />
+                            options={(memberOptionsByRole[addRole] || []).filter((o) => !existingIds.includes(o.value))}
+                            placeholder="Select user(s)..." />
                           <Button size="small" type="primary" loading={updateAnalystMap.isPending}
                             onClick={() => {
                               if (!addSelected.length) { setAddingFor(null); return }
@@ -340,40 +390,6 @@ function DirectoryTab({
                   )
                 })}
 
-                {/* Add TL inline */}
-                {canManage && (
-                  addingTlFor === row.id ? (
-                    <div className="flex items-center gap-2 p-2 bg-slate-50 border border-slate-200 rounded-lg">
-                      <Select
-                        mode="multiple"
-                        size="small"
-                        style={{ flex: 1 }}
-                        showSearch
-                        loading={usersLoading}
-                        value={addTlSelected}
-                        onChange={setAddTlSelected}
-                        filterOption={(inp, opt) => (opt?.label ?? '').toString().toLowerCase().includes(inp.toLowerCase())}
-                        options={tlOptions.filter((o) => !(row.tlIds || []).includes(o.value))}
-                        placeholder="Select TL(s) to add..."
-                      />
-                      <Button size="small" type="primary" loading={addTlMutation.isPending}
-                        onClick={() => {
-                          if (!addTlSelected.length) { setAddingTlFor(null); return }
-                          const merged = Array.from(new Set([...(row.tlIds || []), ...addTlSelected]))
-                          addTlMutation.mutate({ teamId: row.id, tlIds: merged })
-                          setAddTlSelected([])
-                          setAddingTlFor(null)
-                        }}>Add</Button>
-                      <Button size="small" onClick={() => { setAddingTlFor(null); setAddTlSelected([]) }}>Cancel</Button>
-                    </div>
-                  ) : (
-                    <Button type="dashed" size="small" icon={<Plus size={12} />}
-                      className="w-full text-slate-500"
-                      onClick={() => { setAddingTlFor(row.id); setAddTlSelected([]) }}>
-                      Add Team Lead
-                    </Button>
-                  )
-                )}
               </div>
             )
           },
@@ -394,54 +410,104 @@ function DirectoryTab({
           </div>
         }
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); setEditingTeam(null); form.resetFields() }}
+        onCancel={() => { setModalOpen(false); setEditingTeam(null); form.resetFields(); setTeamMembers([]) }}
         onOk={() => form.validateFields().then((v) => {
-          const combinedTlIds = Array.from(new Set([v.mainTlId, ...(v.memberTlIds || [])])).filter(Boolean)
+          // Only one (primary) TL is set here. If the team already had secondary
+          // TLs (added later via "Add Team Lead" on the expanded row), keep them —
+          // this modal only ever changes who the primary TL is.
+          const existingSecondaryTlIds = ((editingTeam?.tlIds || []) as string[]).slice(1)
+          const combinedTlIds = Array.from(new Set([v.mainTlId, ...existingSecondaryTlIds])).filter(Boolean)
+          const memberIds = teamMembers.map((m) => m.id)
           saveTeam.mutate({
             name: v.name,
             hodId: v.hodId,
             tlIds: combinedTlIds,
+            memberIds,
+            tlAnalystMap: combinedTlIds[0] && memberIds.length
+              ? { [combinedTlIds[0]]: memberIds }
+              : {},
             description: v.description,
           })
         })}
         confirmLoading={saveTeam.isPending}
         okText={editingTeam ? 'Save Changes' : 'Create Team'}
-        width={520}
+        width={560}
       >
         <Form form={form} layout="vertical" className="pt-3">
           <Form.Item name="name" label="Team Name" rules={[{ required: true, message: 'Required' }]}>
-            <Input placeholder="e.g. HPLC Method Development Team A" />
+            <Input placeholder="e.g. HPLC Method Development Team A" size="large" />
           </Form.Item>
-          <Form.Item name="hodId" label="HOD" rules={[{ required: true, message: 'Required' }]}>
-            <Select
-              showSearch
-              loading={usersLoading}
-              filterOption={(i, o) => (o?.label ?? '').toString().toLowerCase().includes(i.toLowerCase())}
-              options={hodOptions}
-              placeholder="Select HOD"
-            />
-          </Form.Item>
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <Form.Item name="mainTlId" label="Main Team Leader (Primary) *" rules={[{ required: true, message: 'Select main TL' }]}>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+            <Form.Item name="hodId" label="HOD" rules={[{ required: true, message: 'Required' }]}>
               <Select
                 showSearch
                 loading={usersLoading}
                 filterOption={(i, o) => (o?.label ?? '').toString().toLowerCase().includes(i.toLowerCase())}
-                options={tlOptions}
-                placeholder="Select Main TL"
+                options={hodOptions}
+                placeholder="Select HOD"
               />
             </Form.Item>
-            <Form.Item name="memberTlIds" label="Other Team Leaders (Members)">
+            <Form.Item name="mainTlId" label="Team Leader" rules={[{ required: true, message: 'Select TL' }]}>
               <Select
-                mode="multiple"
                 showSearch
                 loading={usersLoading}
                 filterOption={(i, o) => (o?.label ?? '').toString().toLowerCase().includes(i.toLowerCase())}
                 options={tlOptions}
-                placeholder="Select additional TL(s)"
+                placeholder="Select Team Leader"
               />
             </Form.Item>
           </div>
+
+          <div className="mb-1 flex items-center gap-2">
+            <span className="text-[13px] font-medium text-slate-700">Team Members</span>
+            <span className="text-xs text-slate-400 font-normal">Optional</span>
+          </div>
+          <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 mb-4">
+            <div className="flex flex-col sm:flex-row gap-2">
+              <Select
+                style={{ width: '100%', maxWidth: 140 }}
+                placeholder="Role"
+                value={pendingRole}
+                onChange={(v) => { setPendingRole(v); setPendingUserIds([]) }}
+                options={MEMBER_ROLE_OPTIONS}
+              />
+              <Select
+                mode="multiple"
+                style={{ flex: 1 }}
+                showSearch
+                loading={usersLoading}
+                disabled={!pendingRole}
+                placeholder={pendingRole ? 'Select user(s)...' : 'Select a role first'}
+                value={pendingUserIds}
+                onChange={setPendingUserIds}
+                filterOption={(i, o) => (o?.label ?? '').toString().toLowerCase().includes(i.toLowerCase())}
+                options={(pendingRole ? memberOptionsByRole[pendingRole] : []).filter(
+                  (o) => !teamMembers.some((m) => m.id === o.value)
+                )}
+              />
+              <Button type="primary" ghost onClick={addPendingMembers} disabled={!pendingRole || pendingUserIds.length === 0}>
+                Add
+              </Button>
+            </div>
+            {teamMembers.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 mt-3 pt-3 border-t border-slate-200/80">
+                {teamMembers.map((m) => (
+                  <Tag
+                    key={m.id}
+                    closable
+                    onClose={() => setTeamMembers(teamMembers.filter((x) => x.id !== m.id))}
+                    className="m-0 py-0.5 px-2"
+                  >
+                    {m.name} <span className="text-slate-400">· {MEMBER_ROLE_OPTIONS.find((r) => r.value === m.role)?.label || m.role}</span>
+                  </Tag>
+                ))}
+              </div>
+            ) : (
+              <p className="text-xs text-slate-400 mt-2 mb-0">No members added yet.</p>
+            )}
+          </div>
+
           <Form.Item name="description" label="Description">
             <Input.TextArea placeholder="Team scope or focus area (optional)" rows={2} />
           </Form.Item>
@@ -657,16 +723,36 @@ export default function ArdTeamPage() {
   const combinedUsers = Array.from(userMap.values())
 
   const hodOptions = combinedUsers
-    .filter((u) => u.role_code === 'HOD' && u.department_code === 'AD')
+    .filter((u) => HOD_ROLES.has(userRole(u)) && ARD_DEPTS.has(userDept(u)))
     .map((u) => ({ value: u.id, label: u.id === user?.id ? `${u.username} (me)` : u.username }))
 
   const tlOptions = combinedUsers
-    .filter((u) => u.role_code === 'TL' && u.department_code === 'AD')
+    .filter((u) => TL_ROLES.has(userRole(u)) && ARD_DEPTS.has(userDept(u)))
     .map((u) => ({ value: u.id, label: u.username }))
 
   const analystOptions = combinedUsers
-    .filter((u) => ['ANALYST', 'CHEM'].includes(u.role_code ?? '') && u.department_code === 'AD')
-    .map((u) => ({ value: u.id, label: `${u.username}` }))
+    .filter((u) => ANALYST_ROLES.has(userRole(u)) && ARD_DEPTS.has(userDept(u)))
+    .map((u) => ({ value: u.id, label: u.username }))
+
+  const qaOptions = combinedUsers
+    .filter((u) => QA_DEPTS.has(userDept(u)))
+    .map((u) => ({ value: u.id, label: u.username }))
+
+  const memberOptionsByRole: Record<string, { value: string; label: string }[]> = {
+    ANALYST: analystOptions,
+    TL: tlOptions,
+    HOD: hodOptions,
+    QA: qaOptions,
+  }
+
+  const userLookup = new Map<string, { username: string; roleBucket: string }>()
+  combinedUsers.forEach((u) => {
+    const bucket = QA_DEPTS.has(userDept(u)) ? 'QA'
+      : HOD_ROLES.has(userRole(u)) ? 'HOD'
+      : TL_ROLES.has(userRole(u)) ? 'TL'
+      : 'ANALYST'
+    userLookup.set(u.id, { username: u.username, roleBucket: bucket })
+  })
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -689,6 +775,8 @@ export default function ArdTeamPage() {
                   hodOptions={hodOptions}
                   tlOptions={tlOptions}
                   analystOptions={analystOptions}
+                  memberOptionsByRole={memberOptionsByRole}
+                  userLookup={userLookup}
                   usersLoading={usersLoading}
                 />
               ),

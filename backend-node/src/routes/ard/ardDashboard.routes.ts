@@ -4,7 +4,7 @@ import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse } from '../../utils/response'
 import { sequelize } from '../../database/connection'
 import {
-  ArdAtrForm, ArdTestRequest, ArdExperiment, ArdTemplate,
+  ArdAtrForm, ArdAtrSample, ArdTestRequest, ArdExperiment, ArdTemplate,
   ArdAnalystQualification, ArdAuditLog, ArdQcTrfForm,
   User, Role,
 } from '../../models/index'
@@ -204,7 +204,19 @@ router.get('/dashboard/my-metrics', authenticate, async (req: Request, res: Resp
       const [myAtrs, teamTests] = await Promise.all([
         ArdAtrForm.findAll({ where: { assignedTlId: uid } as any }),
         ArdTestRequest.findAll({
-          where: { assignedToId: uid } as any,
+          include: [{
+            model: ArdAtrSample,
+            as: 'sample',
+            required: true,
+            attributes: ['id'],
+            include: [{
+              model: ArdAtrForm,
+              as: 'atrForm',
+              required: true,
+              attributes: ['id'],
+              where: { assignedTlId: uid },
+            }],
+          }],
         }),
       ])
       const atrStatusBreakdown = myAtrs.reduce((acc: any, f: any) => {

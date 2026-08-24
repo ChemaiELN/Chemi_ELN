@@ -354,7 +354,7 @@ function AtrFormPanel({
   // are shown read-only (test type/technique can't be changed once created
   // in the ARD domain — see ArdTestRequest); only newly-added rows are
   // editable and get turned into a real addTests() call on Save.
-  const effTests: TestRow[] = tests ?? (atr?.samples[0]?.tests ?? []).map(t => ({
+  const effTests: TestRow[] = tests ?? (atr?.samples?.[0]?.tests ?? []).map(t => ({
     id: t.id, existing: true, testType: t.techniqueCode ?? '', testTypeLabel: t.techniqueName ?? t.testType,
     testSubtype: t.testSubtype ?? '', quantity: '', priority: undefined, specification: '', remarks: '',
     status: t.status, testConfigId: t.testConfigId, results: t.results ?? [],

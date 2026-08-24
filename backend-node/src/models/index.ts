@@ -32,6 +32,13 @@ export {
   ArdAttachment, ArdAuditLog, ArdNotificationRead,
   ArdContentBlock, ArdQualificationAlert, ArdAttribute, ArdDataItem,
 } from './ArdModels.model'
+export {
+  ArdSection, ArdSectionRichtext, ArdSectionDatatable, ArdSectionEmbeddedFile,
+  ArdTemplateSection, ArdSectionDataItem, ArdDatatableColumn,
+  ArdTemplateSectionRichtextSnapshot, ArdTemplateSectionDataItemSnapshot,
+  ArdTemplateSectionDatatableSnapshot, ArdTemplateDatatableColumnSnapshot,
+  ArdTemplateSectionEmbeddedFileSnapshot,
+} from './ArdSections.model'
 export { AdcObjective, AdcRegulatoryClassification, AdcRiskAssessment, AdcRiskItem } from './AdcModels.model'
 export {
   WorkflowTemplate, WorkflowTemplateVersion,
@@ -76,6 +83,12 @@ import {
   ArdTestGroup, ArdTestGroupMember, ArdTestConfiguration,
 } from './ArdModels.model'
 import { AdcRiskAssessment, AdcRiskItem } from './AdcModels.model'
+import { ArdTemplate, ArdDataItem } from './ArdModels.model'
+import {
+  ArdSection, ArdSectionRichtext, ArdSectionDatatable, ArdSectionEmbeddedFile,
+  ArdTemplateSection, ArdSectionDataItem, ArdDatatableColumn,
+  ArdTemplateSectionDatatableSnapshot, ArdTemplateDatatableColumnSnapshot,
+} from './ArdSections.model'
 import {
   InvUomDimension, InvUomUnit, InvTestType, InvTestName, InvTestMethod,
   InvMaterial, InvManufacturer,
@@ -179,6 +192,34 @@ AdcRiskItem.belongsTo(AdcRiskAssessment, { foreignKey: 'riskAssessmentId', as: '
 // ARD Experiment associations
 ArdExperiment.belongsTo(ArdNotebook, { foreignKey: 'notebookId', as: 'notebook' })
 ArdNotebook.hasMany(ArdExperiment, { foreignKey: 'notebookId', as: 'experiments' })
+
+// ARD Templates rearchitecture — Sections/Data Items as reusable master data,
+// attached to a template version via join tables (Extra/analysis/ard-templates-
+// rearchitecture-prompt.md §1.6/§1.7/§1.8).
+ArdTemplate.hasMany(ArdTemplateSection, { foreignKey: 'templateId', as: 'templateSections' })
+ArdTemplateSection.belongsTo(ArdTemplate, { foreignKey: 'templateId', as: 'template' })
+ArdTemplateSection.belongsTo(ArdSection, { foreignKey: 'sectionId', as: 'section' })
+ArdSection.hasMany(ArdTemplateSection, { foreignKey: 'sectionId', as: 'templateAttachments' })
+
+ArdSection.hasOne(ArdSectionRichtext, { foreignKey: 'sectionId', as: 'richtext' })
+ArdSectionRichtext.belongsTo(ArdSection, { foreignKey: 'sectionId', as: 'section' })
+ArdSection.hasMany(ArdSectionDatatable, { foreignKey: 'sectionId', as: 'datatables' })
+ArdSectionDatatable.belongsTo(ArdSection, { foreignKey: 'sectionId', as: 'section' })
+ArdSection.hasOne(ArdSectionEmbeddedFile, { foreignKey: 'sectionId', as: 'embeddedFile' })
+ArdSectionEmbeddedFile.belongsTo(ArdSection, { foreignKey: 'sectionId', as: 'section' })
+
+ArdSection.hasMany(ArdSectionDataItem, { foreignKey: 'sectionId', as: 'dataItemLinks' })
+ArdSectionDataItem.belongsTo(ArdSection, { foreignKey: 'sectionId', as: 'section' })
+ArdSectionDataItem.belongsTo(ArdDataItem, { foreignKey: 'dataItemId', as: 'dataItem' })
+ArdDataItem.hasMany(ArdSectionDataItem, { foreignKey: 'dataItemId', as: 'sectionLinks' })
+
+ArdSectionDatatable.hasMany(ArdDatatableColumn, { foreignKey: 'datatableId', as: 'columns' })
+ArdDatatableColumn.belongsTo(ArdSectionDatatable, { foreignKey: 'datatableId', as: 'datatable' })
+ArdDatatableColumn.belongsTo(ArdDataItem, { foreignKey: 'dataItemId', as: 'dataItem' })
+ArdDataItem.hasMany(ArdDatatableColumn, { foreignKey: 'dataItemId', as: 'columnLinks' })
+
+ArdTemplateSectionDatatableSnapshot.hasMany(ArdTemplateDatatableColumnSnapshot, { foreignKey: 'datatableSnapshotId', as: 'columns' })
+ArdTemplateDatatableColumnSnapshot.belongsTo(ArdTemplateSectionDatatableSnapshot, { foreignKey: 'datatableSnapshotId', as: 'datatableSnapshot' })
 
 // Lab → Department. Missing here made GET /api/labs fail with
 // "Department is not associated to Lab!" (labs.routes.ts:37).

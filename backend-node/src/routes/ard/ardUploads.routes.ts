@@ -46,6 +46,8 @@ ardUploadRouter.post(
         entity_id: z.string().min(1),
         name: z.string().min(1),
         description: z.string().optional(),
+        attachment_type: z.string().optional(),
+        custom_type_name: z.string().optional(),
       })
 
       const body = bodySchema.parse(req.body)
@@ -60,6 +62,8 @@ ardUploadRouter.post(
         fileType: req.file.mimetype,
         sizeBytes: req.file.size,
         attachmentLink: null,
+        attachmentType: body.attachment_type ?? null,
+        customTypeName: body.attachment_type === 'others' ? (body.custom_type_name ?? null) : null,
         uploadedBy: user.username,
         uploadedById: user.id,
       })
@@ -127,10 +131,19 @@ ardUploadRouter.patch('/:attachmentId', authenticate, async (req: Request, res: 
     const bodySchema = z.object({
       name: z.string().min(1).optional(),
       description: z.string().optional(),
+      attachment_type: z.string().optional(),
+      custom_type_name: z.string().optional(),
+      attachment_link: z.string().optional(),
     })
 
     const body = bodySchema.parse(req.body)
-    await attachment.update(body)
+    await attachment.update({
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.description !== undefined ? { description: body.description } : {}),
+      ...(body.attachment_type !== undefined ? { attachmentType: body.attachment_type } : {}),
+      ...(body.custom_type_name !== undefined ? { customTypeName: body.custom_type_name } : {}),
+      ...(body.attachment_link !== undefined ? { attachmentLink: body.attachment_link } : {}),
+    } as any)
 
     return res.json(successResponse('Attachment updated', attachment))
   } catch (err) {

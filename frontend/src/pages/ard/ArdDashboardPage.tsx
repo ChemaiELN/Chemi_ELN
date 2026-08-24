@@ -138,7 +138,7 @@ function HodDashboard({ username }: { username: string }) {
             subtitle="Analyst expiries within window"
             icon={Award} gradient={kpis?.expiringQuals ? 'bg-gradient-to-br from-rose-500 to-red-600' : 'bg-gradient-to-br from-violet-500 to-violet-600'}
             shadow={kpis?.expiringQuals ? 'shadow-lg shadow-rose-500/25' : 'shadow-lg shadow-violet-500/25'}
-            onClick={() => navigate('/ard/qualifications')} />
+            onClick={() => navigate('/ard/configuration', { state: { tab: 'qualification' } })} />
           <KpiCard title="QC-TRF Forms" value={kpis?.totalTrfs ?? 0}
             subtitle="Transfer request forms" icon={ClipboardCheck}
             gradient="bg-gradient-to-br from-cyan-500 to-blue-600"

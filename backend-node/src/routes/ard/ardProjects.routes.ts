@@ -20,16 +20,19 @@ function projectOut(p: ArdProject) {
     projectType: p.projectType, analysisType: p.analysisType, priority: p.priority,
     targetDate: p.targetDate, status: p.status, ownerName: p.ownerName, ownerId: p.ownerId,
     stpDocuments: p.stpDocuments, team: p.team, attributes: p.attributes, auditTrail: p.auditTrail,
-    createdBy: p.createdBy, createdById: p.createdById, createdAt: p.createdAt, updatedAt: p.updatedAt,
+    createdBy: p.createdBy, createdById: p.createdById, updatedBy: p.updatedBy,
+    createdAt: p.createdAt, updatedAt: p.updatedAt,
   }
 }
 
 function specOut(s: ArdProjectSpecification) {
   return {
     id: s.id, projectId: s.projectId, specCode: s.specCode, version: s.version,
-    title: s.title, status: s.status, testParameters: s.testParameters,
+    title: s.title, shortName: s.shortName, specType: s.specType, description: s.description,
+    status: s.status, testParameters: s.testParameters,
     createdBy: s.createdBy, createdById: s.createdById,
     approvedBy: s.approvedBy, approvedAt: s.approvedAt,
+    updatedBy: s.updatedBy,
     createdAt: s.createdAt, updatedAt: s.updatedAt,
   }
 }
@@ -123,11 +126,15 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
     if (existing) throw new BadRequestError('A project with this code or product name already exists', 'CONFLICT')
 
     const auditTrail = [{ id: uuidv4(), action: 'CREATED', actorName: user.username, detail: null, createdAt: new Date().toISOString() }]
+    const rc: string = (user?.role as any)?.code || ''
     const p = await ArdProject.create({
       ...body,
       name: body.name || body.code,
       status: 'OPEN',
-      stpDocuments: [], team: [], attributes: [],
+      stpDocuments: [],
+      // Creator is automatically a team member so they retain access/edit rights.
+      team: [{ userId: user.id, userName: user.username, role: rc || 'HOD' }],
+      attributes: [],
       auditTrail,
       createdBy: user.username,
       createdById: user.id,
@@ -145,8 +152,13 @@ router.put('/:projectId', authenticate, async (req: Request, res: Response, next
     const p = await ArdProject.findByPk(req.params.projectId as string)
     if (!p) throw new NotFoundError('Project')
 
-    const updates: any = { updatedAt: new Date() }
-    const scalars = ['name', 'productName', 'productCode', 'description', 'customer', 'projectType', 'analysisType', 'priority', 'targetDate', 'ownerName']
+    if (req.body.code !== undefined && req.body.code !== p.code) {
+      const dupe = await ArdProject.findOne({ where: { code: req.body.code, id: { [Op.ne]: p.id } } })
+      if (dupe) throw new BadRequestError(`Project code "${req.body.code}" is already in use.`, 'VALIDATION_ERROR')
+    }
+
+    const updates: any = { updatedAt: new Date(), updatedBy: user.username }
+    const scalars = ['code', 'name', 'productName', 'productCode', 'description', 'customer', 'projectType', 'analysisType', 'priority', 'targetDate', 'ownerName']
     scalars.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k] })
     const jsonFields = ['stpDocuments', 'team', 'attributes']
     jsonFields.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k] })
@@ -179,7 +191,7 @@ router.post('/:projectId/close', authenticate, async (req: Request, res: Respons
     // Check for unapproved experiments
     const notebooks = await ArdNotebook.findAll({ where: { projectId: p.id }, attributes: ['id'] })
     const nbIds = notebooks.map((n: any) => n.id)
-    const activeWhere: any = { status: { [Op.notIn]: ['APPROVED', 'VERIFIED', 'CLOSED'] } }
+    const activeWhere: any = { status: { [Op.notIn]: ['APPROVED', 'VERIFIED', 'CLOSED', 'DEACTIVATED'] } }
     if (nbIds.length > 0) {
       activeWhere[Op.or] = [{ projectId: p.id }, { notebookId: { [Op.in]: nbIds } }]
     } else {
@@ -279,10 +291,13 @@ router.post('/:projectId/specifications', authenticate, async (req: Request, res
     const p = await ArdProject.findByPk(projectId, { attributes: ['id', 'code'] })
     if (!p) throw new NotFoundError('Project')
 
-    const { specCode, title, version, testParameters } = z.object({
+    const { specCode, title, version, shortName, specType, description, testParameters } = z.object({
       specCode: z.string().optional(),
       title: z.string().min(1),
       version: z.string().optional(),
+      shortName: z.string().optional(),
+      specType: z.string().optional(),
+      description: z.string().optional(),
       testParameters: z.array(z.any()).optional(),
     }).parse(req.body)
 
@@ -292,6 +307,9 @@ router.post('/:projectId/specifications', authenticate, async (req: Request, res
       specCode: code,
       title,
       version: version || '1.0',
+      shortName: shortName || null,
+      specType: specType || null,
+      description: description || null,
       status: 'DRAFT',
       testParameters: testParameters || [],
       createdBy: user.username,
@@ -310,9 +328,13 @@ router.put('/:projectId/specifications/:specId', authenticate, async (req: Reque
     if (!s) throw new NotFoundError('Specification')
     if (s.status === 'APPROVED') throw new BadRequestError('Cannot edit an approved specification', 'INVALID_STATE')
 
-    const updates: any = { updatedAt: new Date() }
+    const user = (req as any).user
+    const updates: any = { updatedAt: new Date(), updatedBy: user.username }
     if (req.body.title !== undefined) updates.title = req.body.title
     if (req.body.version !== undefined) updates.version = req.body.version
+    if (req.body.shortName !== undefined) updates.shortName = req.body.shortName || null
+    if (req.body.specType !== undefined) updates.specType = req.body.specType || null
+    if (req.body.description !== undefined) updates.description = req.body.description || null
     if (req.body.testParameters !== undefined) updates.testParameters = req.body.testParameters
     await s.update(updates)
     res.json(successResponse('Specification updated', specOut(s)))

@@ -173,7 +173,7 @@ export default function ArdExperimentsPage() {
   const stpOptions = useMemo<{ value: string; label: string; stp: ProjectStp }[]>(() => {
     const docs = selectedProjectDetail?.stpDocuments ?? []
     return docs
-      .filter(s => s.status === 'ACTIVE')
+      .filter(s => s.status === 'APPROVED')
       .map(s => ({
         value: s.documentNo,
         label: `${s.documentNo} v${s.version} — ${s.title}${s.testType ? ` (${s.testType})` : ''}`,

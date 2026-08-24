@@ -4,10 +4,10 @@
  */
 import { useRef, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Button, Table, Spin, Alert, Tooltip, message, Popconfirm, Input, Modal, Image } from 'antd'
+import { Button, Table, Spin, Alert, Tooltip, message, Popconfirm, Input, Modal, Image, Select, Form } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { Upload, Download, Trash2, Paperclip, FileText, FileImage, Eye, FolderOpen, Copy, Plus } from 'lucide-react'
-import { ardUploadsApi, type ArdAttachment } from '../../api/ard-uploads'
+import { Upload, Download, Trash2, Paperclip, FileText, FileImage, Eye, FolderOpen, Copy, Plus, Pencil } from 'lucide-react'
+import { ardUploadsApi, ATTACHMENT_TYPE_OPTIONS, type ArdAttachment, type ArdAttachmentType } from '../../api/ard-uploads'
 import { glassModalProps } from '../../utils/modalStyles'
 import dayjs from 'dayjs'
 
@@ -48,6 +48,10 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
   const [previewType, setPreviewType] = useState<'image' | 'pdf' | null>(null)
   const [folderPath, setFolderPath] = useState('')
   const [folderName, setFolderName] = useState('')
+  const [pendingType, setPendingType] = useState<ArdAttachmentType | undefined>(undefined)
+  const [pendingCustomType, setPendingCustomType] = useState('')
+  const [editModalRow, setEditModalRow] = useState<ArdAttachment | null>(null)
+  const [editForm] = Form.useForm()
 
   const queryKey = ['ard-attachments', entityType, entityId]
 
@@ -82,6 +86,13 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
     onError: () => msgApi.error('Failed to update.'),
   })
 
+  const editModalMut = useMutation({
+    mutationFn: (v: { name: string; description?: string; attachmentType?: ArdAttachmentType; customTypeName?: string; attachmentLink?: string }) =>
+      ardUploadsApi.updateMeta(editModalRow!.id, v),
+    onSuccess: () => { msgApi.success('Attachment updated.'); setEditModalRow(null); invalidate() },
+    onError: () => msgApi.error('Failed to update attachment.'),
+  })
+
   async function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const files = Array.from(e.target.files ?? [])
     if (!files.length) return
@@ -89,7 +100,7 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
     let successCount = 0
     for (const file of files) {
       try {
-        await ardUploadsApi.upload(entityType, entityId, file)
+        await ardUploadsApi.upload(entityType, entityId, file, '', '', pendingType, pendingCustomType)
         successCount++
       } catch (err: unknown) {
         msgApi.error(`${file.name}: ${err instanceof Error ? err.message : 'Upload failed.'}`)
@@ -178,6 +189,16 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
       ),
     },
     {
+      title: 'Type',
+      dataIndex: 'attachmentType',
+      width: 100,
+      render: (v: ArdAttachmentType | null, row) => {
+        const opt = ATTACHMENT_TYPE_OPTIONS.find((o) => o.value === v)
+        const label = v === 'others' ? (row.customTypeName || 'Others') : opt?.label
+        return label ? <span className="text-slate-500 text-xs">{label}</span> : <span className="text-slate-300 text-xs">—</span>
+      },
+    },
+    {
       title: 'Size',
       dataIndex: 'sizeBytes',
       width: 90,
@@ -215,11 +236,27 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
             </button>
           </Tooltip>
           {!readOnly && (
-            <Popconfirm title="Remove this attachment?" onConfirm={() => removeMut.mutate(row.id)} okText="Remove" okButtonProps={{ danger: true }}>
-              <button className="p-1 rounded text-slate-400 hover:text-red-500 transition-colors">
-                <Trash2 size={14} />
-              </button>
-            </Popconfirm>
+            <>
+              <Tooltip title="Edit">
+                <button
+                  onClick={() => {
+                    setEditModalRow(row)
+                    editForm.setFieldsValue({
+                      name: row.name, description: row.description ?? '',
+                      attachmentType: row.attachmentType ?? undefined, customTypeName: row.customTypeName ?? '',
+                    })
+                  }}
+                  className="p-1 rounded text-slate-400 hover:text-violet-600 transition-colors"
+                >
+                  <Pencil size={14} />
+                </button>
+              </Tooltip>
+              <Popconfirm title="Remove this attachment?" onConfirm={() => removeMut.mutate(row.id)} okText="Remove" okButtonProps={{ danger: true }}>
+                <button className="p-1 rounded text-slate-400 hover:text-red-500 transition-colors">
+                  <Trash2 size={14} />
+                </button>
+              </Popconfirm>
+            </>
           )}
         </div>
       ),
@@ -237,7 +274,20 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
           {label ?? 'Attachments'} {fileAttachments.length > 0 && `(${fileAttachments.length})`}
         </p>
         {!readOnly && (
-          <>
+          <div className="flex items-center gap-2">
+            <Select
+              size="small"
+              placeholder="Type"
+              allowClear
+              style={{ width: 110 }}
+              value={pendingType}
+              onChange={setPendingType}
+              options={ATTACHMENT_TYPE_OPTIONS}
+            />
+            {pendingType === 'others' && (
+              <Input size="small" placeholder="Custom type" style={{ width: 120 }} value={pendingCustomType}
+                onChange={(e) => setPendingCustomType(e.target.value)} />
+            )}
             <input ref={fileRef} type="file" multiple className="hidden" onChange={handleFileChange}
               accept=".pdf,.doc,.docx,.xlsx,.xls,.png,.jpg,.jpeg" />
             <Button
@@ -248,7 +298,7 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
             >
               {uploading ? 'Uploading…' : 'Attach files'}
             </Button>
-          </>
+          </div>
         )}
       </div>
 
@@ -273,12 +323,12 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
         />
       )}
 
-      {/* Folder Links section (IncludeAttachmentLink setting) */}
+      {/* Links section — external URL or UNC folder path */}
       {folderLinkEnabled && (
         <div className="space-y-2 pt-2 border-t border-slate-100">
           <p className="text-xs text-slate-400 font-semibold uppercase tracking-wide flex items-center gap-1">
             <FolderOpen size={12} className="text-amber-500" />
-            Folder Links (UNC Paths) {folderLinks.length > 0 && `(${folderLinks.length})`}
+            Links {folderLinks.length > 0 && `(${folderLinks.length})`}
           </p>
 
           {folderLinks.map(fl => (
@@ -286,12 +336,12 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
               <FolderOpen size={14} className="text-amber-500 shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-xs font-semibold text-slate-700 truncate">{fl.name}</p>
-                <p className="text-[11px] text-amber-700 font-mono truncate">{fl.folderPath}</p>
+                <p className="text-[11px] text-amber-700 font-mono truncate">{fl.attachmentLink}</p>
               </div>
-              <Tooltip title="Copy path">
+              <Tooltip title="Copy link">
                 <button
                   className="p-1 rounded text-slate-400 hover:text-amber-600 transition-colors"
-                  onClick={() => { navigator.clipboard.writeText(fl.folderPath || fl.name); msgApi.success('Path copied.') }}
+                  onClick={() => { navigator.clipboard.writeText(fl.attachmentLink || fl.name); msgApi.success('Link copied.') }}
                 >
                   <Copy size={13} />
                 </button>
@@ -309,10 +359,10 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
           {!readOnly && (
             <div className="flex items-end gap-2 flex-wrap">
               <div className="flex flex-col gap-1">
-                <span className="text-[10px] text-slate-400">UNC Path</span>
+                <span className="text-[10px] text-slate-400">URL or UNC Path</span>
                 <Input
                   size="small"
-                  placeholder="\\server\share\folder"
+                  placeholder="https://... or \\server\share\folder"
                   value={folderPath}
                   onChange={e => setFolderPath(e.target.value)}
                   style={{ width: 260, fontFamily: 'monospace' }}
@@ -358,6 +408,30 @@ export default function ArdAttachmentsPanel({ entityType, entityId, readOnly = f
         {previewType === 'pdf' && previewUrl && (
           <iframe src={previewUrl} title="PDF Preview" style={{ width: '100%', height: 560, border: 'none' }} />
         )}
+      </Modal>
+
+      {/* Edit attachment modal */}
+      <Modal
+        {...glassModalProps}
+        title="Edit Attachment"
+        open={!!editModalRow}
+        onCancel={() => setEditModalRow(null)}
+        onOk={() => editForm.validateFields().then((v) => editModalMut.mutate(v))}
+        confirmLoading={editModalMut.isPending}
+        destroyOnClose
+      >
+        <Form form={editForm} layout="vertical">
+          <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="description" label="Description"><Input /></Form.Item>
+          <Form.Item name="attachmentType" label="Type">
+            <Select allowClear options={ATTACHMENT_TYPE_OPTIONS} />
+          </Form.Item>
+          <Form.Item shouldUpdate noStyle>
+            {() => editForm.getFieldValue('attachmentType') === 'others' && (
+              <Form.Item name="customTypeName" label="Custom Type"><Input /></Form.Item>
+            )}
+          </Form.Item>
+        </Form>
       </Modal>
     </div>
   )

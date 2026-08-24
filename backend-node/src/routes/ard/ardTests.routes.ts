@@ -1,6 +1,7 @@
 ﻿import { Router, Request, Response, NextFunction } from 'express'
 import { z } from 'zod'
 import { Op } from 'sequelize'
+import { v4 as uuidv4 } from 'uuid'
 import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response'
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../utils/errors'
@@ -8,7 +9,6 @@ import {
   ArdTestRequest,
   ArdAtrForm,
   ArdAtrSample,
-  ArdAnalystQualification,
   ArdTeam,
   ArdAuditLog,
   User,
@@ -17,12 +17,19 @@ import {
 } from '../../models/index'
 import { generateArTestNumber } from '../../utils/idSequence'
 import { enforceEsignature, ESIGN_FLAGS } from '../../shared/ardSettings'
+import { canReadAllTests, teammateTlIds, ledTeamMemberIds } from '../../shared/ardRbac'
+import {
+  ATR_PENDING_APPROVAL_DONE_TEST_STATUSES,
+  shouldMoveAtrToPartialOnTestStart,
+} from '../../shared/ardWorkflowGuards'
+import {
+  assertAnalystQualifiedForTest,
+  listQualifiedAnalystIds,
+  resolveTestTechniqueKey,
+  techniqueHasQualificationRecords,
+} from '../../shared/ardQualifications'
 
 const ardTestRouter = Router()
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 // ard_test_requests has no workflow_history column (that column exists on
 // ard_atr_forms only). Per-test workflow events are therefore recorded as
@@ -36,18 +43,6 @@ async function recordTestHistory(
 ) {
   const note = detail ? `${username}: ${detail}` : username
   await writeAuditLog(testId, action, userId, note)
-}
-
-/**
- * Is this analyst qualified for the technique?
- * ard_analyst_qualifications holds one row per user with a technique_entries JSON list;
- * there are no per-technique or is_active columns to filter on.
- */
-async function isAnalystQualified(userId: string, techniqueCode: string): Promise<boolean> {
-  const qualification = await ArdAnalystQualification.findOne({ where: { userId } })
-  if (!qualification) return false
-  const entries: any[] = ((qualification as any).techniqueEntries as any[]) || []
-  return entries.some((e: any) => (e?.techniqueCode ?? e?.technique) === techniqueCode)
 }
 
 /** Sample ids belonging to an ATR — the only link between tests and a form. */
@@ -98,11 +93,12 @@ async function tryAdvanceAtr(atrFormId: string): Promise<void> {
   if (sampleIds.length === 0) return
   const allTests = await ArdTestRequest.findAll({ where: { sampleId: { [Op.in]: sampleIds } } })
   if (allTests.length === 0) return
-  const DONE_STATUSES = ['VERIFIED', 'ACCEPTED', 'FAILED', 'UNSATISFACTORY', 'REJECTED']
-  const allDone = allTests.every((t) => DONE_STATUSES.includes((t as any).status ?? ''))
+  const allDone = allTests.every((t) =>
+    ATR_PENDING_APPROVAL_DONE_TEST_STATUSES.includes(((t as any).status ?? '') as any),
+  )
   if (!allDone) return
   const atr = await ArdAtrForm.findByPk(atrFormId)
-  if (!atr || (atr as any).status !== 'IN_PROGRESS') return
+  if (!atr || (atr as any).status !== 'PARTIAL') return
   await (atr as any).update({ status: 'PENDING_APPROVAL', updatedAt: new Date() })
 }
 
@@ -138,6 +134,13 @@ function testOut(test: any): Record<string, unknown> {
     sampleCode: sample?.sampleCode ?? null,
     sampleType: sample?.sampleType ?? null,
     batchNo: sample?.batchNo ?? null,
+    storageCondition: sample?.storageCondition ?? null,
+    packType: sample?.packType ?? null,
+    sourceDept: form?.originModule && form.originModule !== 'ARD' ? form.originModule : 'ARD',
+    requestedBy: form?.createdBy ?? null,
+    requestedOn: form?.createdAt ?? null,
+    formCreatedById: form?.createdById ?? null,
+    priority: form?.priority ?? null,
   }
 }
 
@@ -145,15 +148,41 @@ function testOut(test: any): Record<string, unknown> {
 const TEST_CONTEXT_INCLUDE = [{
   model: ArdAtrSample,
   as: 'sample',
-  attributes: ['id', 'sampleCode', 'sampleType', 'batchNo', 'atrFormId'],
+  attributes: ['id', 'sampleCode', 'sampleType', 'batchNo', 'atrFormId', 'storageCondition', 'packType'],
   required: false,
   include: [{
     model: ArdAtrForm,
     as: 'atrForm',
-    attributes: ['id', 'formNo', 'projectCode', 'productName', 'assignedTl', 'assignedTlId', 'qcRef', 'status'],
+    attributes: ['id', 'formNo', 'projectCode', 'productName', 'assignedTl', 'assignedTlId', 'qcRef', 'status', 'createdById', 'createdBy', 'createdAt', 'originModule', 'priority'],
     required: false,
   }],
 }]
+
+/**
+ * Same team-boundary rule as the ATR endpoints: visible if the caller can
+ * read all tests (HOD/Admin/QA), is personally assigned/delegated the test,
+ * raised the parent ATR themselves, or is on the team the ATR's TL belongs
+ * to. `findTest`/the detail route previously had no check at all here —
+ * anyone with a valid atrId+testId could read full test detail regardless
+ * of team.
+ */
+// While the parent ATR is mid QA-pre-approval cycle it isn't cleared for the
+// team yet — see the matching note on teamScopedAtrWhere in atrs.routes.ts.
+const QA_CYCLE_STATUSES = ['QA_PRE_APPROVAL', 'PRE_APPROVAL_REWORK']
+
+async function canViewTest(user: any, test: any): Promise<boolean> {
+  if (canReadAllTests(user)) return true
+  const uid = user.id
+  if (test.assignedToId === uid || test.delegatedToId === uid) return true
+  const atrForm = test.sample?.atrForm
+  if (!atrForm) return false
+  if (atrForm.createdById === uid) return true
+  if (atrForm.assignedTlId && !QA_CYCLE_STATUSES.includes(atrForm.status)) {
+    const tlIds = await teammateTlIds(user)
+    if (tlIds.includes(atrForm.assignedTlId)) return true
+  }
+  return false
+}
 
 // ---------------------------------------------------------------------------
 // Routes
@@ -162,28 +191,67 @@ const TEST_CONTEXT_INCLUDE = [{
 // GET / â€” paginated list
 ardTestRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = (req as any).user
     const { page, limit, offset } = parsePagination(req.query)
-    const where: Record<string, any> = {}
-
-    if (req.query.status) where.status = req.query.status
-    if (req.query.view === 'mine') where.assignedToId = (req.user as any).id
+    const and: any[] = []
+    if (req.query.status) and.push({ status: req.query.status })
+    if (req.query.view === 'unlocked') and.push({ status: 'UNLOCKED' })
 
     if (req.query.q) {
       const q = `%${req.query.q}%`
-      where[Op.or as any] = [
-        { testType: { [Op.iLike]: q } },
-        { arNumber: { [Op.iLike]: q } },
-        { techniqueCode: { [Op.iLike]: q } },
-      ]
+      and.push({
+        [Op.or]: [
+          { testType: { [Op.iLike]: q } },
+          { arNumber: { [Op.iLike]: q } },
+          { techniqueCode: { [Op.iLike]: q } },
+        ],
+      })
     }
+
+    if (!canReadAllTests(user)) {
+      // A test belongs to whichever team its ATR is assigned to — visible to
+      // that team's HOD/TLs/analysts, plus whoever it's personally
+      // assigned/delegated to or whoever raised the parent ATR. Previously
+      // ANY unassigned test (assignedToId null / status UNASSIGNED) was
+      // visible to every authenticated user with no team boundary at all;
+      // that's now scoped the same way.
+      const uid = user.id
+      const tlIds = await teammateTlIds(user)
+      const orClause: any[] = [
+        { assignedToId: uid },
+        { delegatedToId: uid },
+        { '$sample.atrForm.created_by_id$': uid },
+      ]
+      if (tlIds.length > 0) {
+        // Not visible to the team while the parent ATR is still mid QA-pre-
+        // approval cycle — see canViewTest's note above.
+        orClause.push({
+          '$sample.atrForm.assigned_tl_id$': { [Op.in]: tlIds },
+          '$sample.atrForm.status$': { [Op.notIn]: QA_CYCLE_STATUSES },
+        })
+      }
+      and.push({ [Op.or]: orClause })
+    }
+
+    const where = and.length ? { [Op.and]: and } : {}
+
+    const listInclude = [{
+      ...TEST_CONTEXT_INCLUDE[0],
+      required: !canReadAllTests(user),
+      include: [{
+        ...(TEST_CONTEXT_INCLUDE[0] as any).include[0],
+        required: !canReadAllTests(user),
+      }],
+    }]
 
     const { rows, count } = await ArdTestRequest.findAndCountAll({
       where,
-      include: TEST_CONTEXT_INCLUDE as any,
+      include: listInclude as any,
       limit,
       offset,
       order: [['createdAt', 'DESC']],
       distinct: true,
+      subQuery: false,
     })
 
     return res.json(listResponse('Test requests retrieved', rows.map(testOut), buildPagination(page, limit, count)))
@@ -235,11 +303,47 @@ ardTestRouter.post('/bulk-assign', authenticate, async (req: Request, res: Respo
 // GET /:atrId/:testId
 ardTestRouter.get('/:atrId/:testId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
+    const user = (req as any).user
     await findTest(req.params.atrId as string, req.params.testId as string)
     const test = await ArdTestRequest.findByPk(req.params.testId as string, {
       include: TEST_CONTEXT_INCLUDE as any,
     })
-    return res.json(successResponse('Test request retrieved', test ? testOut(test) : null))
+    if (!test) throw new NotFoundError('Test request not found')
+    if (!(await canViewTest(user, test))) throw new ForbiddenError('Not permitted to view this test.')
+    return res.json(successResponse('Test request retrieved', testOut(test)))
+  } catch (err) {
+    next(err)
+  }
+})
+
+// GET /:atrId/:testId/events — audit trail for a single test (ownership/status
+// transitions written by recordTestHistory as ArdAuditLog rows).
+ardTestRouter.get('/:atrId/:testId/events', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user
+    await findTest(req.params.atrId as string, req.params.testId as string)
+    const test = await ArdTestRequest.findByPk(req.params.testId as string, {
+      include: TEST_CONTEXT_INCLUDE as any,
+    })
+    if (!test) throw new NotFoundError('Test request not found')
+    if (!(await canViewTest(user, test))) throw new ForbiddenError('Not permitted to view this test.')
+
+    const logs = await ArdAuditLog.findAll({
+      where: { entityType: 'ATR_TEST', entityId: req.params.testId as string },
+      order: [['createdAt', 'DESC']],
+    })
+    const userIds = Array.from(new Set(logs.map((l: any) => l.userId).filter(Boolean)))
+    const users = userIds.length ? await User.findAll({ where: { id: { [Op.in]: userIds } }, attributes: ['id', 'username'] }) : []
+    const userMap = new Map(users.map((u: any) => [u.id, u.username]))
+
+    const items = logs.map((l: any) => ({
+      id: l.id,
+      action: l.action,
+      detail: l.detail,
+      by: userMap.get(l.userId) || null,
+      at: l.createdAt,
+    }))
+    return res.json(successResponse('Test events retrieved', items))
   } catch (err) {
     next(err)
   }
@@ -251,28 +355,41 @@ ardTestRouter.get(
   authenticate,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
+      const user = (req as any).user
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
-      const techniqueCode = (test as any).techniqueCode
+      const techniqueKey = await resolveTestTechniqueKey(test as any)
+      const hasRecords = techniqueKey ? await techniqueHasQualificationRecords(techniqueKey) : false
 
-      // Qualifications are one row per analyst holding a technique_entries JSON list
-      // (see ardTeam.routes.ts:168-171) — there is no per-technique column to filter on,
-      // so filter in memory on the entry's techniqueCode.
-      const allQualifications = await ArdAnalystQualification.findAll()
-      const qualifications = allQualifications.filter((q: any) => {
-        const entries: any[] = (q.techniqueEntries as any[]) || []
-        return entries.some((e: any) => (e?.techniqueCode ?? e?.technique) === techniqueCode)
-      })
+      // A TL only assigns within their own team(s) — HOD/QA/Admin (who already
+      // read everything, canReadAllTests) keep the full pool for cross-team
+      // reassignment. Without this, a TL saw every ANALYST/CHEM in the system,
+      // including other departments' (ADC, CGT, QC) staff who aren't on their team.
+      const teamMemberIds = canReadAllTests(user) ? null : await ledTeamMemberIds(user)
+      if (teamMemberIds !== null && teamMemberIds.length === 0) {
+        return res.json(successResponse('Qualified analysts retrieved', { techniqueKey, items: [], isRestricted: !!hasRecords }))
+      }
 
-      const result = await Promise.all(
-        qualifications.map(async (q: any) => {
-          const user = await User.findByPk(q.userId, {
-            attributes: ['id', 'username', 'empNo', 'email'],
-          })
-          return { qualification: q, user }
-        }),
-      )
+      if (!hasRecords) {
+        const users = await User.findAll({
+          where: teamMemberIds ? { id: { [Op.in]: teamMemberIds } } : undefined,
+          include: [{ model: Role, as: 'role', attributes: ['code'], where: { code: { [Op.in]: ['ANALYST', 'CHEM', 'CHEMIST'] } }, required: true }],
+          attributes: ['id', 'username'],
+        })
+        const items = users.map((u: any) => ({
+          userId: u.id, userName: u.username, roleCode: (u.role as any)?.code ?? null,
+        }))
+        return res.json(successResponse('Qualified analysts retrieved', { techniqueKey, items, isRestricted: false }))
+      }
 
-      return res.json(successResponse('Qualified analysts retrieved', result))
+      let ids = [...await listQualifiedAnalystIds(techniqueKey!)]
+      if (teamMemberIds) ids = ids.filter((id) => teamMemberIds.includes(id))
+      const users = ids.length
+        ? await User.findAll({ where: { id: { [Op.in]: ids } }, include: [{ model: Role, as: 'role', attributes: ['code'] }], attributes: ['id', 'username'] })
+        : []
+      const items = users.map((u: any) => ({
+        userId: u.id, userName: u.username, roleCode: (u.role as any)?.code ?? null,
+      }))
+      return res.json(successResponse('Qualified analysts retrieved', { techniqueKey, items, isRestricted: true }))
     } catch (err) {
       next(err)
     }
@@ -288,14 +405,22 @@ ardTestRouter.post(
       assertRole(req, TL_ROLES)
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
 
+      // Accept every alias the frontend actually sends — ArdTestExecutePage
+      // posts analystId/analystName (the ARD module's camelCase contract);
+      // this schema previously only accepted the legacy analyst_id/analyst_name
+      // snake_case names, so every assignment from the UI 400'd.
       const bodySchema = z.object({
-        analyst_id: z.string(),
+        analyst_id: z.string().optional(),
+        analystId: z.string().optional(),
         analyst_name: z.string().optional(),
-      })
+        analystName: z.string().optional(),
+      }).transform((v) => ({
+        analystId: v.analystId ?? v.analyst_id,
+        analystName: v.analystName ?? v.analyst_name,
+      })).refine((v) => !!v.analystId, { message: 'analystId is required' })
       const body = bodySchema.parse(req.body)
 
-      const qualified = await isAnalystQualified(body.analyst_id, (test as any).techniqueCode)
-      if (!qualified) throw new BadRequestError('Analyst is not qualified for this technique.')
+      await assertAnalystQualifiedForTest(body.analystId as string, test as any)
 
       let arNumber = (test as any).arNumber
       if (!arNumber) {
@@ -306,8 +431,8 @@ ardTestRouter.post(
       await recordTestHistory((test as any).id, 'ASSIGNED', user.id, user.username)
 
       await test.update({
-        assignedToId: body.analyst_id,
-        assignedToName: body.analyst_name ?? null,
+        assignedToId: body.analystId,
+        assignedToName: body.analystName ?? null,
         assignedAt: new Date(),
         status: 'ASSIGNED',
         arNumber
@@ -327,7 +452,12 @@ ardTestRouter.post(
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
-      assertStatus(test, ['UNASSIGNED'], 'claim')
+      // A newly-created test starts UNASSIGNED, but once its ATR is
+      // submitted, the ATR /transition handler moves any still-UNASSIGNED
+      // test to PENDING (Extra/atrs.routes.ts's "open UNASSIGNED tests" step)
+      // — this only ever accepted the pre-submission status, so claiming any
+      // test that had actually gone through a real ATR submission 400'd.
+      assertStatus(test, ['UNASSIGNED', 'PENDING'], 'claim')
 
       const user = req.user as any
       let arNumber = (test as any).arNumber
@@ -361,14 +491,30 @@ ardTestRouter.post(
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
       assertStatus(test, ['ASSIGNED'], 'delegate')
 
+      // Accept every alias the frontend actually sends — different ARD test
+      // pages independently grew their own name for "who this is delegated
+      // to" (tlId/tlName, targetUserId/targetUserName) and "remarks"
+      // (actionRemarks/remarks), and none of them matched this schema's
+      // original analyst_id/analyst_name, so every delegate action 400'd.
       const bodySchema = z.object({
-        analyst_id: z.string(),
+        analyst_id: z.string().optional(),
+        analystId: z.string().optional(),
+        tlId: z.string().optional(),
+        targetUserId: z.string().optional(),
         analyst_name: z.string().optional(),
-      })
+        analystName: z.string().optional(),
+        tlName: z.string().optional(),
+        targetUserName: z.string().optional(),
+        remarks: z.string().optional(),
+        actionRemarks: z.string().optional(),
+      }).transform((v) => ({
+        analystId: v.analystId ?? v.analyst_id ?? v.tlId ?? v.targetUserId,
+        analystName: v.analystName ?? v.analyst_name ?? v.tlName ?? v.targetUserName,
+        remarks: v.remarks ?? v.actionRemarks,
+      })).refine((v) => !!v.analystId, { message: 'A target user id is required' })
       const body = bodySchema.parse(req.body)
 
-      const qualified = await isAnalystQualified(body.analyst_id, (test as any).techniqueCode)
-      if (!qualified) throw new BadRequestError('Analyst is not qualified for this technique.')
+      await assertAnalystQualifiedForTest(body.analystId as string, test as any)
 
       const user = req.user as any
       await recordTestHistory(
@@ -376,12 +522,12 @@ ardTestRouter.post(
         'DELEGATED',
         user.id,
         user.username,
-        `To: ${body.analyst_name ?? body.analyst_id}`,
+        `To: ${body.analystName ?? body.analystId}${body.remarks ? ` — ${body.remarks}` : ''}`,
       )
 
       await test.update({
-        assignedToId: body.analyst_id,
-        assignedToName: body.analyst_name ?? null,
+        assignedToId: body.analystId,
+        assignedToName: body.analystName ?? null,
         assignedAt: new Date()
       })
 
@@ -405,6 +551,10 @@ ardTestRouter.post(
       await recordTestHistory((test as any).id, 'IN_PROGRESS', user.id, user.username)
 
       await test.update({ status: 'IN_PROGRESS', startedAt: new Date() })
+      const atr = await ArdAtrForm.findByPk(req.params.atrId as string)
+      if (atr && shouldMoveAtrToPartialOnTestStart((atr as any).status)) {
+        await (atr as any).update({ status: 'PARTIAL', updatedAt: new Date() })
+      }
       return res.json(successResponse('Test started', test))
     } catch (err) {
       next(err)
@@ -442,7 +592,22 @@ ardTestRouter.post(
       await enforceEsignature(user, ESIGN_FLAGS.EXPERIMENT_SUBMIT_AUTH, req.body.password as string | undefined)
       await recordTestHistory((test as any).id, 'VERIFICATION_REQUESTED', user.id, user.username)
 
-      await test.update({ status: 'VERIFICATION_REQUESTED', submittedAt: new Date() })
+      // The frontend already sends the current results/remarks alongside the
+      // submit action (so the analyst doesn't have to click "Save Results"
+      // separately first) — this previously ignored all of it and only
+      // flipped status/submittedAt, silently dropping whatever the analyst
+      // had just entered.
+      const body = req.body as Record<string, unknown>
+      const resultFields: Record<string, unknown> = {}
+      if (body.results !== undefined) resultFields.results = body.results
+      if (body.resultRemarks !== undefined) resultFields.resultRemarks = body.resultRemarks
+      if (body.adRemarks !== undefined) resultFields.adRemarks = body.adRemarks
+      if (body.submitRemarks !== undefined) resultFields.submitRemarks = body.submitRemarks
+      if (body.referenceStandards !== undefined) resultFields.referenceStandards = body.referenceStandards
+      if (body.analyzedBy !== undefined) resultFields.analyzedBy = body.analyzedBy
+      if (body.certifiedBy !== undefined) resultFields.certifiedBy = body.certifiedBy
+
+      await test.update({ ...resultFields, status: 'VERIFICATION_REQUESTED', submittedAt: new Date() })
       await writeAuditLog(req.params.testId as string, 'TEST_SUBMITTED', user.id)
       return res.json(successResponse('Test submitted', test))
     } catch (err) {
@@ -701,28 +866,46 @@ ardTestRouter.post(
 )
 
 ardTestRouter.post(
-  '/:atrId/:testId/enhancement',
+  '/:atrId/:testId/enhancement-requests',
   authenticate,
   async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = req.user as any
-      const { message, enhancementType } = req.body
-      if (!message) throw new BadRequestError('message is required', 'MISSING_PARAM')
+      // Two different pages independently grew their own field names for
+      // this same action — ArdTestExecutePage sends reason/additionalTestType,
+      // ArdTestsPage sends description/remarks — and neither matched this
+      // handler's original message/enhancementType, so every enhancement
+      // request 400'd (once the route path itself was fixed to match what
+      // both pages actually call: enhancement-requests, not enhancement).
+      const body = req.body as Record<string, unknown>
+      const reason = (body.message ?? body.reason ?? body.description) as string | undefined
+      const additionalTestType = (body.enhancementType ?? body.additionalTestType ?? body.remarks) as string | undefined
+      if (!reason) throw new BadRequestError('reason is required', 'MISSING_PARAM')
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
       if (['ACCEPTED', 'REJECTED', 'WITHDRAWN'].includes((test as any).status)) {
         throw new BadRequestError(`Cannot add enhancement to a test with status ${(test as any).status}`, 'INVALID_STATUS')
       }
-      const existing: any[] = (test as any).clarifications ?? []
+      // Store into the dedicated enhancementRequests column the frontend
+      // actually reads (EnhancementRequest[]) — the previous version wrote an
+      // unrelated shape into `clarifications`, so raised requests never
+      // showed up in the Enhancements tab at all.
+      const existing: any[] = (test as any).enhancementRequests ?? []
       const entry = {
-        type: 'ENHANCEMENT',
-        enhancementType: enhancementType ?? null,
-        message,
-        requestedBy: user.id,
-        requestedByName: user.username ?? user.email,
-        requestedAt: new Date(),
+        id: uuidv4(),
+        requestedBy: user.username ?? user.email ?? user.id,
+        reason,
+        additionalTestType: additionalTestType || undefined,
+        status: 'PENDING',
+        createdAt: new Date().toISOString(),
       }
-      await (test as any).update({ clarifications: [...existing, entry] })
-      await writeAuditLog(req.params.testId as string, 'ENHANCEMENT_REQUESTED', user.id, message)
+      // Not transitioning test.status to ENHANCEMENT_REQUESTED here — nothing
+      // in the codebase (frontend or backend) ever moves a test back out of
+      // that status, so doing so would strand it. The Enhancements tab
+      // already becomes visible once enhancementRequests is non-empty.
+      await (test as any).update({
+        enhancementRequests: [...existing, entry],
+      })
+      await writeAuditLog(req.params.testId as string, 'ENHANCEMENT_REQUESTED', user.id, reason)
       return res.json(successResponse('Enhancement request recorded', test))
     } catch (err) {
       next(err)

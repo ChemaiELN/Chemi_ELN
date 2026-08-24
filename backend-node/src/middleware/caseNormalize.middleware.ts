@@ -104,6 +104,14 @@ const OPAQUE_VALUE_KEYS = new Set<string>([
   // looked correct because it reads the live template over
   // /api/workflow-templates, which is already exempt here.
   'templateSnapshot', 'template_snapshot',
+  // An experiment/notebook's per-section values, keyed by the template's own
+  // dynamic section_key/screen_key/field-key strings (e.g. `section_19`,
+  // `screen16`, `raise_atr_request`) — not a fixed wire contract. Case-
+  // converting/aliasing those keys let two casings of the same field (e.g.
+  // an ATR reference under `section19.screen16` vs `section_19.screen_16`)
+  // drift to different values across saves, since neither side of an alias
+  // pair is ever deleted or resynced once created.
+  'data',
 ])
 const PATH_SCOPED_OPAQUE_PREFIXES = [
   '/api/calc-templates',
@@ -159,14 +167,26 @@ export function toSnakeCaseDeep(
   return out
 }
 
-/** Add camelCase aliases for snake_case keys, in place, without dropping originals. */
-function addCamelAliases(target: Record<string, unknown>, depth = 0): void {
+/**
+ * Add camelCase aliases for snake_case keys, in place, without dropping originals.
+ *
+ * `opaqueValueKeys` mirrors the response-side protection in `toSnakeCaseDeep` —
+ * a dynamic, frontend-authored blob (an experiment/notebook's per-section
+ * `data`, a calc template's `metadata`, …) must round-trip byte-for-byte, or
+ * repeated saves silently fork it: aliasing adds e.g. `section19` next to
+ * `section_19` with the same value, but the very next save that only mutates
+ * one of the two casings (because the frontend re-sends whichever alias it
+ * read last) leaves the other holding a now-stale copy forever — neither
+ * side ever gets deleted or resynced, so they permanently disagree.
+ */
+function addCamelAliases(target: Record<string, unknown>, depth = 0, opaqueValueKeys: Set<string> | null = null): void {
   if (depth > 12) return
   for (const key of Object.keys(target)) {
+    if (opaqueValueKeys?.has(key)) continue
     const value = target[key]
-    if (isPlainObject(value)) addCamelAliases(value, depth + 1)
+    if (isPlainObject(value)) addCamelAliases(value, depth + 1, opaqueValueKeys)
     else if (Array.isArray(value)) {
-      for (const el of value) if (isPlainObject(el)) addCamelAliases(el, depth + 1)
+      for (const el of value) if (isPlainObject(el)) addCamelAliases(el, depth + 1, opaqueValueKeys)
     }
     if (key.includes('_')) {
       const camel = camelCase(key)
@@ -177,11 +197,12 @@ function addCamelAliases(target: Record<string, unknown>, depth = 0): void {
 
 export function normalizeRequestCase(req: Request, _res: Response, next: NextFunction): void {
   try {
+    const opaqueValueKeys = pathUsesOpaqueValues(req.path) ? OPAQUE_VALUE_KEYS : null
     if (req.query && typeof req.query === 'object') {
-      addCamelAliases(req.query as Record<string, unknown>)
+      addCamelAliases(req.query as Record<string, unknown>, 0, opaqueValueKeys)
     }
     if (req.body && isPlainObject(req.body)) {
-      addCamelAliases(req.body as Record<string, unknown>)
+      addCamelAliases(req.body as Record<string, unknown>, 0, opaqueValueKeys)
     }
   } catch {
     // Never block a request over casing normalisation.

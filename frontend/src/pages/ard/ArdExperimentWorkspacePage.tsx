@@ -989,13 +989,7 @@ function ArdExperimentWorkspacePage() {
 
   const stpPushResultsMut = useMutation({
     mutationFn: () => {
-      // ArdExperimentDoc has no `resultParameters` field — that lives on the
-      // parent Notebook doc (see ArdNotebookWorkspacePage.tsx), which this
-      // page doesn't fetch. Preserved as an explicit empty array rather than
-      // wiring in a notebook fetch, since this was already a no-op at runtime
-      // (the property never existed on `exp`) and fixing the underlying gap
-      // is a separate, larger change.
-      const resultParams: Record<string, unknown>[] = []
+      const resultParams = (exp?.resultParameters as Record<string, unknown>[] | undefined) ?? []
       return ardExperimentApi.stpPushResults(experimentId!, resultParams)
     },
     onSuccess: (res) => {
@@ -1282,7 +1276,7 @@ function ArdExperimentWorkspacePage() {
             <p className="text-xs text-slate-400 mt-0.5">Test Type: <span className="font-medium text-slate-600">{(exp as any).testType}{(exp as any).testSubType ? ` / ${(exp as any).testSubType}` : ''}</span></p>
           )}
           {exp.notebookId && (
-            <p className="text-xs text-slate-400 mt-0.5">Notebook: {exp.notebookId}</p>
+            <p className="text-xs text-slate-400 mt-0.5">Notebook: {(notebookDetail as any)?.name ?? (notebookDetail as any)?.code ?? '—'}</p>
           )}
           {(exp as any).projectName && (
             <p className="text-xs text-slate-400 mt-0.5">Project: <span className="font-medium text-slate-600">{(exp as any).projectName}</span></p>

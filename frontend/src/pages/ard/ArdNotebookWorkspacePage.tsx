@@ -124,6 +124,8 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
   const [users, setUsers] = useState<AssignedUser[]>(nb.assignedUsers)
   const [form] = Form.useForm()
   const [open, setOpen] = useState(false)
+  const currentUser = useAppSelector(selectUser)
+  const [msgApi, msgCtx] = message.useMessage()
   useEffect(() => setUsers(nb.assignedUsers), [nb.assignedUsers])
 
   // Fetch Project Team members to populate project analyst options
@@ -194,15 +196,33 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
 
   const addUser = (vals: { userNames: string[] }) => {
     const selectedNames = vals.userNames || []
-    const newUsers: AssignedUser[] = selectedNames.map((name) => {
+    // Resolve against the authoritative system user list first — a project-team
+    // entry's userId can itself be a username fallback, which would never match
+    // the real account id checked when the member opens the notebook.
+    const systemUserByName = new Map(
+      (usersData ?? []).map((u: any) => [u.username || u.name, u.id || u.emp_no])
+    )
+
+    const newUsers: AssignedUser[] = []
+    const unresolved: string[] = []
+    for (const name of selectedNames) {
       const match = projectMembers.find((p: any) => p.value === name)
-      return {
-        userId: match?.userId || newId(),
+      const userId = systemUserByName.get(name) || match?.userId
+      if (!userId) {
+        unresolved.push(name)
+        continue
+      }
+      newUsers.push({
+        userId,
         userName: match?.userName || name,
         role: match?.role || 'Analyst',
         canEdit: true,
-      }
-    })
+      })
+    }
+
+    if (unresolved.length) {
+      msgApi.error(`Could not resolve a system account for: ${unresolved.join(', ')}. They were not added.`)
+    }
 
     const existingNames = new Set(users.map(u => u.userName))
     const uniqueNewUsers = newUsers.filter(u => !existingNames.has(u.userName))
@@ -214,6 +234,10 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
   }
 
   const remove = (userId: string) => {
+    if (userId === currentUser?.id) {
+      msgApi.warning('You cannot remove yourself from the notebook.')
+      return
+    }
     const next = users.filter(u => u.userId !== userId)
     setUsers(next)
     onSave({ assignedUsers: next })
@@ -257,8 +281,8 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
       title: '', key: 'del', width: 60,
       render: (_, r) => (
         r.role?.includes('Creator') ? null : (
-          <Popconfirm title="Remove user?" onConfirm={() => remove(r.userId)}>
-            <Button type="text" danger icon={<Trash2 size={14} />} />
+          <Popconfirm title="Remove user?" onConfirm={() => remove(r.userId)} disabled={nb.status !== 'OPEN'}>
+            <Button type="text" danger icon={<Trash2 size={14} />} disabled={nb.status !== 'OPEN'} />
           </Popconfirm>
         )
       ),
@@ -267,6 +291,7 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
 
   return (
     <div className="space-y-3">
+      {msgCtx}
       <div className="flex justify-end">
         <Button icon={<Plus size={14} />} onClick={() => setOpen(true)} disabled={nb.status !== 'OPEN'}>
           Add Users
@@ -292,7 +317,7 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
 }
 
 // ── Experiments tab ───────────────────────────────────────────────────────────
-function ExperimentsTab({ notebookId, notebookProjectId }: { notebookId: string; notebookProjectId: string | null }) {
+function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { notebookId: string; notebookProjectId: string | null; notebookStatus: string }) {
   const navigate = useNavigate()
   const qc = useQueryClient()
   const [open, setOpen] = useState(false)
@@ -344,7 +369,7 @@ function ExperimentsTab({ notebookId, notebookProjectId }: { notebookId: string;
   const stpOptions = useMemo<{ value: string; label: string; stp: ProjectStp }[]>(() => {
     const docs = projectDetail?.stpDocuments ?? []
     return docs
-      .filter(s => s.status === 'ACTIVE')
+      .filter(s => s.status === 'APPROVED')
       .map(s => ({
         value: s.documentNo,
         label: `${s.documentNo} v${s.version} — ${s.title}${s.testType ? ` (${s.testType})` : ''}`,
@@ -420,9 +445,11 @@ function ExperimentsTab({ notebookId, notebookProjectId }: { notebookId: string;
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen}>
-          New Experiment
-        </Button>
+        <Tooltip title={notebookStatus !== 'OPEN' ? 'Notebook must be OPEN to add experiments' : ''}>
+          <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen} disabled={notebookStatus !== 'OPEN'}>
+            New Experiment
+          </Button>
+        </Tooltip>
       </div>
       <Table
         rowKey="id"
@@ -796,7 +823,10 @@ export default function ArdNotebookWorkspacePage() {
 
   const patch = useMutation({
     mutationFn: (body: Partial<Notebook>) => ardNotebooksApi.patch(notebookId, body),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] })
+      qc.invalidateQueries({ queryKey: ['ard-notebooks'] })
+    },
     onError: () => msgApi.error('Save failed'),
   })
 
@@ -811,8 +841,8 @@ export default function ArdNotebookWorkspacePage() {
   const [reopenRemarks, setReopenRemarks] = useState('')
 
   const closeNotebook = useMutation({
-    mutationFn: () => ardNotebooksApi.patch(notebookId, { status: 'CLOSED', auditEntry: { action: 'Status → CLOSED', detail: closeRemarks } } as any),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] }); setCloseOpen(false); setCloseRemarks(''); msgApi.success('Notebook closed.') },
+    mutationFn: () => ardNotebooksApi.patch(notebookId, { status: 'CLOSED', remarks: closeRemarks, auditEntry: { action: 'Status → CLOSED', detail: closeRemarks } } as any),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] }); qc.invalidateQueries({ queryKey: ['ard-notebooks'] }); setCloseOpen(false); setCloseRemarks(''); msgApi.success('Notebook closed.') },
     onError: (e: any) => msgApi.error(e?.detail ?? 'Failed to close notebook.'),
   })
 
@@ -847,7 +877,7 @@ export default function ArdNotebookWorkspacePage() {
     {
       key: 'experiments',
       label: 'Experiments',
-      children: <ExperimentsTab notebookId={notebookId} notebookProjectId={nb.projectId} />,
+      children: <ExperimentsTab notebookId={notebookId} notebookProjectId={nb.projectId} notebookStatus={nb.status} />,
     },
     {
       key: 'result-params',

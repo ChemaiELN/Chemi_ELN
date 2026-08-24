@@ -1,12 +1,12 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, Fragment } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Button, Table, Tag, Modal, Form, Input, Select, Space, Popconfirm, message, Typography, Tooltip
+  Button, Table, Tag, Modal, Form, Input, InputNumber, Select, Space, Popconfirm, message, Typography, Tooltip
 } from 'antd'
-import { Plus, Trash2, Edit3, Send, CheckCircle2, ShieldCheck, FileText } from 'lucide-react'
+import { Plus, Trash2, Edit3, Send, ShieldCheck, FileText } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
-  ardApi, ardProjectSpecsApi, type ArdProjectSpecification, type ArdSpecTestParam
+  ardApi, ardProjectSpecsApi, type ArdProjectSpecification, type ArdSpecTestParam, type ArdTestConfiguration
 } from '../../api/ard'
 import { ESignatureModal } from '../common/ESignatureModal'
 import { glassModalProps } from '../../utils/modalStyles'
@@ -32,6 +32,10 @@ export default function ProjectSpecificationsPanel({
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSpec, setEditingSpec] = useState<ArdProjectSpecification | null>(null)
   const [testParams, setTestParams] = useState<ArdSpecTestParam[]>([])
+  // Tests explicitly linked to this spec — tracked separately from testParams
+  // so a test with no parameters yet still shows as a group you can add rows
+  // into (rather than only appearing once it has at least one row).
+  const [linkedTests, setLinkedTests] = useState<{ testConfigId: string; testType: string | null; testSubtype: string | null; techniqueName: string | null }[]>([])
   const [form] = Form.useForm()
 
   // Master data for Test Type and Test Subtype dropdowns
@@ -40,18 +44,50 @@ export default function ProjectSpecificationsPanel({
     queryFn: ardApi.getMasterData,
   })
 
+  // Test Type -> Test Subtype cascade, sourced from Test Configuration master
+  // data — mirrors the legacy "Add New Test" flow (pick Type, then Subtype,
+  // then that test's own parameters get pulled in).
   const testTypeOptions = useMemo(() => {
-    const types = Array.from(new Set((masterData?.testConfigs ?? []).map(tc => tc.testType).filter(Boolean)))
+    const types = Array.from(new Set((masterData?.testConfigs ?? []).filter(tc => tc.active).map(tc => tc.testType).filter(Boolean)))
     return types.map(t => ({ value: t, label: t }))
   }, [masterData?.testConfigs])
 
-  const getSubtypeOptions = (selectedType?: string | null) => {
-    const filtered = selectedType
-      ? (masterData?.testConfigs ?? []).filter(tc => tc.testType === selectedType)
-      : (masterData?.testConfigs ?? [])
-    const subtypes = Array.from(new Set(filtered.map(tc => tc.testSubtype).filter(Boolean)))
+  const getSubtypeOptions = (testType?: string) => {
+    if (!testType) return []
+    const subtypes = Array.from(new Set(
+      (masterData?.testConfigs ?? [])
+        .filter(tc => tc.active && tc.testType === testType)
+        .map(tc => tc.testSubtype)
+        .filter(Boolean)
+    ))
     return (subtypes as string[]).map(st => ({ value: st, label: st }))
   }
+
+  const uomOptions = useMemo(() => {
+    const uomLookups = (masterData?.lookups ?? []).filter(
+      (l) => l.active && ['UOM', 'UNITS', 'UNIT'].includes((l.category ?? '').toUpperCase())
+    )
+    return uomLookups.map((l) => ({ value: l.label || l.code, label: l.label || l.code }))
+  }, [masterData?.lookups])
+
+  const specTypeOptions = useMemo(() => {
+    return (masterData?.lookups ?? [])
+      .filter((l) => l.active && (l.category ?? '').toLowerCase() === 'specification type')
+      .map((l) => ({ value: l.label || l.code, label: l.label || l.code }))
+  }, [masterData?.lookups])
+
+  const [addTestType, setAddTestType] = useState<string | undefined>(undefined)
+  const [addTestSubtype, setAddTestSubtype] = useState<string | undefined>(undefined)
+  const [addTestTechnique, setAddTestTechnique] = useState<string | undefined>(undefined)
+
+  // Test Type + Subtype can match more than one Test Configuration if
+  // different techniques share the same type/subtype pairing.
+  const matchingConfigsForAdd = useMemo(() => {
+    if (!addTestType || !addTestSubtype) return []
+    return (masterData?.testConfigs ?? []).filter(
+      tc => tc.active && tc.testType === addTestType && tc.testSubtype === addTestSubtype
+    )
+  }, [masterData?.testConfigs, addTestType, addTestSubtype])
 
   // E-Signature modal state
   const [esignModalOpen, setEsignModalOpen] = useState(false)
@@ -122,87 +158,109 @@ export default function ProjectSpecificationsPanel({
   const handleOpenAdd = () => {
     setEditingSpec(null)
     setTestParams([])
+    setLinkedTests([])
+    setAddTestType(undefined)
+    setAddTestSubtype(undefined)
+    setAddTestTechnique(undefined)
     form.setFieldsValue({
-      specCode: '',
-      version: '1.0',
       title: '',
-      shortName: '',
-      specType: '',
+      specType: undefined,
       description: '',
     })
     setModalOpen(true)
   }
 
-  const uomOptions = [
-    { value: '%', label: '%' },
-    { value: '% w/w', label: '% w/w' },
-    { value: 'ppm', label: 'ppm' },
-    { value: 'mg/g', label: 'mg/g' },
-    { value: 'mL', label: 'mL' },
-    { value: 'pH', label: 'pH' },
-    { value: 'min', label: 'min' },
-    { value: '°C', label: '°C' },
-    { value: 'Abs', label: 'Abs' },
-  ]
+  const resetAddTestCascade = () => {
+    setAddTestType(undefined)
+    setAddTestSubtype(undefined)
+    setAddTestTechnique(undefined)
+  }
 
-  const loadPresetTemplate = () => {
-    const configs = masterData?.testConfigs ?? []
-    if (configs.length > 0) {
-      const loadedParams: ArdSpecTestParam[] = []
-      for (const tc of configs) {
-        if (Array.isArray(tc.resultParams) && tc.resultParams.length > 0) {
-          for (const rp of tc.resultParams) {
-            loadedParams.push({
-              id: String(Date.now() + Math.random()),
-              testType: tc.testType,
-              testSubtype: tc.testSubtype,
-              parameter: rp.name || tc.testType,
-              dataType: rp.dataType || 'text',
-              unit: rp.uom || '%',
-              testMethod: tc.techniqueName || 'HPLC',
-              specLimit: rp.lowerLimit != null && rp.upperLimit != null
-                ? `${rp.lowerLimit}% – ${rp.upperLimit}%`
-                : rp.placeholder || 'Conforms to Specification',
-            })
-          }
-        } else {
-          loadedParams.push({
-            id: String(Date.now() + Math.random()),
-            testType: tc.testType,
-            testSubtype: tc.testSubtype,
-            parameter: tc.techniqueName || tc.testType,
-            dataType: 'text',
-            unit: '%',
-            testMethod: tc.techniqueName || 'HPLC',
-            specLimit: 'Conforms to Specification',
-          })
-        }
-      }
-      if (loadedParams.length > 0) {
-        setTestParams(loadedParams)
-        msgApi.success(`Loaded ${loadedParams.length} parameter(s) from Master Data test configurations.`)
-        return
-      }
+  // Pulls in a Test Configuration's own result parameters as spec parameter
+  // rows (tagged with testConfigId), pre-filled from master data but editable
+  // here without touching the shared Test Configuration — same pattern as the
+  // Test Group's per-group Specification override. If the test has no
+  // parameters of its own, it still gets linked (as an empty group) so the
+  // user can add rows into it manually.
+  const addTestToSpec = (tc: ArdTestConfiguration | undefined) => {
+    if (!tc) return
+    if (linkedTests.some(t => t.testConfigId === tc.id)) {
+      msgApi.info('This test is already added to the specification.')
+      resetAddTestCascade()
+      return
     }
+    setLinkedTests([...linkedTests, { testConfigId: tc.id, testType: tc.testType, testSubtype: tc.testSubtype, techniqueName: tc.techniqueName }])
+    const params = Array.isArray(tc.resultParams) ? tc.resultParams : []
+    if (params.length > 0) {
+      const newRows: ArdSpecTestParam[] = params.map(rp => ({
+        id: String(Date.now() + Math.random()),
+        testConfigId: tc.id,
+        testType: tc.testType,
+        testSubtype: tc.testSubtype,
+        techniqueName: tc.techniqueName,
+        parameter: rp.name || tc.testType,
+        dataType: rp.dataType || 'text',
+        validationType: rp.validationType || 'NONE',
+        unit: rp.uom || null,
+        precision: null,
+        lowerLimit: rp.lowerLimit ?? null,
+        upperLimit: rp.upperLimit ?? null,
+        specLimit: rp.specification || '',
+      }))
+      setTestParams([...testParams, ...newRows])
+    }
+    resetAddTestCascade()
+  }
 
+  const handleAddTestClick = () => {
+    if (matchingConfigsForAdd.length === 1) {
+      addTestToSpec(matchingConfigsForAdd[0])
+    } else if (matchingConfigsForAdd.length > 1 && addTestTechnique) {
+      addTestToSpec(matchingConfigsForAdd.find(tc => tc.id === addTestTechnique))
+    }
+  }
+
+  const removeTestFromSpec = (testConfigId: string) => {
+    setLinkedTests(linkedTests.filter(t => t.testConfigId !== testConfigId))
+    setTestParams(testParams.filter(p => p.testConfigId !== testConfigId))
+  }
+
+  const addParamToLinkedTest = (testConfigId: string) => {
+    const t = linkedTests.find(lt => lt.testConfigId === testConfigId)
     setTestParams([
-      { id: '1', testType: 'Assay', testSubtype: 'HPLC', parameter: 'Assay (% w/w)', dataType: 'range', specLimit: '98.0% – 102.0%', unit: '%', testMethod: 'HPLC' },
-      { id: '2', testType: 'Related Substances', testSubtype: 'HPLC', parameter: 'Individual Impurity', dataType: 'number', specLimit: 'NMT 0.2%', unit: '%', testMethod: 'HPLC' },
-      { id: '3', testType: 'Related Substances', testSubtype: 'HPLC', parameter: 'Total Impurities', dataType: 'number', specLimit: 'NMT 1.0%', unit: '%', testMethod: 'HPLC' },
-      { id: '4', testType: 'Water Content', testSubtype: 'Karl Fischer', parameter: 'Water Content (% w/w)', dataType: 'number', specLimit: 'NMT 0.5%', unit: '%', testMethod: 'KF Titrator' },
+      ...testParams,
+      { id: String(Date.now()), testConfigId, testType: t?.testType, testSubtype: t?.testSubtype, techniqueName: t?.techniqueName, manualEntry: true, parameter: '', dataType: 'text', validationType: 'NONE', specLimit: '', unit: null },
     ])
-    msgApi.success('Loaded standard preset specification template.')
+  }
+
+  const addCustomParamRow = () => {
+    setTestParams([
+      ...testParams,
+      { id: String(Date.now()), testConfigId: null, testType: null, testSubtype: null, manualEntry: true, parameter: '', dataType: 'text', validationType: 'NONE', specLimit: '', unit: null },
+    ])
   }
 
   const handleOpenEdit = (spec: ArdProjectSpecification) => {
     setEditingSpec(spec)
-    setTestParams(spec.testParameters || [])
+    const params = spec.testParameters || []
+    setTestParams(params)
+    // Reconstruct the linked-test groups from whatever testConfigIds are
+    // present among the saved parameters.
+    const seen = new Set<string>()
+    const derivedLinks: typeof linkedTests = []
+    params.forEach(p => {
+      if (p.testConfigId && !seen.has(p.testConfigId)) {
+        seen.add(p.testConfigId)
+        derivedLinks.push({ testConfigId: p.testConfigId, testType: p.testType ?? null, testSubtype: p.testSubtype ?? null, techniqueName: p.techniqueName ?? null })
+      }
+    })
+    setLinkedTests(derivedLinks)
+    setAddTestType(undefined)
+    setAddTestSubtype(undefined)
+    setAddTestTechnique(undefined)
     form.setFieldsValue({
-      specCode: spec.specCode,
-      version: spec.version,
       title: spec.title,
-      shortName: spec.shortName || '',
-      specType: spec.specType || '',
+      specType: spec.specType || undefined,
       description: spec.description || '',
     })
     setModalOpen(true)
@@ -213,7 +271,7 @@ export default function ProjectSpecificationsPanel({
     const seen = new Set<string>()
     for (const p of testParams) {
       if (!p.parameter?.trim()) continue
-      const key = `${p.testType || ''}|||${p.testSubtype || ''}|||${p.parameter.trim()}`
+      const key = `${p.testConfigId || `${p.testType || ''}|||${p.testSubtype || ''}`}|||${p.parameter.trim()}`
       if (seen.has(key)) {
         msgApi.error(`Duplicate parameter name "${p.parameter.trim()}" within the same test type group. Each parameter name must be unique.`)
         return
@@ -221,10 +279,8 @@ export default function ProjectSpecificationsPanel({
       seen.add(key)
     }
     const payload = {
-      specCode: values.specCode,
       title: values.title,
-      version: values.version,
-      shortName: values.shortName || undefined,
+      version: editingSpec?.version || '1.0',
       specType: values.specType || undefined,
       description: values.description || undefined,
       testParameters: testParams,
@@ -236,21 +292,10 @@ export default function ProjectSpecificationsPanel({
     }
   }
 
-  const addParamRow = () => {
-    setTestParams([
-      ...testParams,
-      { id: String(Date.now()), testType: null, testSubtype: null, parameter: '', dataType: 'text', validationType: '', specLimit: '', unit: '%', testMethod: '' },
-    ])
-  }
-
-  const updateParamRow = (index: number, key: keyof ArdSpecTestParam, val: string) => {
+  const updateParamRow = (index: number, key: keyof ArdSpecTestParam, val: unknown) => {
     const next = [...testParams]
     next[index] = { ...next[index], [key]: val }
     setTestParams(next)
-  }
-
-  const removeParamRow = (index: number) => {
-    setTestParams(testParams.filter((_, i) => i !== index))
   }
 
   const STATUS_TAGS: Record<string, { color: string; label: string }> = {
@@ -262,41 +307,24 @@ export default function ProjectSpecificationsPanel({
 
   const columns = [
     {
-      title: 'Spec Code / Title',
-      key: 'specCode',
-      render: (_: unknown, record: ArdProjectSpecification) => (
-        <div>
-          <div className="flex items-center gap-2">
-            <FileText size={15} className="text-indigo-600" />
-            <span className="font-semibold text-slate-800">{record.specCode}</span>
-            <Tag className="text-[11px] font-medium">v{record.version}</Tag>
-          </div>
-          <p className="text-xs text-slate-500 mt-0.5">{record.title}</p>
-        </div>
+      title: 'Sr. No',
+      key: 'srNo',
+      width: 70,
+      render: (_: unknown, __: ArdProjectSpecification, index: number) => <span className="text-xs text-slate-500">{index + 1}</span>,
+    },
+    {
+      title: 'Spec. No',
+      dataIndex: 'specCode',
+      render: (v: string) => (
+        <span className="flex items-center gap-1.5 font-semibold text-slate-800 text-xs">
+          <FileText size={13} className="text-indigo-600" /> {v || '—'}
+        </span>
       ),
     },
     {
-      title: 'Specification Test Parameters',
-      key: 'testParameters',
-      render: (_: unknown, record: ArdProjectSpecification) => (
-        <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-          {(record.testParameters || []).map((p, idx) => (
-            <div key={idx} className="text-xs text-slate-600 flex items-center gap-1.5 flex-wrap">
-              {p.testType && <Tag color="blue" className="text-[10px] py-0 px-1 font-semibold">{p.testType}</Tag>}
-              {p.testSubtype && <Tag color="cyan" className="text-[10px] py-0 px-1 font-semibold">{p.testSubtype}</Tag>}
-              {p.dataType && <Tag color="purple" className="text-[10px] py-0 px-1 font-medium uppercase">{p.dataType}</Tag>}
-              {p.validationType && <Tag color="geekblue" className="text-[10px] py-0 px-1 font-medium">{p.validationType}</Tag>}
-              <span className="font-semibold text-slate-700">{p.parameter || '—'}:</span>
-              <span className="bg-slate-100 px-1.5 py-0.5 rounded border border-slate-200 font-mono text-[11px]">{p.specLimit || '—'}</span>
-              {p.unit && <span className="text-slate-400">({p.unit})</span>}
-              {p.testMethod && <span className="text-xs text-slate-400 italic">[{p.testMethod}]</span>}
-            </div>
-          ))}
-          {(!record.testParameters || record.testParameters.length === 0) && (
-            <span className="text-xs text-slate-400 italic">No parameters defined</span>
-          )}
-        </div>
-      ),
+      title: 'Specification Name',
+      dataIndex: 'title',
+      render: (v: string) => <span className="text-xs font-medium text-slate-700">{v}</span>,
     },
     {
       title: 'Type',
@@ -310,35 +338,56 @@ export default function ProjectSpecificationsPanel({
       render: (v: string | null) => v ? <span className="text-xs text-slate-600">{v}</span> : <span className="text-slate-400">—</span>,
     },
     {
+      title: 'Version',
+      dataIndex: 'version',
+      width: 90,
+      render: (v: string) => <Tag className="text-[11px] font-medium">v{v}</Tag>,
+    },
+    {
       title: 'Status',
       dataIndex: 'status',
       key: 'status',
-      render: (status: string, record: ArdProjectSpecification) => {
+      render: (status: string) => {
         const meta = STATUS_TAGS[status] || { color: 'default', label: status }
-        return (
-          <div>
-            <Tag color={meta.color}>{meta.label}</Tag>
-            {record.approvedBy && (
-              <p className="text-[11px] text-violet-600 mt-1 flex items-center gap-1 font-medium">
-                <ShieldCheck size={12} /> Approved by {record.approvedBy}
-              </p>
-            )}
-          </div>
-        )
+        return <Tag color={meta.color}>{meta.label}</Tag>
       },
     },
     {
-      title: 'Created / Updated',
-      key: 'createdAt',
+      title: 'Created By (On)',
+      key: 'createdBy',
       render: (_: unknown, record: ArdProjectSpecification) => (
         <div className="text-xs text-slate-500">
-          <div>By: <span className="font-medium text-slate-700">{record.createdBy}</span></div>
+          <div className="font-medium text-slate-700">{record.createdBy}</div>
           {record.createdAt && <div>{dayjs(record.createdAt).format('DD MMM YYYY')}</div>}
         </div>
       ),
     },
     {
-      title: 'Actions',
+      title: 'Updated By (On)',
+      key: 'updatedBy',
+      render: (_: unknown, record: ArdProjectSpecification) => (
+        record.updatedBy ? (
+          <div className="text-xs text-slate-500">
+            <div className="font-medium text-slate-700">{record.updatedBy}</div>
+            {record.updatedAt && <div>{dayjs(record.updatedAt).format('DD MMM YYYY')}</div>}
+          </div>
+        ) : <span className="text-slate-400 text-xs">—</span>
+      ),
+    },
+    {
+      title: 'Approved By (On)',
+      key: 'approvedBy',
+      render: (_: unknown, record: ArdProjectSpecification) => (
+        record.approvedBy ? (
+          <div className="text-xs text-violet-600">
+            <div className="font-medium flex items-center gap-1"><ShieldCheck size={12} /> {record.approvedBy}</div>
+            {record.approvedAt && <div className="text-slate-400">{dayjs(record.approvedAt).format('DD MMM YYYY')}</div>}
+          </div>
+        ) : <span className="text-slate-400 text-xs">—</span>
+      ),
+    },
+    {
+      title: 'Action',
       key: 'actions',
       render: (_: unknown, record: ArdProjectSpecification) => (
         <Space size="small">
@@ -436,23 +485,16 @@ export default function ProjectSpecificationsPanel({
       >
         <Form form={form} layout="vertical" onFinish={handleSaveForm} className="pt-2">
           <div className="grid grid-cols-3 gap-x-4">
-            <Form.Item name="specCode" label="Spec Code" rules={[{ required: true }]} className="col-span-1">
-              <Input placeholder="e.g. SPEC-PRJ-001" />
-            </Form.Item>
-            <Form.Item name="version" label="Version" initialValue="1.0" rules={[{ required: true }]} className="col-span-1">
-              <Input placeholder="1.0" />
-            </Form.Item>
             <Form.Item name="title" label="Specification Name" rules={[{ required: true }]} className="col-span-1">
               <Input placeholder="e.g. Release Specification" />
             </Form.Item>
-            <Form.Item name="shortName" label="Short Name" className="col-span-1">
-              <Input placeholder="e.g. REL-SPEC" />
+            <Form.Item label="Specification Number" className="col-span-1">
+              <Input disabled value={editingSpec?.specCode || 'Auto-generated on save'} />
             </Form.Item>
-            <Form.Item name="specType" label="Specification Type" className="col-span-1">
-              <Select allowClear placeholder="Select type"
-                options={['Release', 'In-Process', 'Stability', 'Raw Material', 'Finished Product', 'Reference Standard'].map(v => ({ value: v, label: v }))} />
+            <Form.Item name="specType" label="Specification Type" rules={[{ required: true }]} className="col-span-1">
+              <Select allowClear placeholder="Select type" options={specTypeOptions} />
             </Form.Item>
-            <Form.Item name="description" label="Description" className="col-span-3">
+            <Form.Item name="description" label="Description" rules={[{ required: true }]} className="col-span-3">
               <Input.TextArea rows={2} placeholder="Brief description of this specification..." />
             </Form.Item>
           </div>
@@ -460,100 +502,213 @@ export default function ProjectSpecificationsPanel({
           <div className="mt-2 border-t border-slate-100 pt-3">
             <div className="flex justify-between items-center mb-2">
               <Text strong className="text-xs text-slate-700 uppercase tracking-wide">Test Parameters & Specification Limits</Text>
-              <div className="flex items-center gap-2">
-                <Button size="small" type="dashed" onClick={loadPresetTemplate} className="text-xs">
-                  Load Preset Template
+              <div className="flex items-center gap-2 flex-wrap">
+                <Select
+                  showSearch
+                  allowClear
+                  placeholder="Test Type"
+                  style={{ width: 150 }}
+                  size="small"
+                  value={addTestType}
+                  onChange={(v) => { setAddTestType(v); setAddTestSubtype(undefined); setAddTestTechnique(undefined) }}
+                  options={testTypeOptions}
+                />
+                <Select
+                  showSearch
+                  allowClear
+                  placeholder="Test Subtype"
+                  style={{ width: 150 }}
+                  size="small"
+                  disabled={!addTestType}
+                  value={addTestSubtype}
+                  onChange={(v) => { setAddTestSubtype(v); setAddTestTechnique(undefined) }}
+                  options={getSubtypeOptions(addTestType)}
+                />
+                {matchingConfigsForAdd.length > 1 && (
+                  <Select
+                    showSearch
+                    placeholder="Technique"
+                    style={{ width: 140 }}
+                    size="small"
+                    value={addTestTechnique}
+                    onChange={setAddTestTechnique}
+                    options={matchingConfigsForAdd.map(tc => ({ value: tc.id, label: tc.techniqueCode ?? tc.techniqueName ?? tc.id }))}
+                  />
+                )}
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<Plus size={13} />}
+                  disabled={matchingConfigsForAdd.length === 0 || (matchingConfigsForAdd.length > 1 && !addTestTechnique)}
+                  onClick={handleAddTestClick}
+                  className="text-xs"
+                >
+                  Add Test
                 </Button>
-                <Button size="small" icon={<Plus size={13} />} onClick={addParamRow} className="text-xs">
-                  Add Parameter
+                <Button size="small" icon={<Plus size={13} />} onClick={addCustomParamRow} className="text-xs">
+                  Add Custom Parameter
                 </Button>
               </div>
             </div>
 
-            <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
-              {testParams.map((param, i) => (
-                <div key={i} className="grid grid-cols-12 gap-1.5 items-center bg-slate-50 p-2 rounded-lg border border-slate-200/80">
-                  <Select
-                    placeholder="Test Type"
-                    value={param.testType || undefined}
-                    onChange={(v) => {
-                      const next = [...testParams]
-                      next[i] = { ...next[i], testType: v, testSubtype: null }
-                      setTestParams(next)
-                    }}
-                    options={testTypeOptions}
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    className="col-span-2 text-xs"
-                  />
-                  <Select
-                    placeholder="Subtype"
-                    value={param.testSubtype || undefined}
-                    onChange={(v) => updateParamRow(i, 'testSubtype', v)}
-                    options={getSubtypeOptions(param.testType)}
-                    allowClear
-                    showSearch
-                    optionFilterProp="label"
-                    className="col-span-2 text-xs"
-                  />
-                  <Input
-                    placeholder="Parameter (e.g. Assay)"
-                    value={param.parameter}
-                    onChange={(e) => updateParamRow(i, 'parameter', e.target.value)}
-                    className="col-span-2 text-xs"
-                  />
-                  <Select
-                    placeholder="Data Type"
-                    value={param.dataType || 'text'}
-                    onChange={(v) => updateParamRow(i, 'dataType', v)}
-                    options={[
-                      { value: 'text', label: 'Text' },
-                      { value: 'number', label: 'Number' },
-                      { value: 'range', label: 'Range' },
-                    ]}
-                    className="col-span-1 text-xs"
-                  />
-                  <Select
-                    placeholder="Validation Type"
-                    value={param.validationType || undefined}
-                    onChange={(v) => updateParamRow(i, 'validationType', v)}
-                    allowClear
-                    options={['Single', 'Duplicate', 'Triplicate', 'Bracketing', 'Matrixing'].map(v => ({ value: v, label: v }))}
-                    className="col-span-1 text-xs"
-                  />
-                  <Input
-                    placeholder="Limit (98.0% - 102.0%)"
-                    value={param.specLimit}
-                    onChange={(e) => updateParamRow(i, 'specLimit', e.target.value)}
-                    className="col-span-2 text-xs"
-                  />
-                  <Select
-                    placeholder="UOM"
-                    value={param.unit || undefined}
-                    onChange={(v) => updateParamRow(i, 'unit', v)}
-                    options={uomOptions}
-                    allowClear
-                    showSearch
-                    className="col-span-1 text-xs"
-                  />
-                  <Input
-                    placeholder="Method"
-                    value={param.testMethod || ''}
-                    onChange={(e) => updateParamRow(i, 'testMethod', e.target.value)}
-                    className="col-span-1 text-xs"
-                  />
-                  <Button
-                    size="small"
-                    danger
-                    type="text"
-                    icon={<Trash2 size={13} />}
-                    onClick={() => removeParamRow(i)}
-                    className="col-span-0.5 flex justify-center"
-                  />
-                </div>
-              ))}
-            </div>
+            {linkedTests.length === 0 && testParams.length === 0 ? (
+              <p className="text-xs text-slate-400 italic text-center py-6 border border-dashed border-slate-200 rounded-lg">
+                No parameters yet — pick a Test Type &amp; Subtype above to pull in its parameters, or add a custom one.
+              </p>
+            ) : (
+              <div className="max-h-[420px] overflow-y-auto border border-slate-200 rounded-lg">
+                <table className="min-w-full text-xs border-collapse">
+                  <thead className="sticky top-0 bg-slate-50 z-10">
+                    <tr>
+                      <th rowSpan={2} className="border-b border-slate-200 px-2 py-1.5 text-center font-semibold text-slate-600 w-10">Sr. No.</th>
+                      <th rowSpan={2} className="border-b border-slate-200 px-2 py-1.5 text-left font-semibold text-slate-600">Test Parameter</th>
+                      <th rowSpan={2} className="border-b border-slate-200 px-2 py-1.5 text-left font-semibold text-slate-600">Parameter Details</th>
+                      <th rowSpan={2} className="border-b border-slate-200 px-2 py-1.5 text-left font-semibold text-slate-600 w-24">Data Type</th>
+                      <th rowSpan={2} className="border-b border-slate-200 px-2 py-1.5 text-left font-semibold text-slate-600 w-24">Validation</th>
+                      <th colSpan={4} className="border-b border-l border-slate-200 px-2 py-1 text-center font-semibold text-slate-600">Specification</th>
+                      <th rowSpan={2} className="border-b border-slate-200 px-2 py-1.5 text-center font-semibold text-slate-600 w-16">Action</th>
+                    </tr>
+                    <tr>
+                      <th className="border-b border-l border-slate-200 px-2 py-1 text-center font-medium text-slate-500 w-20">Precision</th>
+                      <th className="border-b border-slate-200 px-2 py-1 text-center font-medium text-slate-500 w-20">Lower Limit</th>
+                      <th className="border-b border-slate-200 px-2 py-1 text-center font-medium text-slate-500 w-20">Upper Limit</th>
+                      <th className="border-b border-slate-200 px-2 py-1 text-center font-medium text-slate-500 w-20">UOM</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {(() => {
+                      // Group rows by the test they came from; parameters added
+                      // without a linked test fall into a "Custom" bucket. Linked
+                      // tests with zero rows still get a group so the user can add
+                      // parameters into them.
+                      const groups: { key: string; testConfigId: string | null; label: string; rows: { param: ArdSpecTestParam; index: number }[] }[] = []
+                      const groupByKey = new Map<string, typeof groups[number]>()
+
+                      linkedTests.forEach(t => {
+                        groupByKey.set(t.testConfigId, {
+                          key: t.testConfigId,
+                          testConfigId: t.testConfigId,
+                          label: `${t.testType ?? ''}${t.testSubtype ? `/${t.testSubtype}` : ''}`,
+                          rows: [],
+                        })
+                      })
+                      linkedTests.forEach(t => groups.push(groupByKey.get(t.testConfigId)!))
+
+                      testParams.forEach((param, index) => {
+                        const key = param.testConfigId || '__custom__'
+                        let g = groupByKey.get(key)
+                        if (!g) {
+                          g = { key, testConfigId: param.testConfigId ?? null, label: 'Custom Parameters', rows: [] }
+                          groupByKey.set(key, g)
+                          groups.push(g)
+                        }
+                        g.rows.push({ param, index })
+                      })
+
+                      let srNo = 0
+                      return groups.map(group => {
+                        srNo += 1
+                        return (
+                          <Fragment key={group.key}>
+                            <tr className="bg-slate-50/80">
+                              <td className="border-b border-slate-100 px-2 py-1.5 text-center font-semibold text-slate-600">{srNo}</td>
+                              <td colSpan={7} className="border-b border-slate-100 px-2 py-1.5 font-semibold text-slate-700">{group.label}</td>
+                              <td className="border-b border-slate-100 px-2 py-1.5">
+                                <Space size={2}>
+                                  {group.testConfigId && (
+                                    <Tooltip title="Add parameter to this test">
+                                      <Button size="small" type="text" icon={<Plus size={13} className="text-indigo-600" />}
+                                        onClick={() => addParamToLinkedTest(group.testConfigId!)} />
+                                    </Tooltip>
+                                  )}
+                                  {group.testConfigId && (
+                                    <Tooltip title="Remove this test">
+                                      <Button size="small" type="text" danger icon={<Trash2 size={13} />}
+                                        onClick={() => removeTestFromSpec(group.testConfigId!)} />
+                                    </Tooltip>
+                                  )}
+                                </Space>
+                              </td>
+                            </tr>
+                            {group.rows.length === 0 ? (
+                              <tr>
+                                <td colSpan={9} className="border-b border-slate-100 px-2 py-2 text-slate-400 italic">
+                                  No parameters in master data for this test — use the + above to add one.
+                                </td>
+                              </tr>
+                            ) : group.rows.map(({ param, index }) => {
+                              const isCustom = !!param.manualEntry
+                              const showLower = param.validationType === 'NLT' || param.validationType === 'RANGE'
+                              const showUpper = param.validationType === 'NMT' || param.validationType === 'RANGE'
+                              return (
+                                <tr key={param.id ?? index} className="hover:bg-slate-50/50">
+                                  <td className="border-b border-slate-100 px-2 py-1.5"></td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5">
+                                    {isCustom ? (
+                                      <Input size="small" placeholder="Parameter name" value={param.parameter}
+                                        onChange={(e) => updateParamRow(index, 'parameter', e.target.value)} />
+                                    ) : (
+                                      <span className="font-medium text-slate-700">{param.parameter}</span>
+                                    )}
+                                  </td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5">
+                                    <Input size="small" placeholder="Details / remarks" value={param.remarks ?? ''}
+                                      onChange={(e) => updateParamRow(index, 'remarks', e.target.value)} />
+                                  </td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5">
+                                    {isCustom ? (
+                                      <Select size="small" style={{ width: '100%' }} value={param.dataType || 'text'}
+                                        onChange={(v) => updateParamRow(index, 'dataType', v)}
+                                        options={[{ value: 'text', label: 'Text' }, { value: 'number', label: 'Number' }]} />
+                                    ) : (
+                                      <Tag className="text-[10px] uppercase">{param.dataType || 'text'}</Tag>
+                                    )}
+                                  </td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5">
+                                    <Select size="small" style={{ width: '100%' }} value={param.validationType || 'NONE'}
+                                      onChange={(v) => updateParamRow(index, 'validationType', v)}
+                                      options={[
+                                        { value: 'NONE', label: 'None' },
+                                        { value: 'NMT', label: 'NMT' },
+                                        { value: 'NLT', label: 'NLT' },
+                                        { value: 'RANGE', label: 'Range' },
+                                      ]} />
+                                  </td>
+                                  <td className="border-b border-l border-slate-100 px-2 py-1.5">
+                                    <InputNumber size="small" style={{ width: '100%' }} value={param.precision ?? undefined}
+                                      onChange={(v) => updateParamRow(index, 'precision', v ?? null)} />
+                                  </td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5">
+                                    {showLower && (
+                                      <InputNumber size="small" style={{ width: '100%' }} value={param.lowerLimit ?? undefined}
+                                        onChange={(v) => updateParamRow(index, 'lowerLimit', v ?? null)} />
+                                    )}
+                                  </td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5">
+                                    {showUpper && (
+                                      <InputNumber size="small" style={{ width: '100%' }} value={param.upperLimit ?? undefined}
+                                        onChange={(v) => updateParamRow(index, 'upperLimit', v ?? null)} />
+                                    )}
+                                  </td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5">
+                                    <Select size="small" showSearch allowClear style={{ width: '100%' }} value={param.unit || undefined}
+                                      onChange={(v) => updateParamRow(index, 'unit', v ?? null)} options={uomOptions} />
+                                  </td>
+                                  <td className="border-b border-slate-100 px-2 py-1.5 text-center">
+                                    <Button size="small" danger type="text" icon={<Trash2 size={13} />}
+                                      onClick={() => setTestParams(testParams.filter((_, i2) => i2 !== index))} />
+                                  </td>
+                                </tr>
+                              )
+                            })}
+                          </Fragment>
+                        )
+                      })
+                    })()}
+                  </tbody>
+                </table>
+              </div>
+            )}
           </div>
         </Form>
       </Modal>

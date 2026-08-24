@@ -107,6 +107,8 @@ async function loadOptionalRoutes() {
     { path: `${api}/ard/tests`, file: './routes/ard/ardTests.routes' },
     { path: `${api}/ard/experiments`, file: './routes/ard/ardExperiments.routes' },
     { path: `${api}/ard/templates`, file: './routes/ard/ardTemplates.routes' },
+    { path: `${api}/ard/sections`, file: './routes/ard/ardSections.routes' },
+    { path: `${api}/ard/data-items`, file: './routes/ard/ardDataItems.routes' },
     { path: `${api}/ard/uploads`, file: './routes/ard/ardUploads.routes' },
     { path: `${api}/ard/master-data`, file: './routes/ard/ardMasterData.routes' },
     { path: `${api}/ard`, file: './routes/ard/ardDashboard.routes' },

@@ -41,6 +41,7 @@ export const ESIGN_FLAGS = {
   EXPERIMENT_SUBMIT_AUTH: 'ExperimentSubmitAuthentication',
   EXPERIMENT_APPROVE_AUTH: 'ExperimentApproveAuthentication',
   QA_CERTIFY_AUTH: 'QACertifyAuthentication',
+  QA_REJECT_AUTH: 'QARejectAuthentication',
   INCLUDE_AD_VERIFICATION: 'IncludeADVerificationFlow',
   VERIFICATION_REQUEST_FLOW: 'VerificationRequestFlow',
   DELAYED_SUBMISSION_EXP_AD: 'DelayedSubmissionExpAD',

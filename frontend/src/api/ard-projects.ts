@@ -1,7 +1,7 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client'
 
 export type ProjectStatus = 'OPEN' | 'CLOSED'
-export type StpStatus = 'DRAFT' | 'APPROVAL_REQUIRED' | 'REWORK' | 'ACTIVE' | 'SUPERSEDED'
+export type StpStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'RETURNED' | 'SUPERSEDED'
 
 export interface ProjectStp {
   id: string
@@ -43,6 +43,11 @@ export interface ProjectTeamMember {
   userId?: string
   userName: string
   role: string
+  // Which notebooks this member has been explicitly granted access to.
+  // Undefined/empty means NO notebook access (the default) — access must be
+  // granted via the project's "Notebook Access" screen. HOD members always
+  // get every notebook regardless of this field.
+  notebookIds?: string[]
 }
 
 export interface ProjectAttribute {
@@ -87,6 +92,7 @@ export interface Project {
   auditTrail: ProjectAuditEntry[]
   createdBy: string
   createdById?: string
+  updatedBy?: string
   createdAt: string
   updatedAt?: string
 }

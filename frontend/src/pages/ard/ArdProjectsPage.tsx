@@ -57,13 +57,11 @@ export default function ArdProjectsPage() {
     if (!createdProjectId) return
     setCreatingNotebook(true)
     try {
-      const project = await ardProjectsApi.get(createdProjectId)
-      const pName = project.productName ?? project.code
       const defaultNotebooks = [
-        { name: `${pName} — STP Template`, type: 'STP_TEMPLATE' },
-        { name: `${pName} — Method Development Notebook`, type: 'ANALYTICAL' },
-        { name: `${pName} — Method Validation Notebook`, type: 'METHOD_VALIDATION' },
-        { name: `${pName} — Routine Analysis Notebook`, type: 'ROUTINE_ANALYSIS' },
+        { name: 'STP Template', type: 'STP_TEMPLATE' },
+        { name: 'Method Development Notebook', type: 'ANALYTICAL' },
+        { name: 'Method Validation Notebook', type: 'METHOD_VALIDATION' },
+        { name: 'Routine Analysis Notebook', type: 'ROUTINE_ANALYSIS' },
       ]
       let firstNbId = ''
       for (const item of defaultNotebooks) {
@@ -119,7 +117,7 @@ export default function ArdProjectsPage() {
       render: (v) => <Tag color={statusColor(v)}>{v}</Tag>,
     },
     {
-      title: 'Created By / On',
+      title: 'Created By / Created on',
       key: 'created',
       width: 150,
       render: (_, row) => (
@@ -130,12 +128,12 @@ export default function ArdProjectsPage() {
       ),
     },
     {
-      title: 'Updated By / On',
+      title: 'Updated By / Updated on',
       key: 'updated',
       width: 150,
       render: (_, row) => (
         <div className="text-xs">
-          <div className="font-medium text-slate-700">{row.createdBy || 'Admin'}</div>
+          <div className="font-medium text-slate-700">{row.updatedBy || row.createdBy || 'Admin'}</div>
           <div className="text-slate-400">{row.updatedAt ? dayjs(row.updatedAt).format('DD-MMM-YYYY HH:mm') : '—'}</div>
         </div>
       ),

@@ -23,6 +23,46 @@ import {
 
 const storageLocationInclude = { model: InvStorageLocation, as: 'storageLocation' as const, attributes: ['id', 'name'], required: false }
 
+// Reflects a Next Maintenance/Calibration Date entered on the asset's own Edit
+// form into its Maintenance/Calibration Schedule tab. Editing the catalogue
+// record used to leave that date siloed on the asset — the schedule tab kept
+// showing whatever (if anything) had been added there manually, so the two
+// could disagree indefinitely. Any still-pending (not DONE) schedule for this
+// asset/log type is treated as superseded by the new date and its due_date is
+// overwritten in place, rather than piling up a second open schedule alongside it.
+async function syncScheduleFromNextDue(opts: {
+  targetKind: 'EQUIPMENT' | 'INSTRUMENT'
+  equipmentId: number | null
+  instrumentId: number | null
+  logType: string
+  nextDue: string
+  createdBy: string | null
+}): Promise<void> {
+  const { targetKind, equipmentId, instrumentId, logType, nextDue, createdBy } = opts
+  const idFilter = targetKind === 'EQUIPMENT' ? { equipmentId } : { instrumentId }
+  const pending = await InvSchedule.findOne({
+    where: { ...idFilter, targetKind, logType, status: { [Op.ne]: 'DONE' } } as any,
+    order: [['dueDate', 'DESC']],
+  })
+  if (pending) {
+    await pending.update({ dueDate: nextDue })
+  } else {
+    await InvSchedule.create({
+      targetKind,
+      equipmentId,
+      instrumentId,
+      logType,
+      scheduleType: 'MONTHLY',
+      dueDate: nextDue,
+      status: 'DUE',
+      source: 'MANUAL',
+      createdBy,
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    } as any)
+  }
+}
+
 // DUE_MAINTENANCE is computed at read time, never persisted — same pattern as
 // the batch RETEST/EXPIRED status — so it can't go stale and doesn't need a
 // scheduled job. An asset shows DUE_MAINTENANCE only while its stored status
@@ -171,6 +211,17 @@ equipmentRouter.patch('/:id', authenticate, async (req: Request, res: Response, 
     const record = await InvEquipmentCatalogue.findByPk(id)
     if (!record) throw new NotFoundError('Equipment not found')
     await record.update({ ...req.body, updatedAt: new Date() })
+    if (req.body.nextMaintenanceDate) {
+      const user = (req as any).user
+      await syncScheduleFromNextDue({
+        targetKind: 'EQUIPMENT',
+        equipmentId: record.id,
+        instrumentId: null,
+        logType: 'MAINTENANCE',
+        nextDue: req.body.nextMaintenanceDate,
+        createdBy: user?.username ?? user?.email ?? (user?.id ? String(user.id) : null),
+      })
+    }
     res.json(successResponse('Equipment updated', record))
   } catch (err) { next(err) }
 })
@@ -335,6 +386,28 @@ instrumentRouter.patch('/:id', authenticate, async (req: Request, res: Response,
     const record = await InvInstrumentCatalogue.findByPk(id)
     if (!record) throw new NotFoundError('Instrument not found')
     await record.update({ ...req.body, updatedAt: new Date() })
+    const user = (req as any).user
+    const createdBy = user?.username ?? user?.email ?? (user?.id ? String(user.id) : null)
+    if (req.body.nextCalibrationDate) {
+      await syncScheduleFromNextDue({
+        targetKind: 'INSTRUMENT',
+        equipmentId: null,
+        instrumentId: record.id,
+        logType: 'CALIBRATION',
+        nextDue: req.body.nextCalibrationDate,
+        createdBy,
+      })
+    }
+    if (req.body.nextMaintenanceDate) {
+      await syncScheduleFromNextDue({
+        targetKind: 'INSTRUMENT',
+        equipmentId: null,
+        instrumentId: record.id,
+        logType: 'MAINTENANCE',
+        nextDue: req.body.nextMaintenanceDate,
+        createdBy,
+      })
+    }
     res.json(successResponse('Instrument updated', record))
   } catch (err) { next(err) }
 })

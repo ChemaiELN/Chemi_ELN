@@ -1,12 +1,14 @@
 import { useEffect, useState, useCallback } from 'react'
-import { Table, Button, Modal, Form, Select, DatePicker, Checkbox, message, Dropdown, Tag } from 'antd'
-import type { ColumnsType } from 'antd/es/table'
+import { Table, Button, Modal, Form, Select, DatePicker, Checkbox, message, Dropdown, Tag, Tooltip } from 'antd'
+import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import type { MenuProps } from 'antd'
+import type { SorterResult } from 'antd/es/table/interface'
 import { Plus, CheckCircle2, Trash2, MoreVertical } from 'lucide-react'
 import dayjs from 'dayjs'
 import { scheduleApi, type Schedule } from '../../api/inventory'
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { EmptyValue } from '../../components/ui/EmptyValue'
+import { StatusTag } from '../../components/ui/StatusTag'
 
 type TargetKind = 'EQUIPMENT' | 'INSTRUMENT'
 type LogType = 'MAINTENANCE' | 'CLEANING' | 'CALIBRATION'
@@ -20,6 +22,10 @@ const STATUS_COLOR: Record<string, string> = {
   DONE: 'green', DUE: 'orange', PLANNED: 'blue', CANCELLED: 'default',
 }
 
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
 const SCHEDULE_TYPES = [
   { value: 'MONTHLY', label: 'Monthly' },
   { value: 'QUARTERLY', label: 'Quarterly' },
@@ -31,14 +37,19 @@ interface Props {
   targetKind: TargetKind
   targetId: number
   logType: LogType
+  /** The asset's own Next Maintenance/Calibration Date (whichever matches
+   * `logType`), used to auto-populate Due Date on the New Schedule form. */
+  assetNextDueDate?: string | null
 }
 
-export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
+export default function ScheduleTab({ targetKind, targetId, logType, assetNextDueDate }: Props) {
   const [rows, setRows] = useState<Schedule[]>([])
   const [total, setTotal] = useState(0)
   const [loading, setLoading] = useState(false)
   const [page, setPage] = useState(1)
-  const [pageSize, setPageSize] = useState(10)
+  const [pageSize] = useState(10)
+  const [sortBy, setSortBy] = useState('due_date')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   const [createOpen, setCreateOpen] = useState(false)
   const [creating, setCreating] = useState(false)
@@ -61,13 +72,13 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
         log_type: logType,
         skip: (page - 1) * pageSize,
         limit: pageSize,
-        sort_by: 'due_date',
-        sort_dir: 'asc',
+        sort_by: sortBy,
+        sort_dir: sortDir,
       })
       setRows(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [targetId, targetKind, logType, page, pageSize])
+  }, [targetId, targetKind, logType, page, pageSize, sortBy, sortDir])
 
   useEffect(() => { load() }, [load])
 
@@ -133,16 +144,14 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
       title: 'Schedule Type',
       dataIndex: 'schedule_type',
       width: 140,
-      render: (v: string) => (
-        <Tag color={SCHEDULE_TYPE_COLOR[v] ?? 'default'} className="text-[11px]">
-          {v?.replace(/_/g, ' ')}
-        </Tag>
-      ),
+      sorter: true,
+      render: (v: string) => <span className="text-[13px] text-slate-800">{titleCase(v)}</span>,
     },
     {
       title: 'Due Date',
       dataIndex: 'due_date',
       width: 110,
+      sorter: true,
       render: (v: string) => v ? <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span> : <EmptyValue />,
     },
     {
@@ -155,23 +164,25 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
     },
     {
       title: 'Status',
-      key: 'status',
+      dataIndex: 'status',
       width: 130,
+      sorter: true,
       // r.status is the SCHEDULE's status; r.current_status is the asset's own
       // status (AVAILABLE / IN_USE / …) — a different vocabulary, so don't mix them.
-      render: (_, r) => (
-        <div className="flex flex-col gap-0.5">
-          <Tag color={STATUS_COLOR[r.status] ?? 'default'} className="text-[11px] w-fit">
+      render: (_, r) => {
+        const tag = (
+          <StatusTag color={STATUS_COLOR[r.status] ?? 'default'} className="text-[13px] w-fit">
             {r.status?.replace(/_/g, ' ')}
-          </Tag>
-          {r.days_label && <span className="text-[11px] text-slate-400">{r.days_label}</span>}
-        </div>
-      ),
+          </StatusTag>
+        )
+        return r.days_label ? <Tooltip title={r.days_label}>{tag}</Tooltip> : tag
+      },
     },
     {
       title: 'Done On',
       dataIndex: 'done_on',
       width: 110,
+      sorter: true,
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span>
         : <EmptyValue />,
@@ -180,7 +191,7 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
       title: 'Source',
       dataIndex: 'source',
       width: 90,
-      render: (v: string) => <span className="text-[12px] text-slate-500">{v}</span>,
+      render: (v: string) => <span className="text-[12px] text-slate-500">{titleCase(v)}</span>,
     },
     {
       title: 'Actions',
@@ -219,7 +230,15 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-end">
-        <Button type="primary" icon={<Plus size={14} />} onClick={() => { createForm.resetFields(); setCreateOpen(true) }}>
+        <Button
+          type="primary"
+          icon={<Plus size={14} />}
+          onClick={() => {
+            createForm.resetFields()
+            createForm.setFieldsValue({ due_date: assetNextDueDate ? dayjs(assetNextDueDate) : undefined })
+            setCreateOpen(true)
+          }}
+        >
           New Schedule
         </Button>
       </div>
@@ -236,10 +255,19 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
             current: page,
             pageSize,
             total,
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100],
+            showSizeChanger: false,
             showTotal: t => `${t} schedules`,
-            onChange: (p, ps) => { setPage(p); setPageSize(ps) },
+          }}
+          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+            if (pagination.current) setPage(pagination.current)
+            const s = sorter as SorterResult<Schedule>
+            if (s.order) {
+              setSortBy(s.field as string)
+              setSortDir(s.order === 'ascend' ? 'asc' : 'desc')
+            } else {
+              setSortBy('due_date')
+              setSortDir('asc')
+            }
           }}
           locale={{ emptyText: `No ${logType.toLowerCase()} schedules found` }}
         />
@@ -252,6 +280,7 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
         closable={false}
         onCancel={() => { setCreateOpen(false); createForm.resetFields() }}
         onOk={() => createForm.submit()}
+        okText="Schedule"
         confirmLoading={creating}
         width={480}
         centered
@@ -264,13 +293,20 @@ export default function ScheduleTab({ targetKind, targetId, logType }: Props) {
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-3">
             <Form.Item name="due_date" label="Due Date" rules={[{ required: true }]}>
-              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" disabled />
             </Form.Item>
             <Form.Item name="planned_date" label="Planned Date">
-              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              <DatePicker
+                style={{ width: '100%' }}
+                format="DD/MM/YYYY"
+                onChange={(v) => createForm.setFieldsValue({
+                  due_date: v ?? (assetNextDueDate ? dayjs(assetNextDueDate) : undefined),
+                })}
+              />
             </Form.Item>
           </div>
           <p className="text-[12px] text-slate-400">
+            Due Date follows this asset's Next Maintenance/Calibration Date automatically — set a Planned Date to use that date instead.
             If this asset has a checklist mapped for this log type (see the Log Mapping tab), it's attached to
             the schedule automatically — completing it will then require a work order instead of a direct Mark Complete.
           </p>

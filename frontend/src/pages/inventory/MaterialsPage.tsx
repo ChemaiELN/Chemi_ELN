@@ -1,8 +1,10 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Space, Tooltip, Collapse, Switch, Upload } from 'antd'
+import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Collapse, Switch, Upload, Dropdown } from 'antd'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import type { SorterResult } from 'antd/es/table/interface'
-import { Plus, Pencil, Search, ChevronDown, Download, Upload as UploadIcon } from 'lucide-react'
+import type { MenuProps } from 'antd'
+import { Plus, Pencil, Search, ChevronDown, Download, Upload as UploadIcon, Power, PowerOff, MoreVertical } from 'lucide-react'
+import { StatusTag } from '../../components/ui/StatusTag'
 import { materialApi, consumableTypeApi, lookupApi, storageConditionApi, masterTemplateApi, type Material, type ConsumableType } from '../../api/inventory'
 import { departmentApi, type Department } from '../../api/adc'
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
@@ -318,20 +320,34 @@ export default function MaterialsPage() {
       width: 90,
       align: 'center',
       sorter: true,
-      render: (v: boolean, r) => <Switch size="small" checked={v} onChange={() => handleToggle(r)} />,
+      render: (v: boolean) => <StatusTag color={v ? 'green' : 'red'}>{v ? 'Active' : 'Inactive'}</StatusTag>,
     },
     {
       title: 'Actions',
       key: 'actions',
-      width: 80,
+      width: 70,
       align: 'center',
-      render: (_, r) => (
-        <Space size={4}>
-          <Tooltip title="Edit">
-            <Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} />
-          </Tooltip>
-        </Space>
-      ),
+      render: (_, r) => {
+        const items: MenuProps['items'] = [
+          { key: 'edit', label: <span className="text-[12px]">Edit</span>, icon: <Pencil size={12} /> },
+          {
+            key: 'toggle',
+            label: <span className="text-[12px]">{r.is_active ? 'Deactivate' : 'Activate'}</span>,
+            icon: r.is_active ? <PowerOff size={12} /> : <Power size={12} />,
+            danger: r.is_active,
+          },
+        ]
+        const onMenuClick: MenuProps['onClick'] = ({ key, domEvent }) => {
+          domEvent.stopPropagation()
+          if (key === 'edit') openEdit(r)
+          else if (key === 'toggle') handleToggle(r)
+        }
+        return (
+          <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']} rootClassName="admin-actions-dropdown">
+            <Button type="text" size="small" icon={<MoreVertical size={13} />} onClick={(e) => e.stopPropagation()} />
+          </Dropdown>
+        )
+      },
     },
   ]
 

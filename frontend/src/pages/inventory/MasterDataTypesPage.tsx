@@ -1,12 +1,12 @@
 import { useState, useCallback } from 'react'
 import {
   Table, Button, Input, Modal, Form, InputNumber,
-  message, Tooltip, Switch, Tabs, Dropdown,
+  message, Tabs, Dropdown,
 } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType } from 'antd/es/table'
 import type { MenuProps } from 'antd'
-import { Plus, Pencil, Trash2, Search, MoreVertical } from 'lucide-react'
+import { Plus, Pencil, Trash2, Search, MoreVertical, Power, PowerOff } from 'lucide-react'
 import {
   consumableTypeApi, equipmentTypeApi, instrumentTypeApi, columnTypeApi,
   type ConsumableType, type EquipType, type ColumnType,
@@ -76,17 +76,24 @@ function ConsumableTypesTab() {
     { title: 'Name', dataIndex: 'name', ellipsis: true, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     {
       title: 'Active', dataIndex: 'is_active', align: 'center',
-      render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => consumableTypeApi.toggle(r.id), load)} />,
+      render: (v: boolean) => <StatusTag color={v ? 'green' : 'red'}>{v ? 'Active' : 'Inactive'}</StatusTag>,
     },
     {
       title: 'Actions', key: 'actions', align: 'center', width: 70,
       render: (_, r) => {
         const items: MenuProps['items'] = [
           { key: 'edit', label: <span className="text-[12px]">Edit</span>, icon: <Pencil size={12} /> },
+          {
+            key: 'toggle',
+            label: <span className="text-[12px]">{r.is_active ? 'Deactivate' : 'Activate'}</span>,
+            icon: r.is_active ? <PowerOff size={12} /> : <Power size={12} />,
+            danger: r.is_active,
+          },
           { key: 'delete', label: <span className="text-[12px]">Delete</span>, icon: <Trash2 size={12} />, danger: true },
         ]
         const onMenuClick: MenuProps['onClick'] = ({ key }) => {
           if (key === 'edit') openEdit(r)
+          else if (key === 'toggle') toggleWithToast(() => consumableTypeApi.toggle(r.id), load)
           else if (key === 'delete') {
             Modal.confirm({
               title: 'Delete this type?',
@@ -159,11 +166,30 @@ function EquipTypeTab({ api, label }: { api: typeof equipmentTypeApi; label: str
     { title: 'Name', dataIndex: 'name', ellipsis: true, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     {
       title: 'Active', dataIndex: 'is_active', align: 'center',
-      render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => api.toggle(r.id), load)} />,
+      render: (v: boolean) => <StatusTag color={v ? 'green' : 'red'}>{v ? 'Active' : 'Inactive'}</StatusTag>,
     },
     {
-      title: 'Actions', key: 'actions', align: 'center',
-      render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>,
+      title: 'Actions', key: 'actions', align: 'center', width: 70,
+      render: (_, r) => {
+        const items: MenuProps['items'] = [
+          { key: 'edit', label: <span className="text-[12px]">Edit</span>, icon: <Pencil size={12} /> },
+          {
+            key: 'toggle',
+            label: <span className="text-[12px]">{r.is_active ? 'Deactivate' : 'Activate'}</span>,
+            icon: r.is_active ? <PowerOff size={12} /> : <Power size={12} />,
+            danger: r.is_active,
+          },
+        ]
+        const onMenuClick: MenuProps['onClick'] = ({ key }) => {
+          if (key === 'edit') openEdit(r)
+          else if (key === 'toggle') toggleWithToast(() => api.toggle(r.id), load)
+        }
+        return (
+          <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']} rootClassName="admin-actions-dropdown">
+            <Button type="text" size="small" icon={<MoreVertical size={13} />} onClick={(e) => e.stopPropagation()} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
@@ -224,11 +250,30 @@ function ColumnTypesTab() {
     { title: 'Pore (Å)', dataIndex: 'pore_size_angstrom', ellipsis: true, sorter: true, render: v => v != null ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     {
       title: 'Active', dataIndex: 'is_active', align: 'center',
-      render: (v, r) => <Switch size="small" checked={v} onChange={() => toggleWithToast(() => columnTypeApi.toggle(r.id), load)} />,
+      render: (v: boolean) => <StatusTag color={v ? 'green' : 'red'}>{v ? 'Active' : 'Inactive'}</StatusTag>,
     },
     {
-      title: 'Actions', key: 'actions', align: 'center',
-      render: (_, r) => <Tooltip title="Edit"><Button type="text" size="small" icon={<Pencil size={13} />} onClick={() => openEdit(r)} /></Tooltip>,
+      title: 'Actions', key: 'actions', align: 'center', width: 70,
+      render: (_, r) => {
+        const items: MenuProps['items'] = [
+          { key: 'edit', label: <span className="text-[12px]">Edit</span>, icon: <Pencil size={12} /> },
+          {
+            key: 'toggle',
+            label: <span className="text-[12px]">{r.is_active ? 'Deactivate' : 'Activate'}</span>,
+            icon: r.is_active ? <PowerOff size={12} /> : <Power size={12} />,
+            danger: r.is_active,
+          },
+        ]
+        const onMenuClick: MenuProps['onClick'] = ({ key }) => {
+          if (key === 'edit') openEdit(r)
+          else if (key === 'toggle') toggleWithToast(() => columnTypeApi.toggle(r.id), load)
+        }
+        return (
+          <Dropdown menu={{ items, onClick: onMenuClick }} trigger={['click']} rootClassName="admin-actions-dropdown">
+            <Button type="text" size="small" icon={<MoreVertical size={13} />} onClick={(e) => e.stopPropagation()} />
+          </Dropdown>
+        )
+      },
     },
   ]
 
@@ -264,10 +309,6 @@ function ColumnTypesTab() {
 export default function MasterDataTypesPage() {
   return (
     <div className="p-4 md:p-6">
-      <div className="mb-4">
-        <h1 className="text-xl font-bold text-slate-800">Master Data — Types</h1>
-        <p className="text-slate-500 text-sm mt-0.5">Consumable, equipment, instrument and column type catalogues</p>
-      </div>
       <Tabs
         tabBarGutter={20}
         tabBarStyle={{ marginBottom: 0 }}

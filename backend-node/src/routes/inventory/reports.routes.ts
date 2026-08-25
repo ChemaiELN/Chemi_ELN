@@ -23,20 +23,41 @@ function searchClause(search: string | undefined, fields: string[]): Record<stri
   return { [Op.or as unknown as string]: fields.map((f) => ({ [f]: { [Op.iLike]: `%${search}%` } })) }
 }
 
+// Each report table sorts a different column by default (whichever the report
+// is naturally ordered by), so `sortBy`/`sortDir` only override that when the
+// requested column is in this report's own whitelist.
+function resolveOrder(
+  sortBy: string | undefined,
+  sortDir: string | undefined,
+  sortable: Record<string, string>,
+  defaultColumn: string,
+  defaultDir: 'ASC' | 'DESC' = 'DESC',
+): [string, 'ASC' | 'DESC'] {
+  const requested = sortBy ? sortable[sortBy] : undefined
+  const column = requested || defaultColumn
+  const dir = sortDir ? (sortDir === 'asc' ? 'ASC' : 'DESC') : (requested ? 'DESC' : defaultDir)
+  return [column, dir]
+}
+
 // GET /reports/batch-inventory
 reportsRouter.get('/reports/batch-inventory', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { materialId, status, search } = req.query as Record<string, string>
+    const { materialId, status, search, sortBy, sortDir } = req.query as Record<string, string>
 
     const where: Record<string, unknown> = { ...searchClause(search, ['batchNo', 'inhouseBatchNo']) }
     if (materialId) where.materialId = parseInt(materialId, 10)
     if (status) where.status = status
 
+    const order = resolveOrder(sortBy, sortDir, {
+      batch_no: 'batchNo', inhouse_batch_no: 'inhouseBatchNo', qty_received: 'qtyReceived', qty_available: 'qtyAvailable',
+      status: 'status', mfg_date: 'mfgDate', expiry_date: 'expiryDate', gr_date: 'grDate',
+    }, 'createdAt')
+
     const { count, rows } = await InvBatch.findAndCountAll({
       where,
       include: [{ model: InvMaterial, as: 'material' }],
-      order: [['createdAt', 'DESC']],
+      order: [order],
       limit,
       offset,
     })
@@ -50,7 +71,7 @@ reportsRouter.get('/reports/batch-inventory', async (req: Request, res: Response
 reportsRouter.get('/reports/expiry', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { expiredOnly, daysAhead, materialId, search } = req.query as Record<string, string>
+    const { expiredOnly, daysAhead, materialId, search, sortBy, sortDir } = req.query as Record<string, string>
 
     const today = new Date()
     const where: Record<string, unknown> = { ...searchClause(search, ['batchNo', 'inhouseBatchNo']) }
@@ -70,10 +91,15 @@ reportsRouter.get('/reports/expiry', async (req: Request, res: Response, next: N
       where.expiryDate = { [Op.ne]: null }
     }
 
+    const order = resolveOrder(sortBy, sortDir, {
+      batch_no: 'batchNo', inhouse_batch_no: 'inhouseBatchNo', qty_available: 'qtyAvailable',
+      status: 'status', expiry_date: 'expiryDate',
+    }, 'expiryDate', 'ASC')
+
     const { count, rows } = await InvBatch.findAndCountAll({
       where,
       include: [{ model: InvMaterial, as: 'material' }],
-      order: [['expiryDate', 'ASC']],
+      order: [order],
       limit,
       offset,
     })
@@ -87,16 +113,21 @@ reportsRouter.get('/reports/expiry', async (req: Request, res: Response, next: N
 reportsRouter.get('/reports/stock-requests', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { status, criticality, search } = req.query as Record<string, string>
+    const { status, criticality, search, sortBy, sortDir } = req.query as Record<string, string>
 
     const where: Record<string, unknown> = { ...searchClause(search, ['requestNo']) }
     if (status) where.status = status
     if (criticality) where.criticality = criticality
 
+    const order = resolveOrder(sortBy, sortDir, {
+      request_no: 'requestNo', qty_required: 'qtyRequired', criticality: 'criticality', status: 'status',
+      created_at: 'createdAt', updated_at: 'updatedAt',
+    }, 'createdAt')
+
     const { count, rows } = await InvStockRequest.findAndCountAll({
       where,
       include: [{ model: InvMaterial, as: 'material' }],
-      order: [['createdAt', 'DESC']],
+      order: [order],
       limit,
       offset,
     })
@@ -110,15 +141,21 @@ reportsRouter.get('/reports/stock-requests', async (req: Request, res: Response,
 reportsRouter.get('/reports/equipment-status', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { status, maintenanceStatus, search } = req.query as Record<string, string>
+    const { status, maintenanceStatus, search, sortBy, sortDir } = req.query as Record<string, string>
 
     const where: Record<string, unknown> = { ...searchClause(search, ['assetId', 'name']) }
     if (status) where.status = status
     if (maintenanceStatus) where.maintenanceStatus = maintenanceStatus
 
+    const order = resolveOrder(sortBy, sortDir, {
+      asset_id: 'assetId', name: 'name', make: 'make', model: 'model', location: 'location',
+      status: 'status', maintenance_status: 'maintenanceStatus',
+      last_maintenance_date: 'lastMaintenanceDate', next_maintenance_date: 'nextMaintenanceDate',
+    }, 'name', 'ASC')
+
     const { count, rows } = await InvEquipmentCatalogue.findAndCountAll({
       where,
-      order: [['name', 'ASC']],
+      order: [order],
       limit,
       offset,
     })
@@ -132,15 +169,21 @@ reportsRouter.get('/reports/equipment-status', async (req: Request, res: Respons
 reportsRouter.get('/reports/instrument-status', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { status, calibrationStatus, search } = req.query as Record<string, string>
+    const { status, calibrationStatus, search, sortBy, sortDir } = req.query as Record<string, string>
 
     const where: Record<string, unknown> = { ...searchClause(search, ['assetId', 'name']) }
     if (status) where.status = status
     if (calibrationStatus) where.calibrationStatus = calibrationStatus
 
+    const order = resolveOrder(sortBy, sortDir, {
+      asset_id: 'assetId', name: 'name', make: 'make', model: 'model', location: 'location',
+      status: 'status', calibration_status: 'calibrationStatus',
+      last_calibration_date: 'lastCalibrationDate', next_calibration_date: 'nextCalibrationDate',
+    }, 'name', 'ASC')
+
     const { count, rows } = await InvInstrumentCatalogue.findAndCountAll({
       where,
-      order: [['name', 'ASC']],
+      order: [order],
       limit,
       offset,
     })
@@ -154,7 +197,7 @@ reportsRouter.get('/reports/instrument-status', async (req: Request, res: Respon
 reportsRouter.get('/reports/work-orders', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { targetKind, kind, logType, status, fromDate, toDate, search } = req.query as Record<string, string>
+    const { targetKind, kind, logType, status, fromDate, toDate, search, sortBy, sortDir } = req.query as Record<string, string>
 
     const where: Record<string, unknown> = { ...searchClause(search, ['workorderNo']) }
     if (targetKind) where.targetKind = targetKind
@@ -167,9 +210,15 @@ reportsRouter.get('/reports/work-orders', async (req: Request, res: Response, ne
       if (toDate) (where.createdAt as any)[Op.lte] = new Date(toDate)
     }
 
+    const order = resolveOrder(sortBy, sortDir, {
+      workorder_no: 'workorderNo', kind: 'kind', log_type: 'logType',
+      calibration_source: 'calibrationSource', status: 'status', raised_by: 'raisedBy', raised_at: 'raisedAt',
+      approved_by: 'approvedBy', approved_at: 'approvedAt',
+    }, 'createdAt')
+
     const { count, rows } = await InvWorkOrder.findAndCountAll({
       where,
-      order: [['createdAt', 'DESC']],
+      order: [order],
       limit,
       offset,
     })

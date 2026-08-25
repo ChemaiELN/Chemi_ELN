@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { Table, Button, Input, Select, Modal, Form, message, Dropdown, Tag } from 'antd'
+import { Table, Button, Input, Select, Modal, Form, message, Dropdown } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
 import BrandSpinner from '../../components/ui/BrandSpinner'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
@@ -11,14 +11,6 @@ import { checklistApi, type Checklist, type ChecklistDetail, type ChecklistItem 
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { EmptyValue, withEmptyValue } from '../../components/ui/EmptyValue'
-
-const DATA_TYPE_COLOR: Record<string, string> = {
-  TEXT: 'blue', NUMBER: 'purple', OPTIONS: 'orange', BOOLEAN: 'green', DATE: 'cyan',
-  INPUT: 'purple', OBSERVATION: 'gold', SINGLE_SELECTION: 'orange', MULTIPLE_SELECTION: 'orange',
-}
-const INSTRUCTION_TYPE_COLOR: Record<string, string> = {
-  CHECKPOINT: 'volcano', INSTRUCTION: 'geekblue', OBSERVATION: 'gold', HEADING: 'default',
-}
 
 export const CHECKLIST_TYPES = ['MAINTENANCE', 'EQUIPMENT_CLEANING', 'EQUIPMENT_CUSTOM', 'SCHEDULER', 'CALIBRATION']
 
@@ -33,6 +25,7 @@ export const CHECKLIST_STATUS_COLOR: Record<string, string> = {
 }
 
 const label = (s: string) => s.replace(/_/g, ' ')
+const titleCase = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 
 export default function ChecklistsPage() {
   const navigate = useNavigate()
@@ -113,16 +106,8 @@ export default function ChecklistsPage() {
 
   const itemColumns: ColumnsType<ChecklistItem> = [
     {
-      title: '#', dataIndex: 'seq_no', width: 44, align: 'center',
-      render: (v) => <span className="text-[12px] font-semibold text-slate-500">{v}</span>,
-    },
-    {
       title: 'Type', dataIndex: 'instruction_type', width: 130,
-      render: (v: string) => (
-        <Tag color={INSTRUCTION_TYPE_COLOR[v] ?? 'default'} style={{ whiteSpace: 'normal', fontSize: 11 }}>
-          {v?.replace(/_/g, ' ')}
-        </Tag>
-      ),
+      render: (v: string) => <span className="text-[13px] text-slate-800">{titleCase(v)}</span>,
     },
     {
       title: 'Details / Instruction', dataIndex: 'details', width: 280,
@@ -135,7 +120,7 @@ export default function ChecklistsPage() {
     {
       title: 'Data Type', dataIndex: 'data_type', width: 140,
       render: (v: string | null) => v
-        ? <Tag color={DATA_TYPE_COLOR[v] ?? 'default'} style={{ whiteSpace: 'normal', fontSize: 11 }}>{v}</Tag>
+        ? <span className="text-[13px] text-slate-800">{titleCase(v)}</span>
         : <EmptyValue />,
     },
     {
@@ -154,20 +139,16 @@ export default function ChecklistsPage() {
     {
       title: 'Frequency', dataIndex: 'frequencies', width: 160,
       render: (v: string[] | null) => v?.length
-        ? <div className="flex flex-wrap gap-1">{v.map(f => <Tag key={f} color="default" style={{ fontSize: 10, margin: 0 }}>{f}</Tag>)}</div>
+        ? <span className="text-[13px] text-slate-800">{v.map(titleCase).join(', ')}</span>
         : <EmptyValue />,
     },
   ]
 
   const columns: ColumnsType<Checklist> = [
-    { title: 'Sl No', ellipsis: true, key: 'sl', width: 140, render: (_, __, i) => <span className="text-[13px] text-slate-800">{(page - 1) * pageSize + i + 1}</span> },
     { title: 'Checklist Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800 font-medium" onClick={() => navigate(`/inventory/checklists/${r.id}`)}>{v}</a> },
     { title: 'Version', ellipsis: true, dataIndex: 'version', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Checklist Type', ellipsis: true, dataIndex: 'checklist_type', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{label(v)}</span> },
-    { title: 'Log Type', ellipsis: true, dataIndex: 'log_type', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{label(v)}</span> },
-    { title: 'Target', ellipsis: true, dataIndex: 'target_kind', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{label(v)}</span> },
-    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, sorter: true, render: v => <StatusTag color={CHECKLIST_STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{CHECKLIST_STATUS_LABEL[v] ?? v}</StatusTag> },
+    { title: 'Checklist Type', ellipsis: true, dataIndex: 'checklist_type', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{titleCase(v)}</span> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, align: 'center', sorter: true, render: v => <StatusTag color={CHECKLIST_STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{CHECKLIST_STATUS_LABEL[v] ?? v}</StatusTag> },
     {
       title: 'Actions', key: 'actions', width: 90, align: 'center', render: (_, r) => {
         const items: MenuProps['items'] = [

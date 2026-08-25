@@ -127,7 +127,7 @@ function EquipmentTab() {
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter])
   useEffect(() => { equipmentTypeApi.list().then(setEquipTypes) }, [])
-  useEffect(() => { adminApi.listLabs().then(setLabs) }, [])
+  useEffect(() => { adminApi.listLabsLookup().then(setLabs).catch(() => message.error('Failed to load labs.')) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
   useEffect(() => { departmentApi.list().then(setDepartments).catch(() => setDepartments([])) }, [])
   useEffect(() => { storageLocationApi.list().then(rows => setStorageLocations(rows.filter(r => r.is_active))).catch(() => setStorageLocations([])) }, [])
@@ -203,7 +203,7 @@ function EquipmentTab() {
     { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Make', ellipsis: true, dataIndex: 'make', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Department', ellipsis: true, dataIndex: 'department_id', width: 140, render: v => { const d = departments.find(x => x.id === v); return d ? <span className="text-[13px] text-slate-800">{d.name}</span> : <span className="text-[13px] text-slate-800">NA</span> } },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, sorter: true, render: (v, r) => { const s = r.effective_status ?? v; return <StatusTag color={STATUS_COLOR[s] ?? 'default'} className="text-[13px]">{String(s).replace(/_/g, ' ')}</StatusTag> } },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, align: 'center', sorter: true, render: (v, r) => { const s = r.effective_status ?? v; return <StatusTag color={STATUS_COLOR[s] ?? 'default'} className="text-[13px]">{String(s).replace(/_/g, ' ')}</StatusTag> } },
     {
       title: 'Actions', key: 'actions', width: 70, align: 'center', render: (_, r) => {
         const items: MenuProps['items'] = [
@@ -424,7 +424,7 @@ function InstrumentTab() {
   useEffect(() => { load() }, [load])
   useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter])
   useEffect(() => { instrumentTypeApi.list().then(setInstrTypes) }, [])
-  useEffect(() => { adminApi.listLabs().then(setLabs) }, [])
+  useEffect(() => { adminApi.listLabsLookup().then(setLabs).catch(() => message.error('Failed to load labs.')) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
   useEffect(() => { departmentApi.list().then(setDepartments).catch(() => setDepartments([])) }, [])
   useEffect(() => { storageLocationApi.list().then(rows => setStorageLocations(rows.filter(r => r.is_active))).catch(() => setStorageLocations([])) }, [])
@@ -506,7 +506,7 @@ function InstrumentTab() {
     { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Calibration', ellipsis: true, dataIndex: 'calibration_status', width: 140, sorter: true, render: v => <StatusTag color={MAINT_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag> },
     { title: 'Department', ellipsis: true, dataIndex: 'department_id', width: 140, render: v => { const d = departments.find(x => x.id === v); return d ? <span className="text-[13px] text-slate-800">{d.name}</span> : <span className="text-[13px] text-slate-800">NA</span> } },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, sorter: true, render: (v, r) => { const s = r.effective_status ?? v; return <StatusTag color={STATUS_COLOR[s] ?? 'default'} className="text-[13px]">{String(s).replace(/_/g, ' ')}</StatusTag> } },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, align: 'center', sorter: true, render: (v, r) => { const s = r.effective_status ?? v; return <StatusTag color={STATUS_COLOR[s] ?? 'default'} className="text-[13px]">{String(s).replace(/_/g, ' ')}</StatusTag> } },
     {
       title: 'Actions', key: 'actions', width: 70, align: 'center', render: (_, r) => {
         const items: MenuProps['items'] = [

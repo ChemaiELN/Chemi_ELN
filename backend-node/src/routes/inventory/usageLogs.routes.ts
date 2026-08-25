@@ -8,6 +8,15 @@ import { authenticate } from '../../middleware/auth.middleware'
 
 const usageLogRouter = Router()
 
+// Whitelist of columns the Usage Log table UI is allowed to sort by.
+const SORTABLE_COLUMNS: Record<string, string> = {
+  previous_product_code: 'previousProductCode',
+  previous_batch_no: 'previousBatchNo',
+  started_by: 'startedBy',
+  ended_by: 'endedBy',
+  reference_no: 'referenceNo',
+}
+
 // equipmentId/instrumentId/columnId and experimentId are plain FK columns with
 // no Sequelize association, so the asset code / experiment code / project code
 // shown in the usage-log tables have to be resolved with separate batch
@@ -54,7 +63,7 @@ async function attachUsageLogCodes(rows: InstanceType<typeof InvUsageLog>[]) {
 usageLogRouter.get('/usage-logs', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { targetKind, equipmentId, instrumentId, columnId, fromDate, toDate, status } = req.query as Record<string, string>
+    const { targetKind, equipmentId, instrumentId, columnId, fromDate, toDate, status, sortBy, sortDir } = req.query as Record<string, string>
 
     if (!targetKind) {
       return res.status(400).json({ success: false, message: 'targetKind is required' })
@@ -76,11 +85,12 @@ usageLogRouter.get('/usage-logs', authenticate, async (req: Request, res: Respon
       if (toDate) (where.startedAt as any)[Op.lte] = new Date(toDate)
     }
 
+    const sortColumn = SORTABLE_COLUMNS[sortBy] ?? 'startedAt'
     const { count, rows } = await InvUsageLog.findAndCountAll({
       where,
       limit,
       offset,
-      order: [['startedAt', 'DESC']],
+      order: [[sortColumn, sortDir === 'asc' ? 'ASC' : 'DESC']],
     })
     const rowsWithCodes = await attachUsageLogCodes(rows)
     res.json(listResponse('Usage logs fetched', rowsWithCodes, buildPagination(page, limit, count)))

@@ -87,10 +87,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
   }
 
   const columns: ColumnsType<UsageLog> = [
-    { title: 'Sl No', key: 'sl', ellipsis: true, width: 150, render: (_, __, i) => <span className="text-[13px] text-slate-800">{(page - 1) * pageSize + i + 1}</span> },
     { title: KIND_LABEL[targetKind], dataIndex: 'asset_code', ellipsis: true, width: 150, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Previous Product Code', dataIndex: 'previous_product_code', ellipsis: true, width: 150, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Previous Batch No.', dataIndex: 'previous_batch_no', ellipsis: true, width: 150, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Started By/On', dataIndex: 'started_by', key: 'started', ellipsis: true, width: 150, sorter: true, render: (_, r) => r.started_by ? <span className="text-[13px] text-slate-800">{r.started_by} <span className="text-slate-400">({r.started_at ? dayjs(r.started_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Ended By/On', dataIndex: 'ended_by', key: 'ended', ellipsis: true, width: 150, sorter: true, render: (_, r) => r.ended_by ? <span className="text-[13px] text-slate-800">{r.ended_by} <span className="text-slate-400">({r.ended_at ? dayjs(r.ended_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Reference No.', dataIndex: 'reference_no', ellipsis: true, width: 150, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
@@ -121,8 +118,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
             current: page,
             pageSize,
             total,
-            showSizeChanger: true,
-            pageSizeOptions: [10, 20, 50, 100],
+            showSizeChanger: false,
             showTotal: t => `${t} usage logs`,
           }}
           onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
@@ -286,7 +282,6 @@ export default function UsageLogsPage({ targetKind }: { targetKind: Kind }) {
   return (
     <div className="p-4 md:p-6">
       <div className="glass-card rounded-lg px-4 py-3 mb-4 flex gap-2 items-center">
-        <span className="text-[13px] font-medium text-slate-600">{KIND_LABEL[targetKind]} Code:</span>
         <Select
           style={{ minWidth: 280 }} showSearch filterOption={false} onSearch={setItemSearchInput} allowClear
           placeholder="All (leave blank to see every item)"

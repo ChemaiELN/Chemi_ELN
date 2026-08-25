@@ -8,7 +8,7 @@ import dayjs from 'dayjs'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import type { MenuProps } from 'antd'
 import type { SorterResult } from 'antd/es/table/interface'
-import { Plus, CheckCircle2, XCircle, PackageCheck, Search, SignalLow, SignalMedium, SignalHigh, Signal, PackagePlus, Hourglass, X, MoreVertical } from 'lucide-react'
+import { Plus, CheckCircle2, XCircle, PackageCheck, Search, PackagePlus, Hourglass, X, MoreVertical } from 'lucide-react'
 import { stockRequestApi, materialApi, uomApi, dashboardApi, type StockRequest, type Material, type UomUnit } from '../../api/inventory'
 import { userApi, type UserSummary } from '../../api/adc'
 import { glassModalProps } from '../../utils/modalStyles'
@@ -31,13 +31,6 @@ const STATUS_COLOR: Record<string, string> = {
 // cancels, or fulfills an APPROVED one. Nobody else sees action buttons.
 const APPROVER_ROLES = ['HOD', 'TL']
 const STORE_INCHARGE_ROLE = 'STORE_INCHARGE'
-const CRIT_ICON: Record<string, { icon: React.ReactNode; color: string; bg: string }> = {
-  LOW:      { icon: <SignalLow  size={20} />, color: '#22c55e', bg: '#f0fdf4' },
-  MEDIUM:   { icon: <SignalMedium size={20} />, color: '#f59e0b', bg: '#fffbeb' },
-  HIGH:     { icon: <SignalHigh size={20} />, color: '#f97316', bg: '#fff7ed' },
-  CRITICAL: { icon: <Signal    size={20} />, color: '#ef4444', bg: '#fef2f2' },
-}
-
 export default function StockRequestsPage() {
   const user = useAppSelector(selectUser)
   const isApprover = APPROVER_ROLES.includes(user?.role_code ?? '')
@@ -251,26 +244,11 @@ export default function StockRequestsPage() {
       render: (_, r) => <span className="text-[13px] text-slate-800">{r.qty_required} {r.unit}</span>,
     },
     {
-      title: 'Criticality',
-      dataIndex: 'criticality',
-      width: 150,
-      align: 'center',
-      sorter: true,
-      render: (v: string) => {
-        const cfg = CRIT_ICON[v]
-        if (!cfg) return <span className="text-[13px] text-slate-800">{v}</span>
-        return (
-          <Tooltip title={v.charAt(0) + v.slice(1).toLowerCase()}>
-            <span className="inline-flex items-center" style={{ color: cfg.color }}>{cfg.icon}</span>
-          </Tooltip>
-        )
-      },
-    },
-    {
       title: 'Status',
       dataIndex: 'status',
       ellipsis: true,
       width: 150,
+      align: 'center',
       sorter: true,
       render: (v: string, r) => {
         const tag = <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag>

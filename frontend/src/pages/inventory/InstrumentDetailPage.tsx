@@ -18,6 +18,24 @@ import LogMappingTab from './LogMappingTab'
 import ScheduleTab from './ScheduleTab'
 import InstrumentSpecTab from './InstrumentSpecTab'
 
+function titleCase(s: string): string {
+  return s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+}
+
+// Audit old_value/new_value is either a short status-like enum token (e.g.
+// AVAILABLE, IN_USE) or free-form text (a remarks string, a JSON blob) — only
+// the former should render as a StatusTag pill, matching the Reports tables.
+function isStatusLike(v: string): boolean {
+  return /^[A-Za-z_]+$/.test(v) && v.length <= 30
+}
+
+function AuditValue({ v }: { v: string | null }) {
+  if (!v) return <span className="text-slate-500">NA</span>
+  return isStatusLike(v)
+    ? <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v.replace(/_/g, ' ')}</StatusTag>
+    : <span className="text-[13px] text-slate-500">{v}</span>
+}
+
 function Field({ label, value }: { label: string; value: React.ReactNode }) {
   return (
     <div className="py-2 px-1">
@@ -40,14 +58,23 @@ function AuditTab({ entityId }: { entityId: number }) {
   )
   const { tableProps } = useServerTable<AuditTrailEntry>(fetcher, { filters })
   const columns: ColumnsType<AuditTrailEntry> = [
-    { title: 'Event', dataIndex: 'event_type', ellipsis: true, width: 210, render: v => <span className="text-[13px] font-medium text-slate-700">{v.replace(/_/g, ' ')}</span> },
-    { title: 'By', dataIndex: 'performed_by', ellipsis: true, width: 140, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
-    { title: 'When', dataIndex: 'performed_at', ellipsis: true, width: 170, render: v => <span className="text-[13px] text-slate-600">{dayjs(v).format('DD/MM/YYYY HH:mm')}</span> },
-    { title: 'Old', dataIndex: 'old_value', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-500">NA</span> },
-    { title: 'New', dataIndex: 'new_value', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-500">NA</span> },
+    { title: 'Event', dataIndex: 'event_type', ellipsis: true, width: 210, sorter: true, render: v => <span className="text-[13px] font-medium text-slate-700">{titleCase(v.replace(/_/g, ' '))}</span> },
+    { title: 'By', dataIndex: 'performed_by', ellipsis: true, width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-600">{v}</span> },
+    { title: 'When', dataIndex: 'performed_at', ellipsis: true, width: 170, sorter: true, render: v => <span className="text-[13px] text-slate-600">{dayjs(v).format('DD/MM/YYYY HH:mm')}</span> },
+    { title: 'Old', dataIndex: 'old_value', ellipsis: true, render: v => <AuditValue v={v} /> },
+    { title: 'New', dataIndex: 'new_value', ellipsis: true, render: v => <AuditValue v={v} /> },
     { title: 'Details', dataIndex: 'details', ellipsis: true, render: v => v ? <span className="text-[13px] text-slate-500">{v}</span> : <span className="text-slate-500">NA</span> },
   ]
-  return <Table {...tableProps} columns={columns} rowKey="id" size="small" scroll={{ x: 'max-content' }} />
+  return (
+    <Table
+      {...tableProps}
+      columns={columns}
+      rowKey="id"
+      size="small"
+      scroll={{ x: 'max-content' }}
+      pagination={{ ...tableProps.pagination, showSizeChanger: false }}
+    />
+  )
 }
 
 export default function InstrumentDetailPage() {
@@ -119,8 +146,8 @@ export default function InstrumentDetailPage() {
           { key: 'summary', label: 'Summary', children: summary },
           { key: 'specification', label: 'Specification', children: <InstrumentSpecTab instrumentId={item.id} /> },
           { key: 'log-mapping', label: 'Log Mapping', children: <LogMappingTab targetKind="INSTRUMENT" targetId={item.id} /> },
-          { key: 'calibration-schedule', label: 'Calibration Schedule', children: <ScheduleTab targetKind="INSTRUMENT" targetId={item.id} logType="CALIBRATION" /> },
-          { key: 'maintenance-schedule', label: 'Maintenance Schedule', children: <ScheduleTab targetKind="INSTRUMENT" targetId={item.id} logType="MAINTENANCE" /> },
+          { key: 'calibration-schedule', label: 'Calibration Schedule', children: <ScheduleTab targetKind="INSTRUMENT" targetId={item.id} logType="CALIBRATION" assetNextDueDate={item.next_calibration_date} /> },
+          { key: 'maintenance-schedule', label: 'Maintenance Schedule', children: <ScheduleTab targetKind="INSTRUMENT" targetId={item.id} logType="MAINTENANCE" assetNextDueDate={item.next_maintenance_date} /> },
           { key: 'audit', label: 'Audit Trail', children: <div className="glass-card rounded-lg overflow-hidden"><AuditTab entityId={item.id} /></div> },
         ]}
       />

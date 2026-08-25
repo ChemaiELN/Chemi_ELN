@@ -16,6 +16,8 @@
     "lint:fix": "eslint src --ext .ts --fix",
     "typecheck": "tsc --noEmit",
     "test": "jest",
+    "test:unit": "jest --selectProjects unit",
+    "test:integration": "jest --selectProjects integration",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage"
   },

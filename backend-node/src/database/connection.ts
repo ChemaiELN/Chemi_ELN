@@ -8,7 +8,9 @@ if (config.db.url) {
   sequelize = new Sequelize(config.db.url, {
     dialect: 'postgres',
     logging: config.isDev ? (msg) => logger.debug(msg) : false,
-    pool: { max: 10, min: 0, acquire: 30000, idle: 10000 },
+    pool: config.nodeEnv === 'test'
+      ? { max: 1, min: 0, acquire: 10000, idle: 1000 }
+      : { max: 10, min: 0, acquire: 30000, idle: 10000 },
     dialectOptions: { ssl: false },
   })
 } else {
@@ -17,7 +19,9 @@ if (config.db.url) {
     port: config.db.port,
     dialect: 'postgres',
     logging: config.isDev ? (msg) => logger.debug(msg) : false,
-    pool: { max: 10, min: 0, acquire: 30000, idle: 10000 },
+    pool: config.nodeEnv === 'test'
+      ? { max: 1, min: 0, acquire: 10000, idle: 1000 }
+      : { max: 10, min: 0, acquire: 30000, idle: 10000 },
   })
 }
 

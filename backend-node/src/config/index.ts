@@ -1,5 +1,12 @@
 import dotenv from 'dotenv'
-dotenv.config()
+import path from 'path'
+
+// Prefer .env.test when running under Jest / NODE_ENV=test so suites never hit the dev DB.
+if (process.env.NODE_ENV === 'test') {
+  dotenv.config({ path: path.resolve(__dirname, '../../.env.test'), override: true })
+} else {
+  dotenv.config()
+}
 
 function required(key: string): string {
   const val = process.env[key]
@@ -23,7 +30,7 @@ export const config = {
   db: {
     host: optional('DB_HOST', 'localhost'),
     port: optionalInt('DB_PORT', 5432),
-    name: optional('DB_NAME', 'laurus_eln'),
+    name: optional('DB_NAME', process.env.NODE_ENV === 'test' ? 'chemi_eln_test' : 'laurus_eln'),
     user: optional('DB_USER', 'postgres'),
     password: optional('DB_PASSWORD', ''),
     url: process.env.DATABASE_URL,

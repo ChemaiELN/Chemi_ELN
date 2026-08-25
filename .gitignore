@@ -18,7 +18,9 @@ build/
 .env
 !.env.example
 backend-node/.env
+backend-node/.env.test
 !backend-node/.env.example
+!backend-node/.env.test.example
 
 # Python backend (not used — only backend-node is tracked)
 backend/

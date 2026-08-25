@@ -144,25 +144,36 @@ async function loadOptionalRoutes() {
   }
 }
 
-// ── Startup ──────────────────────────────────────────────────────────────────
-async function start() {
-  try {
-    await connectDatabase()
-    await loadOptionalRoutes()
+// ── Bootstrap (DB + optional routes + error handlers) ───────────────────────
+// Safe to import app in Jest/Supertest without starting a listener.
+let bootstrapped = false
 
-    // Error handlers must be registered AFTER all routes (including lazy-loaded ones)
-    app.use(notFoundMiddleware)
-    app.use(errorMiddleware)
+export async function bootstrap(): Promise<void> {
+  if (bootstrapped) return
 
-    app.listen(config.port, () => {
-      logger.info(`Laurus ELN backend running on port ${config.port} [${config.nodeEnv}]`)
-    })
-  } catch (err) {
-    logger.error('Failed to start server', err)
-    process.exit(1)
-  }
+  await connectDatabase()
+  await loadOptionalRoutes()
+
+  // Error handlers must be registered AFTER all routes (including lazy-loaded ones)
+  app.use(notFoundMiddleware)
+  app.use(errorMiddleware)
+
+  bootstrapped = true
 }
 
-start()
-
 export default app
+
+// Only listen when this file is the process entry point (npm run dev / node dist/app.js).
+// Jest imports app without triggering listen() or duplicate startup.
+if (require.main === module) {
+  bootstrap()
+    .then(() => {
+      app.listen(config.port, () => {
+        logger.info(`Laurus ELN backend running on port ${config.port} [${config.nodeEnv}]`)
+      })
+    })
+    .catch((err) => {
+      logger.error('Failed to start server', err)
+      process.exit(1)
+    })
+}

@@ -63,8 +63,8 @@ export default function FieldPreview({ field, interactive = false, bare = false,
           : <RichEditor value={field.defaultValue} placeholder={field.placeholder} />
       case 'NUMBER':
         return controlled
-          ? <InputNumber {...commonProps} className="w-full" value={value as number | null | undefined} min={field.minValue} max={field.maxValue} onChange={v => onChange!(v)} />
-          : <InputNumber {...commonProps} className="w-full" defaultValue={field.defaultValue ? Number(field.defaultValue) : undefined} min={field.minValue} max={field.maxValue} />
+          ? <InputNumber {...commonProps} className="w-full" value={value as number | null | undefined} min={field.minValue} max={field.maxValue} addonAfter={field.unit || undefined} onChange={v => onChange!(v)} />
+          : <InputNumber {...commonProps} className="w-full" defaultValue={field.defaultValue ? Number(field.defaultValue) : undefined} min={field.minValue} max={field.maxValue} addonAfter={field.unit || undefined} />
       case 'DATE':
         return controlled
           ? <DatePicker className="w-full" disabled={field.readOnly || !interactive} format="DD/MM/YYYY" value={value ? dayjs(value as string) : null} onChange={d => onChange!(d ? d.format('YYYY-MM-DD') : null)} />

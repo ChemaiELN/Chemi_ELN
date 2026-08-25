@@ -353,6 +353,9 @@ export default function FieldPropertiesDrawer({ field, driverFields = [], siblin
               <div className="grid grid-cols-2 gap-3">
                 <Form.Item label="Minimum Value" name="minValue"><InputNumber className="w-full" /></Form.Item>
                 <Form.Item label="Maximum Value" name="maxValue"><InputNumber className="w-full" /></Form.Item>
+                <Form.Item label="Unit" name="unit" className="col-span-2">
+                  <Input placeholder="e.g. °C" />
+                </Form.Item>
               </div>
             )}
 

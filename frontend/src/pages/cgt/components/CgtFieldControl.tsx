@@ -208,6 +208,7 @@ export default function CgtFieldControl({
           onChange={v => onChange(v)}
           onBlur={onBlur}
           min={field.minValue} max={field.maxValue}
+          addonAfter={field.unit || undefined}
         />
       )
     case 'DATE':

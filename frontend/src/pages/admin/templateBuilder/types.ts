@@ -47,6 +47,7 @@ export interface TemplateField {
   maxLength?: number
   minValue?: number
   maxValue?: number
+  unit?: string              // NUMBER — fixed unit suffix shown next to the input (e.g. "°C")
   regex?: string
   options?: string[]         // DROPDOWN / CHECKLIST / RADIO — static option list
   // Inventory-backed options (DROPDOWN). Undefined/'static' → use `options`

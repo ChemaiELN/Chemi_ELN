@@ -72,16 +72,6 @@ export const cgtProjectApi = {
   deactivate: (id: string, body: { password: string }) => apiPost<CgtProject>(`/api/cgt-projects/${id}/deactivate`, body),
 }
 
-// Maps CgtProject.process -> the workflow_template category offered when
-// creating a notebook under that project. Mirrors backend
-// app/modules/cgt/process_map.py — keep the two in sync.
-export const PROCESS_TO_TEMPLATE_CATEGORY: Record<string, string> = {
-  'Molecular Biology': 'CGT_MOLBIO',
-  'Plasmid': 'CGT_PLASMID',
-  'AAV': 'CGT_AAV',
-  'ADC Synthesis': 'CGT_ADC',
-}
-
 // ── CGT Notebooks ────────────────────────────────────────────────────────────
 export interface CgtNotebook {
   id: string

@@ -8,7 +8,8 @@ import type { SorterResult } from 'antd/es/table/interface'
 const { useBreakpoint } = Grid
 import { Plus, Search } from 'lucide-react'
 import dayjs from 'dayjs'
-import { notebookApi, projectApi, workflowTemplateApi, userApi, type Notebook } from '../../api/adc'
+import { notebookApi, projectApi, userApi, type Notebook } from '../../api/adc'
+import { templateSettingsApi } from '../../api/templateSettings'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useCan } from '../../hooks/usePrivilege'
@@ -102,19 +103,20 @@ export default function NotebooksPage() {
   })
   const projects = projectsData?.items ?? []
 
+  // Admin-curated list (Admin → Template Settings → ADC Template Settings) of
+  // templates offered here — replaces the old single hardcoded template.
   const { data: templatesData } = useQuery({
-    queryKey: ['workflow-templates'],
-    queryFn:  () => workflowTemplateApi.list({ is_active: true }),
+    queryKey: ['template-settings-adc-enabled'],
+    queryFn:  templateSettingsApi.listAdcEnabled,
     staleTime: 5 * 60 * 1000,
     enabled: modal,
   })
   const templates = Array.isArray(templatesData) ? templatesData : []
-  const synthesisV2Template = templates.find(t => t.slug === 'adc-synthesis-v2')
 
-  // Every notebook follows the ADC Synthesis v2 workflow — auto-select it and lock the field.
+  // If only one template is enabled, auto-select it for convenience.
   useEffect(() => {
-    if (synthesisV2Template) form.setFieldValue('template_id', synthesisV2Template.id)
-  }, [synthesisV2Template, form])
+    if (templates.length === 1) form.setFieldValue('template_id', templates[0].id)
+  }, [templates, form])
 
   // Team Leads for the assign-TL picker
   const { data: adcPdTlUsers = [] } = useQuery({
@@ -300,14 +302,15 @@ export default function NotebooksPage() {
           <Form.Item
             label="Experiment Template"
             name="template_id"
+            rules={[{ required: true, message: 'Select a template' }]}
             extra="Scientists will follow this template's screens when recording experiments."
           >
             <Select
-              disabled
-              options={synthesisV2Template ? [{
-                value: synthesisV2Template.id,
-                label: `${synthesisV2Template.name} (v${synthesisV2Template.version})`,
-              }] : []}
+              placeholder="Select a workflow template"
+              showSearch
+              filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
+              options={templates.map(t => ({ value: t.id, label: `${t.name} (v${t.version})` }))}
+              notFoundContent="No templates enabled — configure them in Admin → Template Settings"
             />
           </Form.Item>
 

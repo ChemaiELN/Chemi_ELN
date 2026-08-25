@@ -9,9 +9,10 @@ const { useBreakpoint } = Grid
 import { BookOpen, BookPlus, Search } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
-  cgtNotebookApi, cgtProjectApi, PROCESS_TO_TEMPLATE_CATEGORY, type CgtNotebook,
+  cgtNotebookApi, cgtProjectApi, type CgtNotebook,
 } from '../../api/cgt'
-import { workflowTemplateApi, userApi } from '../../api/adc'
+import { userApi } from '../../api/adc'
+import { templateSettingsApi } from '../../api/templateSettings'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { glassModalProps } from '../../utils/modalStyles'
 import { EmptyValue, withEmptyValue } from '../../components/ui/EmptyValue'
@@ -90,12 +91,14 @@ export default function CgtNotebooksPage() {
   const myProjects = myProjectsData?.items ?? []
 
   const selectedProject = myProjects.find(p => p.id === selectedProjectId)
-  const templateCategory = selectedProject?.process ? PROCESS_TO_TEMPLATE_CATEGORY[selectedProject.process] : undefined
+  const selectedProcess = selectedProject?.process ?? undefined
 
+  // Admin-curated (Admin → Template Settings → CGT Template Settings) list of
+  // templates offered for this project's process.
   const { data: templatesData } = useQuery({
-    queryKey: ['workflow-templates', templateCategory],
-    queryFn:  () => workflowTemplateApi.list({ category: templateCategory, is_active: true }),
-    enabled:  !!templateCategory,
+    queryKey: ['template-settings-cgt-process-templates-for-process', selectedProcess],
+    queryFn:  () => templateSettingsApi.templatesForProcess(selectedProcess as string),
+    enabled:  !!selectedProcess,
     staleTime: 5 * 60 * 1000,
   })
   const templates = Array.isArray(templatesData) ? templatesData : []
@@ -281,7 +284,7 @@ export default function CgtNotebooksPage() {
               disabled={!selectedProjectId}
               filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
               options={templates.map(t => ({ value: t.id, label: `${t.name} (v${t.version})` }))}
-              notFoundContent={!templateCategory ? 'Select a project to see templates' : 'No templates found'}
+              notFoundContent={!selectedProcess ? 'Select a project to see templates' : 'No templates found'}
             />
           </Form.Item>
           <Form.Item label="Team Lead" name="tl_user_ids">

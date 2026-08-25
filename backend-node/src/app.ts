@@ -102,6 +102,7 @@ async function loadOptionalRoutes() {
     { path: `${api}`, file: './routes/experiments.routes' },
     { path: `${api}/workflow-templates`, file: './routes/workflowTemplates.routes' },
     { path: `${api}/calc-templates`, file: './routes/workflowTemplates.routes', namedExport: 'calcTemplateRouter' },
+    { path: `${api}/template-settings`, file: './routes/templateSettings.routes' },
     { path: api, file: './routes/cgt.routes' },
     { path: `${api}/ard/atrs`, file: './routes/ard/atrs.routes' },
     { path: `${api}/ard/tests`, file: './routes/ard/ardTests.routes' },

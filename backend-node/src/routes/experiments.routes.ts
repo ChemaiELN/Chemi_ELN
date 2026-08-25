@@ -673,6 +673,32 @@ router.get('/experiments/:expId/report.pdf', authenticate, async (req: Request, 
   } catch (err) { next(err) }
 })
 
+// GET /experiments/:expId/report/docx — same report as report.pdf above,
+// under the path the frontend's AdcReportsPage actually calls
+// (experimentApi.downloadReport in frontend/src/api/adc.ts). Mirrors CGT's
+// identically-named /cgt-experiments/:id/report/docx (cgt.routes.ts), which
+// likewise serves a PDF despite the "docx" path segment.
+router.get('/experiments/:expId/report/docx', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const { adcExperimentReportHtml } = await import('../utils/ardDocuments')
+    const { htmlToPdf } = await import('../utils/pdfRenderer')
+
+    const exp = await Experiment.findByPk(req.params.expId as string)
+    if (!exp) { res.status(404).json({ success: false, message: 'Experiment not found' }); return }
+
+    const notebook = exp.notebookId ? await Notebook.findByPk(exp.notebookId) : null
+    const project = notebook && (notebook as any).projectId ? await Project.findByPk((notebook as any).projectId) : null
+
+    const submitterName = exp.submittedBy ? String(exp.submittedBy) : 'Unknown'
+    const approverName = (exp as any).approvedBy ? String((exp as any).approvedBy) : '—'
+
+    const html = adcExperimentReportHtml(exp.toJSON(), notebook?.toJSON() ?? {}, project?.toJSON() ?? {}, approverName, submitterName)
+    const pdf = await htmlToPdf(html)
+    res.set({ 'Content-Type': 'application/pdf', 'Content-Disposition': `attachment; filename="experiment-${exp.id}.pdf"` })
+    res.send(pdf)
+  } catch (err) { next(err) }
+})
+
 // ── Clone Experiment ──────────────────────────────────────────────────────────
 
 router.post('/experiments/:expId/clone', authenticate, requireDeptPrivilege('adc.experiment.clone'), async (req: Request, res: Response, next: NextFunction) => {

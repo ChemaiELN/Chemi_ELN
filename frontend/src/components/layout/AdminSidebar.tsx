@@ -3,7 +3,7 @@ import { Menu } from 'antd'
 import type { MenuProps } from 'antd'
 import {
   Users, Building2, ShieldCheck, Settings,
-  Database, FlaskConical, Hash, UsersRound, KeyRound, History, LayoutDashboard,
+  Database, FlaskConical, Hash, UsersRound, KeyRound, History, LayoutDashboard, LayoutTemplate,
 } from 'lucide-react'
 import logo from '../../assets/logo.svg'
 import smallLogo from '../../assets/small-logo.png'
@@ -58,6 +58,11 @@ function makeItems(): MenuItem[] {
       key: '/admin/master-data',
       icon: <Database size={15} />,
       label: 'Master Data',
+    },
+    {
+      key: '/admin/template-settings',
+      icon: <LayoutTemplate size={15} />,
+      label: 'Template Settings',
     },
     {
       key: '/admin/id-sequences',

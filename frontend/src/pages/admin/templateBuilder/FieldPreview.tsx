@@ -7,6 +7,7 @@ import SpreadsheetFieldRuntime from './SpreadsheetFieldRuntime'
 import KetcherField from './KetcherField'
 import RichEditor, { RichDisplay } from '../../../components/RichEditor'
 import AtrRequestField from '../../cgt/components/AtrRequestField'
+import TimerField, { type TimerFieldValue } from '../../cgt/components/TimerField'
 
 const _isRgTable = (s: TemplateScreen) => /\((?:entry\s+|expandable\s+(?:[A-Z]\s+)?)?table\)\s*$/i.test(s.title.trim())
 const _rgCleanTitle = (t: string) => t.replace(/\s*\((?:entry\s+|expandable\s+(?:[A-Z]\s+)?)?table\)\s*$/i, '').trim()
@@ -292,6 +293,28 @@ export default function FieldPreview({ field, interactive = false, bare = false,
             <span className="text-[11px] text-slate-400 italic ml-1">Equipment/Instrument usage log — live at runtime only</span>
           </div>
         )
+      case 'TIMER':
+        // Purely local (no backend/inventory calls needed), so unlike
+        // USAGE_LOG_START_STOP above this can be genuinely live in the
+        // interactive Preview modal — only the design canvas gets the static
+        // placeholder, same reasoning as KETCHER below.
+        if (controlled) {
+          return (
+            <TimerField
+              value={value as TimerFieldValue | undefined}
+              onChange={onChange!}
+              disabled={field.readOnly || !interactive}
+              durationUnit={field.timerConfig?.durationUnit ?? 'minutes'}
+            />
+          )
+        }
+        return (
+          <div className="flex items-center gap-2 border border-dashed border-slate-200 rounded-lg px-3 py-2.5">
+            <Button size="small" disabled icon={<Play size={12} />} className="!text-slate-400">Start</Button>
+            <Button size="small" disabled icon={<Square size={12} />} className="!text-slate-400">End</Button>
+            <span className="text-[11px] text-slate-400 italic ml-1">Duration — live at runtime only</span>
+          </div>
+        )
       case 'KETCHER':
         // Live only in the interactive Preview modal (controlled) — the
         // design canvas doesn't mount the WASM chemical editor just to show
@@ -315,7 +338,7 @@ export default function FieldPreview({ field, interactive = false, bare = false,
     }
   })()
 
-  if (field.type === 'SECTION_HEADING' || field.type === 'SPACER' || field.type === 'LOCK_TOGGLE' || field.type === 'REPEATING_GROUP' || field.type === 'SIGNATURE' || field.type === 'ATR_REQUEST' || field.type === 'USAGE_LOG_START_STOP') return control
+  if (field.type === 'SECTION_HEADING' || field.type === 'SPACER' || field.type === 'LOCK_TOGGLE' || field.type === 'REPEATING_GROUP' || field.type === 'SIGNATURE' || field.type === 'ATR_REQUEST' || field.type === 'USAGE_LOG_START_STOP' || field.type === 'TIMER') return control
 
   // Bare mode: just the control (used inside table cells, where the column
   // header already carries the label).

@@ -24,6 +24,10 @@ const TECHNICAL_GRADE_LOOKUP = 'Technical Grade'
 const CONSUMABLES_MATERIAL_TYPE = 'Consumables'
 // The ISO Type field only applies to this Material Type.
 const ANTIBODY_MATERIAL_TYPE = 'Antibody Materials'
+// The Antibiotic Resistance Marker / Stock Concentration fields only apply to this Material Type.
+const PLASMID_MATERIAL_TYPE = 'Plasmid DNA'
+// The Stock Concentration field also applies to this Material Type.
+const ANTIBIOTICS_MATERIAL_TYPE = 'Antibiotics'
 
 export default function MaterialsPage() {
   const [materials, setMaterials] = useState<Material[]>([])
@@ -454,6 +458,16 @@ export default function MaterialsPage() {
             if ('material_type' in changed && changed.material_type !== ANTIBODY_MATERIAL_TYPE) {
               form.setFieldValue('iso_type', undefined)
             }
+            if ('material_type' in changed && changed.material_type !== PLASMID_MATERIAL_TYPE) {
+              form.setFieldValue('antibiotic_resistance_marker', undefined)
+            }
+            if (
+              'material_type' in changed &&
+              changed.material_type !== PLASMID_MATERIAL_TYPE &&
+              changed.material_type !== ANTIBIOTICS_MATERIAL_TYPE
+            ) {
+              form.setFieldValue('stock_concentration', undefined)
+            }
           }}
         >
           {/* Core fields */}
@@ -519,6 +533,16 @@ export default function MaterialsPage() {
             {selectedMaterialType === CONSUMABLES_MATERIAL_TYPE && (
               <Form.Item name="consumable_type_id" label="Consumable Type">
                 <Select allowClear options={ctypes.map(c => ({ value: c.id, label: c.name }))} />
+              </Form.Item>
+            )}
+            {selectedMaterialType === PLASMID_MATERIAL_TYPE && (
+              <Form.Item name="antibiotic_resistance_marker" label="Antibiotic Resistance Marker">
+                <Input />
+              </Form.Item>
+            )}
+            {(selectedMaterialType === PLASMID_MATERIAL_TYPE || selectedMaterialType === ANTIBIOTICS_MATERIAL_TYPE) && (
+              <Form.Item name="stock_concentration" label="Stock Concentration">
+                <Input placeholder="e.g. 100 ng/µL" />
               </Form.Item>
             )}
           </div>

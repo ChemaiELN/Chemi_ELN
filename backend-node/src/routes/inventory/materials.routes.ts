@@ -88,6 +88,8 @@ const createMaterialSchema = z.object({
   storageCondition: z.string().optional().nullable(),
   hazardClass: z.string().optional().nullable(),
   isoType: z.string().optional().nullable(),
+  antibioticResistanceMarker: z.string().optional().nullable(),
+  stockConcentration: z.string().optional().nullable(),
   description: z.string().optional().nullable(),
   departmentId: z.string().uuid().optional().nullable(),
   consumableTypeId: z.preprocess(

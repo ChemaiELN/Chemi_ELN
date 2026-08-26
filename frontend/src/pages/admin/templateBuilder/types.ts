@@ -31,6 +31,7 @@ export type FieldType =
   | 'SIGNATURE'
   | 'ATR_REQUEST'
   | 'USAGE_LOG_START_STOP'
+  | 'TIMER'
 
 export interface TemplateField {
   id: string
@@ -264,6 +265,16 @@ export interface TemplateField {
     targetKind: 'EQUIPMENT' | 'INSTRUMENT'
     idFieldName?: string
   }
+  // TIMER only: renders "Start"/"End" buttons that record wall-clock
+  // timestamps into this field's own value (see TimerField.tsx) — a plain
+  // stopwatch for a process step's duration (e.g. "Thaw time on ice"), purely
+  // local to the experiment's stored data. No backend/inventory calls,
+  // unlike USAGE_LOG_START_STOP above. Elapsed time is computed from
+  // start/end automatically but the chemist can manually type over it
+  // afterward (e.g. correcting for a paused/restarted timer).
+  timerConfig?: {
+    durationUnit?: 'seconds' | 'minutes' | 'hours'   // default 'minutes'
+  }
 }
 
 export interface TemplateScreen {
@@ -344,6 +355,13 @@ export const FIELD_TYPE_REGISTRY: FieldTypeDescriptor[] = [
   // (see api/inventory.ts's usageLogApi) — see CgtFieldControl.tsx's
   // USAGE_LOG_START_STOP case / UsageLogStartStopField.tsx for the runtime.
   { type: 'USAGE_LOG_START_STOP', label: 'Equipment Start/Stop', category: 'Advanced Elements', isLayoutOnly: true },
+  // Generic stopwatch for a process step's duration — "Start"/"End" buttons
+  // record wall-clock timestamps into this field's own value and the elapsed
+  // time is computed automatically; the chemist can still type over the
+  // computed duration afterward. Purely local (no backend calls), unlike
+  // USAGE_LOG_START_STOP above — see CgtFieldControl.tsx's TIMER case /
+  // TimerField.tsx for the runtime.
+  { type: 'TIMER',            label: 'Timer (Start/End)', category: 'Advanced Elements', isLayoutOnly: true },
 ]
 
 export const FIELD_CATEGORIES: FieldTypeDescriptor['category'][] = [
@@ -377,6 +395,7 @@ export function makeField(type: FieldType): TemplateField {
     // No idFieldName yet — author must pick a sibling id column in the
     // drawer; until then the runtime shows a disabled "Not configured" state.
     ...(type === 'USAGE_LOG_START_STOP' ? { usageLogConfig: { targetKind: 'EQUIPMENT' } } : {}),
+    ...(type === 'TIMER' ? { timerConfig: { durationUnit: 'minutes' } } : {}),
   }
 }
 

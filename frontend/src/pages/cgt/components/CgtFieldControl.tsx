@@ -14,6 +14,7 @@ import { ApiError } from '../../../api/client'
 import AtrRequestField from './AtrRequestField'
 import UsageLogStartStopField from './UsageLogStartStopField'
 import TimerField, { type TimerFieldValue } from './TimerField'
+import VectorEditorField, { type VectorEditorFieldValue } from './VectorEditorField'
 
 function fileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -371,6 +372,14 @@ export default function CgtFieldControl({
           onChange={onChange}
           disabled={dis}
           durationUnit={field.timerConfig?.durationUnit ?? 'minutes'}
+        />
+      )
+    case 'VECTOR_EDITOR':
+      return (
+        <VectorEditorField
+          value={value as VectorEditorFieldValue | undefined}
+          onChange={onChange}
+          disabled={dis}
         />
       )
     default:

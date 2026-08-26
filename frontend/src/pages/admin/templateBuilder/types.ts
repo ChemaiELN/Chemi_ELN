@@ -32,6 +32,7 @@ export type FieldType =
   | 'ATR_REQUEST'
   | 'USAGE_LOG_START_STOP'
   | 'TIMER'
+  | 'VECTOR_EDITOR'
 
 export interface TemplateField {
   id: string
@@ -275,6 +276,15 @@ export interface TemplateField {
   timerConfig?: {
     durationUnit?: 'seconds' | 'minutes' | 'hours'   // default 'minutes'
   }
+  // VECTOR_EDITOR only: a self-contained SVG plasmid/vector map — vector
+  // name + total sequence length (bp) + a list of annotated features
+  // (name/start/end/strand/color), rendered as arcs around a backbone
+  // circle. Light version — no real sequence editing, no GenBank/FASTA
+  // import, no restriction-site analysis; purely local to this field's own
+  // stored value (see VectorEditorField.tsx). No extra config needed; kept
+  // as an object for forward-compatible extension (e.g. a future preset
+  // feature palette) without another migration.
+  vectorEditorConfig?: Record<string, never>
 }
 
 export interface TemplateScreen {
@@ -362,6 +372,10 @@ export const FIELD_TYPE_REGISTRY: FieldTypeDescriptor[] = [
   // USAGE_LOG_START_STOP above — see CgtFieldControl.tsx's TIMER case /
   // TimerField.tsx for the runtime.
   { type: 'TIMER',            label: 'Timer (Start/End)', category: 'Advanced Elements', isLayoutOnly: true },
+  // Light plasmid/vector map — see VectorEditorField.tsx / the vectorEditorConfig
+  // comment above. Collapsed behind an "Open Vector Editor" button until
+  // clicked, so it doesn't take up space on screens where it isn't in use.
+  { type: 'VECTOR_EDITOR',    label: 'Vector Editor',    category: 'Advanced Elements', isLayoutOnly: true },
 ]
 
 export const FIELD_CATEGORIES: FieldTypeDescriptor['category'][] = [
@@ -396,6 +410,7 @@ export function makeField(type: FieldType): TemplateField {
     // drawer; until then the runtime shows a disabled "Not configured" state.
     ...(type === 'USAGE_LOG_START_STOP' ? { usageLogConfig: { targetKind: 'EQUIPMENT' } } : {}),
     ...(type === 'TIMER' ? { timerConfig: { durationUnit: 'minutes' } } : {}),
+    ...(type === 'VECTOR_EDITOR' ? { vectorEditorConfig: {} } : {}),
   }
 }
 

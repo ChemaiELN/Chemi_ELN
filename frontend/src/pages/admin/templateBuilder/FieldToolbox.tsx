@@ -3,7 +3,7 @@ import { Popover } from 'antd'
 import {
   Rows, Minus, TextCursorInput, AlignLeft, Hash, Calendar, CalendarClock,
   ToggleLeft, ChevronDownSquare, CheckSquare, ListChecks, CircleDotDashed,
-  Paperclip, Image as ImageIcon, Lock, PenLine, Sheet, Layers, FlaskConical, Signature, FileSearch, Clock3, Timer,
+  Paperclip, Image as ImageIcon, Lock, PenLine, Sheet, Layers, FlaskConical, Signature, FileSearch, Clock3, Timer, Dna,
 } from 'lucide-react'
 import { FIELD_CATEGORIES, FIELD_TYPE_REGISTRY, type FieldType } from './types'
 
@@ -55,6 +55,7 @@ const ICONS: Record<FieldType, React.ElementType> = {
   ATR_REQUEST: FileSearch,
   USAGE_LOG_START_STOP: Clock3,
   TIMER: Timer,
+  VECTOR_EDITOR: Dna,
 }
 
 function PaletteItem({ type, label }: { type: FieldType; label: string }) {

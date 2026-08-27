@@ -5,7 +5,7 @@ import { Button, Modal, Form, Input, Select, DatePicker, Table, Tag, message, Gr
 import type { TableProps } from 'antd'
 import { Plus, FolderOpen, Search } from 'lucide-react'
 import dayjs from 'dayjs'
-import { cgtProjectApi, type CgtProject } from '../../api/cgt'
+import { cgtProjectApi, type CgtProjectWithNotebooks } from '../../api/cgt'
 import { userApi } from '../../api/adc'
 import { templateSettingsApi } from '../../api/templateSettings'
 import { glassModalProps } from '../../utils/modalStyles'
@@ -120,7 +120,7 @@ export default function CgtProjectsPage() {
     },
   })
 
-  const handleTableChange: TableProps<CgtProject>['onChange'] = (_pagination, _filters, sorter) => {
+  const handleTableChange: TableProps<CgtProjectWithNotebooks>['onChange'] = (_pagination, _filters, sorter) => {
     const s = Array.isArray(sorter) ? sorter[0] : sorter
     setSortField(s?.field ? String(s.field) : undefined)
     setSortOrder(s?.order ?? undefined)

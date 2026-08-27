@@ -174,14 +174,21 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
       }
     }
 
-    // Notebook names are unique, case-insensitively — "Trail-3" and
-    // "trail-3" count as the same name, matching how a user would actually
-    // read a duplicate.
+    // Notebook names are unique per project, case-insensitively — "Trail-3"
+    // and "trail-3" count as the same name, matching how a user would
+    // actually read a duplicate. Scoped to projectId (not global) so the
+    // same default notebook names (e.g. "STP Template") can exist once per
+    // project, matching how every project gets its own default-notebook set.
     const trimmedName = name.trim();
     const dupe = await ArdNotebook.findOne({
-      where: sequelize.where(sequelize.fn('lower', sequelize.col('name')), trimmedName.toLowerCase()),
+      where: {
+        [Op.and]: [
+          { projectId: projectId || null },
+          sequelize.where(sequelize.fn('lower', sequelize.col('name')), trimmedName.toLowerCase()),
+        ],
+      } as any,
     });
-    if (dupe) throw new BadRequestError(`A notebook named "${trimmedName}" already exists.`, 'VALIDATION_ERROR');
+    if (dupe) throw new BadRequestError(`A notebook named "${trimmedName}" already exists in this project.`, 'VALIDATION_ERROR');
 
     const code = await nextCode()
     const nb = await ArdNotebook.create({
@@ -259,15 +266,18 @@ router.patch('/:notebookId', authenticate, async (req: Request, res: Response, n
 
     if (body.name !== undefined && body.name.trim().toLowerCase() !== (nb.name || '').trim().toLowerCase()) {
       const trimmedName = body.name.trim();
+      // Scoped to the same project as the notebook being renamed — see the
+      // matching comment on the POST handler's dupe check above.
       const dupe = await ArdNotebook.findOne({
         where: {
           [Op.and]: [
             { id: { [Op.ne]: nb.id } },
+            { projectId: nb.projectId },
             sequelize.where(sequelize.fn('lower', sequelize.col('name')), trimmedName.toLowerCase()),
           ],
         } as any,
       });
-      if (dupe) throw new BadRequestError(`A notebook named "${trimmedName}" already exists.`, 'VALIDATION_ERROR');
+      if (dupe) throw new BadRequestError(`A notebook named "${trimmedName}" already exists in this project.`, 'VALIDATION_ERROR');
     }
 
     const editableFields = ['name', 'description', 'notebookType', 'includeVerificationFlow', 'assignedUsers', 'resultParameters', 'maxExperiments']

@@ -408,6 +408,9 @@ export interface ArdTestRow {
   requestedBy: string | null
   requestedOn: string | null
   remarks: string | null
+  arNumber: string | null
+  sourceDept: string | null
+  unsatisfactoryRemarks: string | null
 }
 
 const ATR_BASE = '/api/ard/atrs'
@@ -453,6 +456,8 @@ export const ardAtrApi = {
     apiGet<{ items: ArdTestRow[]; total: number }>('/api/ard/tests', params),
   bulkReassignTeam: (body: { testIds: string[]; tlId: string; remarks: string; password: string }) =>
     apiPost<{ updatedCount: number }>('/api/ard/tests/bulk-reassign-team', body),
+  unsatisfactoryReport: (params?: { applyDate?: boolean; from?: string; to?: string }) =>
+    apiGet<ArdTestRow[]>('/api/ard/tests/unsatisfactory-report', params),
   getSupportingDocs: (atrId: string) =>
     apiGet<{ items: AtrSupportingDoc[] }>(`${ATR_BASE}/${atrId}/supporting-docs`),
   addSupportingDoc: (atrId: string, body: { name: string; type?: string; description?: string; url?: string; fileSize?: number; checksum?: string }) =>

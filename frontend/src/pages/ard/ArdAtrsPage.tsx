@@ -1,9 +1,9 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Table, Tag, Input, Select, Button, Tabs, Card, Modal, message, Popconfirm, Space } from 'antd'
+import { Table, Tag, Input, Select, Button, Tabs, Card, Modal, message, Popconfirm, Space, DatePicker, Checkbox } from 'antd'
 import { Plus, FileText, Clock, ShieldCheck, Award, Download, CheckCircle2, Search, Repeat } from 'lucide-react'
-import dayjs from 'dayjs'
+import dayjs, { type Dayjs } from 'dayjs'
 import { ardAtrApi, ardOpsApi, type AtrStatus, type ArdTestRow, type AtrForm } from '../../api/ard'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
@@ -286,11 +286,13 @@ export default function ArdAtrsPage() {
     ] : []),
     { key: 'method_dev', label: `Method Development (${countMethodDev})` },
     ...(isHodUser ? [{ key: 're_assign', label: 'Re-assign Test' }] : []),
+    ...(isHodUser ? [{ key: 'unsatisfactory', label: 'Unsatisfactory Tests' }] : []),
     ...(isHodOrTl ? [{ key: 'form_pending_approval', label: `Form Pending Approval (${countVerReq})` }] : []),
   ]
 
   const isReassignTab = activeTab === 're_assign'
-  const isCustomTab = isReassignTab || isFormApprovalTab
+  const isUnsatisfactoryTab = activeTab === 'unsatisfactory'
+  const isCustomTab = isReassignTab || isUnsatisfactoryTab || isFormApprovalTab
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -389,6 +391,8 @@ export default function ArdAtrsPage() {
             setSelectedIds={setReassignSelectedIds}
             onReassignClick={() => setReassignModalOpen(true)}
           />
+        ) : isUnsatisfactoryTab ? (
+          <UnsatisfactoryTestsPanel />
         ) : isFormApprovalTab ? (
           <FormPendingApprovalPanel
             items={filteredItems}
@@ -641,6 +645,82 @@ function ReassignTestPanel({
           </Button>
         </>
       )}
+    </div>
+  )
+}
+
+function UnsatisfactoryTestsPanel() {
+  const [applyDate, setApplyDate] = useState(false)
+  const [from, setFrom] = useState<Dayjs | null>(dayjs().subtract(1, 'month'))
+  const [to, setTo] = useState<Dayjs | null>(dayjs())
+
+  const { data, isLoading, refetch, isFetching } = useQuery({
+    queryKey: ['ard-unsatisfactory-report', applyDate, from?.format('YYYY-MM-DD'), to?.format('YYYY-MM-DD')],
+    queryFn: () => ardAtrApi.unsatisfactoryReport({
+      applyDate,
+      from: from ? from.format('YYYY-MM-DD') : undefined,
+      to: to ? to.format('YYYY-MM-DD') : undefined,
+    }),
+  })
+  const rows = data ?? []
+
+  const exportUnsatCsv = () => {
+    const csvRows = [
+      ['Project Code', 'Product Name', 'Department', 'Sample Code', 'Batch No.', 'Test/SubType', 'Test No.', 'Unsatisfactory Remarks'],
+      ...rows.map(r => [
+        r.projectCode || '', `"${r.productName || ''}"`, r.sourceDept || '', r.sampleCode || '',
+        r.batchNo || '', `${r.testType}${r.testSubtype ? ` / ${r.testSubtype}` : ''}`,
+        r.arNumber || '', `"${(r.unsatisfactoryRemarks || '').replace(/"/g, '""')}"`,
+      ]),
+    ]
+    const csvContent = 'data:text/csv;charset=utf-8,' + csvRows.map(e => e.join(',')).join('\n')
+    const link = document.createElement('a')
+    link.setAttribute('href', encodeURI(csvContent))
+    link.setAttribute('download', `unsatisfactory_tests_${dayjs().format('YYYYMMDD')}.csv`)
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <Checkbox checked={applyDate} onChange={(e) => setApplyDate(e.target.checked)}>
+          Include Date
+        </Checkbox>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">From</label>
+          <DatePicker value={from} onChange={setFrom} disabled={!applyDate} />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">To</label>
+          <DatePicker value={to} onChange={setTo} disabled={!applyDate} />
+        </div>
+        <Button type="primary" onClick={() => refetch()} loading={isFetching} className="bg-emerald-600 hover:bg-emerald-700 border-none">
+          Search
+        </Button>
+        <Button icon={<Download size={14} />} onClick={exportUnsatCsv} className="text-slate-600 ml-auto">
+          Export CSV
+        </Button>
+      </div>
+
+      <Table
+        rowKey="id"
+        loading={isLoading}
+        dataSource={rows}
+        size="small"
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} tests` }}
+        columns={[
+          { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+          { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+          { title: 'Department', dataIndex: 'sourceDept', render: (v) => <Tag className="text-xs">{v || 'ARD'}</Tag> },
+          { title: 'Sample Code', dataIndex: 'sampleCode', render: (v) => v || '—' },
+          { title: 'Batch No.', dataIndex: 'batchNo', render: (v) => v || '—' },
+          { title: 'Test/SubType', render: (_, r) => <span>{r.testType}{r.testSubtype ? ` / ${r.testSubtype}` : ''}</span> },
+          { title: 'Test No.', dataIndex: 'arNumber', render: (v) => v || '—' },
+          { title: 'Unsatisfactory Remarks', dataIndex: 'unsatisfactoryRemarks', render: (v) => v || '—' },
+        ]}
+      />
     </div>
   )
 }

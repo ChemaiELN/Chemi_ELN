@@ -128,8 +128,13 @@ function testOut(test: any): Record<string, unknown> {
     formNo: form?.formNo ?? null,
     projectCode: form?.projectCode ?? null,
     productName: form?.productName ?? null,
-    assignedTl: form?.assignedTl ?? null,
-    assignedTlId: form?.assignedTlId ?? null,
+    // A test moved by the HOD's "Re-assign Test" tool carries its own team
+    // override (reassignedTlId/Name) that supersedes the parent ATR's team —
+    // every consumer of assignedTl/assignedTlId (queues, visibility checks)
+    // should see the test's CURRENT team, not the ATR's original one.
+    assignedTl: plain.reassignedTlName ?? form?.assignedTl ?? null,
+    assignedTlId: plain.reassignedTlId ?? form?.assignedTlId ?? null,
+    originalAssignedTlId: form?.assignedTlId ?? null,
     qcRef: form?.qcRef ?? null,
     atrStatus: form?.status ?? null,
     sampleCode: sample?.sampleCode ?? null,
@@ -178,9 +183,13 @@ async function canViewTest(user: any, test: any): Promise<boolean> {
   const atrForm = test.sample?.atrForm
   if (!atrForm) return false
   if (atrForm.createdById === uid) return true
-  if (atrForm.assignedTlId && !QA_CYCLE_STATUSES.includes(atrForm.status)) {
+  // A reassigned test's team is whatever it was moved TO, full stop — the
+  // old team (via the ATR's own assignedTlId) no longer applies once this is
+  // set, matching the "completely goes from his to the selected team" rule.
+  const effectiveTlId = test.reassignedTlId ?? atrForm.assignedTlId
+  if (effectiveTlId && !QA_CYCLE_STATUSES.includes(atrForm.status)) {
     const tlIds = await teammateTlIds(user)
-    if (tlIds.includes(atrForm.assignedTlId)) return true
+    if (tlIds.includes(effectiveTlId)) return true
   }
   return false
 }
@@ -210,6 +219,20 @@ ardTestRouter.get('/', authenticate, async (req: Request, res: Response, next: N
       })
     }
 
+    // Explicit team filter for the HOD's "Re-assign Test" tool — applies
+    // regardless of role, since canReadAllTests users (HOD) otherwise get no
+    // team scoping at all below. A test with a reassignedTlId override uses
+    // that as its current team; everything else falls back to its parent
+    // ATR's assignedTlId, same rule as canViewTest/the visibility clause below.
+    if (req.query.tlId) {
+      and.push({
+        [Op.or]: [
+          { reassignedTlId: req.query.tlId },
+          { reassignedTlId: { [Op.is]: null }, '$sample.atrForm.assigned_tl_id$': req.query.tlId },
+        ],
+      })
+    }
+
     if (!canReadAllTests(user)) {
       // A test belongs to whichever team its ATR is assigned to — visible to
       // that team's HOD/TLs/analysts, plus whoever it's personally
@@ -226,10 +249,18 @@ ardTestRouter.get('/', authenticate, async (req: Request, res: Response, next: N
       ]
       if (tlIds.length > 0) {
         // Not visible to the team while the parent ATR is still mid QA-pre-
-        // approval cycle — see canViewTest's note above.
+        // approval cycle — see canViewTest's note above. A test carrying its
+        // own reassignedTlId has moved teams — only that new team (not the
+        // ATR's original one) should see it.
         orClause.push({
-          '$sample.atrForm.assigned_tl_id$': { [Op.in]: tlIds },
-          '$sample.atrForm.status$': { [Op.notIn]: QA_CYCLE_STATUSES },
+          [Op.or]: [
+            { reassignedTlId: { [Op.in]: tlIds } },
+            {
+              reassignedTlId: { [Op.is]: null },
+              '$sample.atrForm.assigned_tl_id$': { [Op.in]: tlIds },
+              '$sample.atrForm.status$': { [Op.notIn]: QA_CYCLE_STATUSES },
+            },
+          ],
         })
       }
       and.push({ [Op.or]: orClause })
@@ -294,6 +325,51 @@ ardTestRouter.post('/bulk-assign', authenticate, async (req: Request, res: Respo
     }
 
     return res.json(successResponse('Tests assigned', { updatedCount }))
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /bulk-reassign-team — the HOD's "Re-assign Test" tool. Moves selected
+// tests to a different team wholesale: sets a per-test team override
+// (reassignedTlId/Name) that supersedes the parent ATR's own assignedTlId
+// everywhere a test's team is checked (testOut, canViewTest, the list route's
+// visibility clause above) — the old team stops seeing these tests, the new
+// team starts, and sibling tests left on the same ATR are untouched.
+const HOD_REASSIGN_ROLES = ['HOD', 'SUPER_ADMIN', 'ADMIN']
+ardTestRouter.post('/bulk-reassign-team', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user
+    assertRole(req, HOD_REASSIGN_ROLES)
+
+    const body = z.object({
+      testIds: z.array(z.string()).min(1),
+      tlId: z.string(),
+      remarks: z.string().min(1),
+    }).parse(req.body)
+
+    const targetTl = await User.findByPk(body.tlId)
+    if (!targetTl) throw new NotFoundError('Target Team Lead not found')
+
+    const tests = await ArdTestRequest.findAll({ where: { id: { [Op.in]: body.testIds } } })
+    let updatedCount = 0
+    for (const test of tests) {
+      const fromTl = (test as any).reassignedTlName ?? null
+      await test.update({
+        reassignedTlId: body.tlId,
+        reassignedTlName: (targetTl as any).username,
+        testReassignRemarks: body.remarks,
+      })
+      await writeAuditLog(
+        (test as any).id,
+        'TEAM_REASSIGNED',
+        user.id,
+        `${user.username}: reassigned${fromTl ? ` from ${fromTl}` : ''} to ${(targetTl as any).username} — ${body.remarks}`,
+      )
+      updatedCount++
+    }
+
+    return res.json(successResponse('Tests reassigned', { updatedCount }))
   } catch (err) {
     next(err)
   }
@@ -964,8 +1040,9 @@ ardTestRouter.post(
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
       assertStatus(test, ['VERIFIED', 'PUBLISHED'], 'mark-unsatisfactory')
 
-      await recordTestHistory((test as any).id, 'UNSATISFACTORY', user.id, user.username)
-      await test.update({ status: 'UNSATISFACTORY' })
+      const remarks = typeof req.body?.remarks === 'string' ? req.body.remarks : null
+      await recordTestHistory((test as any).id, 'UNSATISFACTORY', user.id, user.username, remarks ?? undefined)
+      await test.update({ status: 'UNSATISFACTORY', unsatisfactoryRemarks: remarks })
       return res.json(successResponse('Test marked unsatisfactory', test))
     } catch (err) {
       next(err)

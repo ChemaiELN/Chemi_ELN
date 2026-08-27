@@ -7,6 +7,7 @@ import { requirePrivilege, userHasPrivilege, CREATOR_ROLES } from '../../shared/
 import { settingEnabled, enforceEsignature, ESIGN_FLAGS } from '../../shared/ardSettings';
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response';
 import { NotFoundError, BadRequestError, ForbiddenError, ConflictError, AppError } from '../../utils/errors';
+import { verifyPassword } from '../../utils/auth.utils';
 import { sequelize } from '../../database/connection';
 import {
   ArdAtrForm,
@@ -28,7 +29,9 @@ import {
   ATR_TRANSITIONS,
   canReadAllAtrs,
   defaultAtrScope,
+  isAdmin,
   isExternalRequester,
+  isHod,
   isQa,
   roleCode,
   teammateTlIds,
@@ -184,6 +187,13 @@ async function atrVisibilityWhere(user: any, scope?: string): Promise<Record<str
     // of the actual 403, since the frontend treats no data as loading.
     effective = 'dept';
   }
+  // 'self' is a deliberate narrowing (the "My Raised ATRs" tab), so it's
+  // honored even for roles that can otherwise read everything (HOD/QA/Admin)
+  // — 'mine' doesn't work for this because it still folds in the rest of the
+  // team for internal users (see teamScopedAtrWhere) below.
+  if (effective === 'self') {
+    return { createdById: user.id };
+  }
   if (canReadAll) return null;
   if (effective === 'all') {
     throw new ForbiddenError('Not permitted to view all ATRs.');
@@ -278,6 +288,22 @@ atrRouter.get('/', authenticate, async (req: Request, res: Response, next: NextF
         ],
       });
     }
+    // Team filter for the HOD's "Re-assign Forms" tool — an ATR's team is
+    // whichever team's TL it's assigned to; assignedTeamId is also matched
+    // since some forms get it set directly (the "Select ARD Team" workflow
+    // step), but assignedTlId is the more reliably-populated field.
+    if (req.query.teamId) {
+      const team = await (ArdTeam as any).findByPk(req.query.teamId as string);
+      const tlIds = team ? (team.tlIds || []) : [];
+      and.push({
+        [Op.or]: [
+          { assignedTeamId: req.query.teamId },
+          { assignedTlId: { [Op.in]: tlIds } },
+        ],
+      });
+      // Reassigning a form that's already finished (or dead) doesn't make sense.
+      and.push({ status: { [Op.notIn]: ['CERTIFIED', 'REJECTED', 'WITHDRAWN'] } });
+    }
     const where = and.length ? { [Op.and]: and } : {};
 
     const { count, rows } = await (ArdAtrForm as any).findAndCountAll({
@@ -285,13 +311,79 @@ atrRouter.get('/', authenticate, async (req: Request, res: Response, next: NextF
       limit,
       offset,
       order: [['createdAt', 'DESC']],
+      // distinct: true — without it, an ATR with multiple samples (each with
+      // multiple tests) gets counted once per joined sample/test row, so the
+      // reported total (and page count) balloons past the number of ATRs
+      // findAndCountAll actually returns.
+      distinct: true,
       include: [
-        { model: ArdAtrSample, as: 'samples', attributes: ['id'], include: [{ model: ArdTestRequest, as: 'tests', attributes: ['id'] }] },
+        { model: ArdAtrSample, as: 'samples', attributes: ['id', 'sampleCode', 'sampleType'], include: [{ model: ArdTestRequest, as: 'tests', attributes: ['id'] }] },
       ],
     });
 
     const pagination = buildPagination(page, limit, count);
     res.json(listResponse('ATR forms', rows, pagination));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /bulk-reassign — the HOD's "Re-assign Forms" tool. Moves whole ATR
+// forms (not individual tests — see /api/ard/tests/bulk-reassign-team for
+// that) from one team to another: the form's assignedTlId/assignedTl/
+// assignedTeamId all flip to the destination team in one shot, so every
+// sibling test on the form moves with it. Always requires e-signature —
+// this is a bulk, cross-team ownership change.
+const bulkReassignAtrsSchema = z.object({
+  atrIds: z.array(z.string()).min(1),
+  tlId: z.string(),
+  remarks: z.string().min(1),
+  password: z.string().min(1),
+});
+atrRouter.post('/bulk-reassign', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user;
+    const code = roleCode(user);
+    if (!['HOD', 'SUPER_ADMIN'].includes(code)) {
+      throw new ForbiddenError('Only HOD or Super Admin can bulk re-assign ATR forms');
+    }
+
+    const body = bulkReassignAtrsSchema.parse(req.body);
+
+    const passwordValid = await verifyPassword(body.password, user.passwordHash);
+    if (!passwordValid) {
+      throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED');
+    }
+
+    const targetTl = await (User as any).findByPk(body.tlId);
+    if (!targetTl) throw new NotFoundError('Target Team Lead not found');
+    const destinationTeam = await (ArdTeam as any).findOne({ where: { tlIds: { [Op.contains]: [body.tlId] } } });
+
+    let updatedCount = 0;
+    await sequelize.transaction(async (t) => {
+      const forms = await (ArdAtrForm as any).findAll({ where: { id: { [Op.in]: body.atrIds } }, transaction: t });
+      for (const form of forms) {
+        const historyEntry = {
+          action: 'BULK_REASSIGN',
+          by: user.id,
+          byName: user.username,
+          at: new Date(),
+          remarks: body.remarks,
+          fromTl: (form as any).assignedTl,
+          toTl: (targetTl as any).username,
+        };
+        await form.update({
+          assignedTlId: body.tlId,
+          assignedTl: (targetTl as any).username,
+          assignedTeamId: destinationTeam ? (destinationTeam as any).id : (form as any).assignedTeamId,
+          reassignRemarks: body.remarks,
+          workflowHistory: [...(((form as any).workflowHistory as any[]) || []), historyEntry],
+        }, { transaction: t });
+        updatedCount++;
+      }
+    });
+
+    return res.json(successResponse('ATR forms reassigned', { updatedCount }));
   } catch (err) {
     next(err);
   }
@@ -533,6 +625,17 @@ atrRouter.post('/:atrId/transition', authenticate, async (req: Request, res: Res
     if (currentStatus === 'QA_PRE_APPROVAL' && ['NEW', 'PRE_APPROVAL_REWORK'].includes(targetStatus)) {
       if (!isQa(user) && roleCode(user) !== 'SUPER_ADMIN') {
         throw new ForbiddenError('Only QA can approve or return this ATR from QA Pre-Approval.');
+      }
+    }
+
+    // The Form Pending Approval step (PENDING_APPROVAL -> APPROVED) is the
+    // HOD/TL's call, not anyone who happens to know the ATR id — previously
+    // unenforced server-side (the frontend just hid the button for everyone
+    // else, which isn't real authorization).
+    if (currentStatus === 'PENDING_APPROVAL' && targetStatus === 'APPROVED') {
+      const isAssignedTl = (atr as any).assignedTlId === user.id;
+      if (!isHod(user) && !isAdmin(user) && !isAssignedTl) {
+        throw new ForbiddenError('Only the HOD or the assigned Team Lead can approve this ATR.');
       }
     }
 

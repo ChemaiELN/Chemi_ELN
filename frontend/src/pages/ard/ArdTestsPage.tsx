@@ -183,7 +183,7 @@ export default function ArdTestsPage() {
   const canUnlock = ['TL', 'HOD', 'ADMIN', 'SUPER_ADMIN', 'QA'].includes(user?.role_code ?? '')
   const isSupervisory = ['HOD', 'QA', 'ADMIN', 'SUPER_ADMIN', 'QC_MANAGER'].includes(user?.role_code ?? '')
 
-  const [activeTab, setActiveTab] = useState(isAnalyst ? 'assigned_tests' : 'all')
+  const [activeTab, setActiveTab] = useState(isAnalyst ? 'assigned_tests' : 'unassigned')
   const [status, setStatus] = useState<string | undefined>()
   const [q, setQ] = useState('')
   // "Assigned Tests" is one top-level tab holding two inner views — Me /
@@ -207,6 +207,19 @@ export default function ArdTestsPage() {
   const [takeoverTarget, setTakeoverTarget] = useState('')
   const [takeoverRemarks, setTakeoverRemarks] = useState('')
   const [takeoverLoading, setTakeoverLoading] = useState(false)
+
+  // Bulk takeover state — In Progress tab's toolbar, only meaningful once
+  // "Include All Users" brings teammates' tests into view (see scopedItems).
+  const [bulkTakeoverOpen, setBulkTakeoverOpen] = useState(false)
+  const [bulkTakeoverTarget, setBulkTakeoverTarget] = useState('')
+  const [bulkTakeoverRemarks, setBulkTakeoverRemarks] = useState('')
+  const [bulkTakeoverLoading, setBulkTakeoverLoading] = useState(false)
+
+  // In Progress tab: by default scopedItems already narrows every tab down to
+  // "unassigned or mine" for a non-admin user — this checkbox lifts that
+  // narrowing for this one tab so a TL/analyst can see (and take over) their
+  // teammates' in-progress tests too, without affecting any other tab.
+  const [includeAllUsersInProgress, setIncludeAllUsersInProgress] = useState(false)
 
   // Unlock modal state (B-50)
   const [unlockModal, setUnlockModal] = useState<{ row: TestRow } | null>(null)
@@ -337,7 +350,7 @@ export default function ArdTestsPage() {
   const rawItems = data?.items ?? []
 
   // Role scoping: Scoped users (Analyst / TL) only see assigned or relevant tests
-  const scopedItems = isScopedUser
+  const scopedItems = isScopedUser && !(activeTab === 'in_progress' && includeAllUsersInProgress)
     ? rawItems.filter(r => !r.assignedToName || r.assignedToId === user?.id || r.assignedToName === user?.username)
     : rawItems
 
@@ -395,17 +408,16 @@ export default function ArdTestsPage() {
   const countTeamQueue = items.filter(r => ['ASSIGNED', 'IN_PROGRESS', 'DELEGATED', 'VERIFICATION_REWORK'].includes(r.status)).length
 
   const tabItems = [
-    { key: 'all', label: `All Tests (${items.length})` },
+    { key: 'unassigned', label: `Unassigned (${countUnassigned})` },
     { key: 'assigned_tests', label: `Assigned Tests (${countAssignedMe + countAssignedOthers})` },
     { key: 'in_progress', label: `In Progress (${countInProgress})` },
     { key: 'pending_verify', label: `Pending Verification (${countPendingVerify})` },
+    { key: 'enhancement', label: `Enhancement Requested (${countEnhancement})` },
     { key: 'rework', label: `Verification Rework (${countRework})` },
+    { key: 'team_queue', label: `Team Queue (${countTeamQueue})` },
     { key: 'delegated', label: `Delegated (${countDelegated})` },
-    { key: 'unassigned', label: `Unassigned (${countUnassigned})` },
     { key: 'verified', label: `Verified (${countVerified})` },
     { key: 'unlocked', label: `Unlocked (${countUnlocked})` },
-    { key: 'enhancement', label: `Enhancement Requested (${countEnhancement})` },
-    { key: 'team_queue', label: `Team Queue (${countTeamQueue})` },
   ]
 
   const handleAssignConfirm = async () => {
@@ -637,6 +649,30 @@ export default function ArdTestsPage() {
       msgApi.error(e?.response?.data?.detail || e?.message || 'Failed to delegate one or more tests.')
     } finally {
       setBulkDelegateLoading(false)
+    }
+  }
+
+  const handleBulkTakeoverConfirm = async () => {
+    if (!bulkTakeoverRemarks.trim()) { msgApi.error('Remarks are required for takeover.'); return }
+    setBulkTakeoverLoading(true)
+    try {
+      const rows = selectedRowKeys.map((id) => filteredItems.find((r) => r.id === id)).filter(Boolean) as TestRow[]
+      await Promise.all(rows.map((row) =>
+        apiPost(`/api/ard/tests/${row.atrId}/${row.id}/takeover`, {
+          targetUserId: bulkTakeoverTarget.trim() || undefined,
+          remarks: bulkTakeoverRemarks,
+        })
+      ))
+      qc.invalidateQueries({ queryKey: ['ard-tests'] })
+      msgApi.success(`Took over ${rows.length} test${rows.length !== 1 ? 's' : ''}.`)
+      setBulkTakeoverOpen(false)
+      setBulkTakeoverTarget('')
+      setBulkTakeoverRemarks('')
+      clearSelection()
+    } catch (e: any) {
+      msgApi.error(e?.response?.data?.detail || e?.message || 'Failed to take over one or more tests.')
+    } finally {
+      setBulkTakeoverLoading(false)
     }
   }
 
@@ -1186,10 +1222,19 @@ export default function ArdTestsPage() {
                 'ENHANCEMENT_REQUESTED', 'UNLOCKED', 'WITHDRAWN', 'CANCELLED',
               ].map((s) => ({ value: s, label: s.replace(/_/g, ' ') }))}
             />
+            {isInProgressTab && (
+              <Checkbox
+                checked={includeAllUsersInProgress}
+                onChange={(e) => { setIncludeAllUsersInProgress(e.target.checked); clearSelection() }}
+                className="ml-1 self-center"
+              >
+                Include All Users
+              </Checkbox>
+            )}
           </div>
         )}
 
-        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && selectedRowKeys.length > 0 && (() => {
+        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isInProgressTab && selectedRowKeys.length > 0 && (() => {
           const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
           const isRowUnassigned = !!selectedRow && (!selectedRow.assignedToName || ['UNASSIGNED', 'PENDING'].includes(selectedRow.status))
           const canTakeoverRow = !!selectedRow && ['IN_PROGRESS', 'ASSIGNED', 'DELEGATED', 'VERIFICATION_REWORK'].includes(selectedRow.status)
@@ -1347,6 +1392,43 @@ export default function ArdTestsPage() {
               <Button size="small" icon={<Share2 size={13} />}
                 onClick={() => { setBulkDelegateTarget(''); setBulkDelegateRemarks(''); setBulkDelegateOpen(true) }}>
                 Delegate
+              </Button>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* In Progress tab: Process opens exactly one test at a time — it's a
+            workspace, not a bulk view. Handover (= Delegate, hand off to a
+            teammate) and Takeover both act on however many rows are checked.
+            Takeover only makes sense once "Include All Users" brings
+            teammates' own in-progress tests into view — with it off, every
+            row shown is already yours, so there's nothing to take over. */}
+        {isInProgressTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" type="primary" icon={<Eye size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) navigate(`/ard/tests/${selectedRow.atrId}/${selectedRow.id}`) }}>
+                Process
+              </Button>
+              <Button size="small" icon={<Share2 size={13} />}
+                onClick={() => { setBulkDelegateTarget(''); setBulkDelegateRemarks(''); setBulkDelegateOpen(true) }}>
+                Handover
+              </Button>
+              <Button size="small" icon={<RotateCcw size={13} />}
+                disabled={!includeAllUsersInProgress}
+                onClick={() => { setBulkTakeoverTarget(''); setBulkTakeoverRemarks(''); setBulkTakeoverOpen(true) }}>
+                Takeover
               </Button>
               <Button size="small" icon={<History size={13} />}
                 disabled={selectedRowKeys.length !== 1}
@@ -1675,6 +1757,32 @@ export default function ArdTestsPage() {
           </Form.Item>
           <Form.Item label="Remarks (optional)" style={{ marginBottom: 0 }}>
             <Input.TextArea rows={3} value={bulkDelegateRemarks} onChange={(e) => setBulkDelegateRemarks(e.target.value)} placeholder="Reason for delegation..." />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      {/* Bulk Takeover Modal (In Progress tab toolbar, "Include All Users" on) */}
+      <Modal
+        {...glassModalProps}
+        title={`Takeover ${selectedRowKeys.length} Test${selectedRowKeys.length !== 1 ? 's' : ''}`}
+        open={bulkTakeoverOpen}
+        onCancel={() => { setBulkTakeoverOpen(false); setBulkTakeoverTarget(''); setBulkTakeoverRemarks('') }}
+        onOk={handleBulkTakeoverConfirm}
+        confirmLoading={bulkTakeoverLoading}
+        okText="Takeover All"
+        okButtonProps={{ disabled: !bulkTakeoverRemarks.trim() }}
+        destroyOnClose
+      >
+        <Form layout="vertical" className="pt-2 space-y-3">
+          <Form.Item label="Target User ID (leave blank to self-assign)" style={{ marginBottom: 12 }}>
+            <Input
+              value={bulkTakeoverTarget}
+              onChange={(e) => setBulkTakeoverTarget(e.target.value)}
+              placeholder="Target User ID or leave blank to self-assign"
+            />
+          </Form.Item>
+          <Form.Item label="Remarks *" required style={{ marginBottom: 0 }}>
+            <Input.TextArea rows={3} value={bulkTakeoverRemarks} onChange={(e) => setBulkTakeoverRemarks(e.target.value)} placeholder="Enter reason for takeover..." />
           </Form.Item>
         </Form>
       </Modal>

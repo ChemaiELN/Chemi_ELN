@@ -458,6 +458,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
       dataIndex: 'status',
       ellipsis: true,
       width: 150,
+      align: 'center',
       sorter: true,
       render: (v: string) => (
         <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag>

@@ -31,6 +31,13 @@ export default function SchemeTab({ project, projectId }: Props) {
   const [EditorComp,   setEditorComp]   = useState<AnyComp | null>(null)
   const [SvcProvider,  setSvcProvider]  = useState<AnyClass | null>(null)
 
+  // Drop the global published in onInit when this editor unmounts, so a later
+  // import can't reach into a dead instance's render. Guarded so a newer
+  // editor that has already claimed the global keeps it.
+  useEffect(() => () => {
+    if (window.ketcher === ketcherRef.current) window.ketcher = undefined
+  }, [])
+
   // Load Ketcher eagerly on mount — WASM init is expensive, do it once
   useEffect(() => {
     Promise.all([
@@ -141,6 +148,12 @@ export default function SchemeTab({ project, projectId }: Props) {
               structServiceProvider={svcInstance}
               onInit={(k: KetcherInstance) => {
                 ketcherRef.current = k
+                // ketcher-core reads this global while laying out S-group
+                // brackets, so without it importing any structure with an
+                // abbreviation (NH2HCl, CF3, .2HCl, …) throws "Cannot read
+                // properties of undefined (reading 'editor')" — see the
+                // fuller note in templateBuilder/KetcherField.tsx.
+                window.ketcher = k
                 setKetcherReady(true)
                 try {
                   k.editor?.subscribe('change', () => setDirty(true))

@@ -1,10 +1,12 @@
 import { useState, useEffect, useCallback, useMemo } from 'react'
 import type { TablePaginationConfig } from 'antd/es/table'
+import type { SorterResult } from 'antd/es/table/interface'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { Button, Input, Select, Table, Tag, Tabs } from 'antd'
 import { Search, RefreshCw } from 'lucide-react'
 import { reportsApi } from '../../api/inventory'
 import { STATUS_COLOR as EQ_STATUS_COLOR, CATALOGUE_STATUSES } from './EquipmentPage'
+import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType } from 'antd/es/table'
 import dayjs from 'dayjs'
 
@@ -43,6 +45,8 @@ function useReportTable(
   const [pageSize, setPageSize] = useState(10)
   const [searchInput, setSearchInput] = useState('')
   const search = useDebouncedValue(searchInput, 300)
+  const [sortBy, setSortBy] = useState<string | null>(null)
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
 
   // Filters are rebuilt on every render, so key the effect off their contents.
   const filterKey = JSON.stringify(filters)
@@ -56,11 +60,12 @@ function useReportTable(
         limit: pageSize,
       }
       if (search.trim()) params.search = search.trim()
+      if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
       const { items, total } = await fetcher(params)
       setRows(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [fetcher, filterKey, page, pageSize, search])
+  }, [fetcher, filterKey, page, pageSize, search, sortBy, sortDir])
 
   useEffect(() => { run() }, [run])
   useEffect(() => { setPage(1) }, [filterKey, search])
@@ -76,9 +81,16 @@ function useReportTable(
       pageSizeOptions: [10, 20, 50, 100],
       showTotal: (t: number) => `${t} records`,
     },
-    onChange: (pagination: TablePaginationConfig) => {
+    onChange: (pagination: TablePaginationConfig, _filters: unknown, sorter: unknown) => {
       if (pagination.current) setPage(pagination.current)
       if (pagination.pageSize) setPageSize(pagination.pageSize)
+      const s = (Array.isArray(sorter) ? sorter[0] : sorter) as SorterResult<Record<string, unknown>>
+      if (s?.order) {
+        setSortBy(s.field as string)
+        setSortDir(s.order === 'ascend' ? 'asc' : 'desc')
+      } else {
+        setSortBy(null)
+      }
     },
   }
 
@@ -93,16 +105,16 @@ function BatchInventoryTab() {
     useReportTable(reportsApi.batchInventory, filters)
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, render: v => <span className="  text-[13px]">{v as string}</span> },
-    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, render: v => <span className="  text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, sorter: true, render: v => <span className="  text-[13px]">{v as string}</span> },
+    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, sorter: true, render: v => <span className="  text-[13px]">{v as string ?? 'NA'}</span> },
     { title: 'Material ID', ellipsis: true, dataIndex: 'material_id', key: 'material_id', width: 100, render: v => <span className="text-[13px]">{v as number}</span> },
     { title: 'Category', ellipsis: true, dataIndex: 'category', key: 'category', width: 120, render: v => v ? <Tag color="blue" bordered className="text-[13px]">{v as string}</Tag> : 'NA' },
-    { title: 'Qty Received', ellipsis: true, dataIndex: 'qty_received', key: 'qty_received', width: 110, align: 'right', render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
-    { title: 'Qty Available', ellipsis: true, dataIndex: 'qty_available', key: 'qty_available', width: 110, align: 'right', render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 110, render: v => <Tag color={BATCH_STATUS_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
-    { title: 'Mfg Date', ellipsis: true, dataIndex: 'mfg_date', key: 'mfg_date', width: 110, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
-    { title: 'Expiry Date', ellipsis: true, dataIndex: 'expiry_date', key: 'expiry_date', width: 110, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
-    { title: 'GR Date', ellipsis: true, dataIndex: 'gr_date', key: 'gr_date', width: 110, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
+    { title: 'Qty Received', ellipsis: true, dataIndex: 'qty_received', key: 'qty_received', width: 110, align: 'right', sorter: true, render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
+    { title: 'Qty Available', ellipsis: true, dataIndex: 'qty_available', key: 'qty_available', width: 110, align: 'right', sorter: true, render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 110, sorter: true, render: v => <StatusTag color={BATCH_STATUS_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
+    { title: 'Mfg Date', ellipsis: true, dataIndex: 'mfg_date', key: 'mfg_date', width: 110, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
+    { title: 'Expiry Date', ellipsis: true, dataIndex: 'expiry_date', key: 'expiry_date', width: 110, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
+    { title: 'GR Date', ellipsis: true, dataIndex: 'gr_date', key: 'gr_date', width: 110, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
   ]
 
   return (
@@ -157,18 +169,18 @@ function ExpiryReportTab() {
   const { total, loading, run, tableProps } = useReportTable(reportsApi.expiry, filters)
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, render: v => <span className="  text-[13px]">{v as string}</span> },
-    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, render: v => <span className="  text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Batch No', ellipsis: true, dataIndex: 'batch_no', key: 'batch_no', width: 130, sorter: true, render: v => <span className="  text-[13px]">{v as string}</span> },
+    { title: 'Inhouse Batch', ellipsis: true, dataIndex: 'inhouse_batch_no', key: 'inhouse_batch_no', width: 140, sorter: true, render: v => <span className="  text-[13px]">{v as string ?? 'NA'}</span> },
     { title: 'Material ID', ellipsis: true, dataIndex: 'material_id', key: 'material_id', width: 100, render: v => <span className="text-[13px]">{v as number}</span> },
-    { title: 'Qty Available', ellipsis: true, dataIndex: 'qty_available', key: 'qty_available', width: 110, align: 'right', render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 110, render: v => <Tag color={BATCH_STATUS_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
+    { title: 'Qty Available', ellipsis: true, dataIndex: 'qty_available', key: 'qty_available', width: 110, align: 'right', sorter: true, render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 110, sorter: true, render: v => <StatusTag color={BATCH_STATUS_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
     {
-      title: 'Expiry Date', ellipsis: true, dataIndex: 'expiry_date', key: 'expiry_date', width: 120,
+      title: 'Expiry Date', ellipsis: true, dataIndex: 'expiry_date', key: 'expiry_date', width: 120, sorter: true,
       render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span>
     },
     {
       title: 'Expired?', ellipsis: true, dataIndex: 'is_expired', key: 'is_expired', width: 100,
-      render: v => v ? <Tag color="red" bordered className="text-[13px]">Expired</Tag> : <Tag color="green" bordered className="text-[13px]">Valid</Tag>
+      render: v => v ? <StatusTag color="red" className="text-[13px]">Expired</StatusTag> : <StatusTag color="green" className="text-[13px]">Valid</StatusTag>
     },
   ]
 
@@ -227,13 +239,13 @@ function StockRequestsReportTab() {
 
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Request No', ellipsis: true, dataIndex: 'request_no', key: 'request_no', width: 140, render: v => <span className="  text-[13px]">{v as string}</span> },
+    { title: 'Request No', ellipsis: true, dataIndex: 'request_no', key: 'request_no', width: 140, sorter: true, render: v => <span className="  text-[13px]">{v as string}</span> },
     { title: 'Material ID', ellipsis: true, dataIndex: 'material_id', key: 'material_id', width: 100, render: v => <span className="text-[13px]">{v as number}</span> },
-    { title: 'Qty Required', ellipsis: true, dataIndex: 'qty_required', key: 'qty_required', width: 110, align: 'right', render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
-    { title: 'Criticality', ellipsis: true, dataIndex: 'criticality', key: 'criticality', width: 110, render: v => <Tag color={CRIT_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 110, render: v => <Tag color={SR_STATUS_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
-    { title: 'Created At', ellipsis: true, dataIndex: 'created_at', key: 'created_at', width: 150, render: v => <span className="text-[13px]">{dayjs(v as string).format('DD/MM/YYYY HH:mm')}</span> },
-    { title: 'Updated At', ellipsis: true, dataIndex: 'updated_at', key: 'updated_at', width: 150, render: v => <span className="text-[13px]">{dayjs(v as string).format('DD/MM/YYYY HH:mm')}</span> },
+    { title: 'Qty Required', ellipsis: true, dataIndex: 'qty_required', key: 'qty_required', width: 110, align: 'right', sorter: true, render: (v, r) => <span className="text-[13px]">{qty(v)} {r.unit as string}</span> },
+    { title: 'Criticality', ellipsis: true, dataIndex: 'criticality', key: 'criticality', width: 110, sorter: true, render: v => <Tag color={CRIT_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 110, sorter: true, render: v => <StatusTag color={SR_STATUS_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
+    { title: 'Created At', ellipsis: true, dataIndex: 'created_at', key: 'created_at', width: 150, sorter: true, render: v => <span className="text-[13px]">{dayjs(v as string).format('DD/MM/YYYY HH:mm')}</span> },
+    { title: 'Updated At', ellipsis: true, dataIndex: 'updated_at', key: 'updated_at', width: 150, sorter: true, render: v => <span className="text-[13px]">{dayjs(v as string).format('DD/MM/YYYY HH:mm')}</span> },
   ]
 
   return (
@@ -304,15 +316,15 @@ function EquipmentStatusTab() {
 
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 120, render: v => <Tag color="purple" bordered className="  text-[13px]">{v as string}</Tag> },
-    { title: 'Name', ellipsis: true, dataIndex: 'name', key: 'name', width: 180, render: v => <span className="text-[13px]">{v as string}</span> },
-    { title: 'Make', ellipsis: true, dataIndex: 'make', key: 'make', width: 120, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Model', ellipsis: true, dataIndex: 'model', key: 'model', width: 120, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Location', ellipsis: true, dataIndex: 'location', key: 'location', width: 130, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 130, render: v => <Tag color={EQ_STATUS_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
-    { title: 'Maint. Status', ellipsis: true, dataIndex: 'maintenance_status', key: 'maintenance_status', width: 140, render: v => <Tag color={MAINT_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</Tag> },
-    { title: 'Last Maintenance', ellipsis: true, dataIndex: 'last_maintenance_date', key: 'last_maintenance_date', width: 140, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
-    { title: 'Next Maintenance', ellipsis: true, dataIndex: 'next_maintenance_date', key: 'next_maintenance_date', width: 140, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
+    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 120, sorter: true, render: v => <Tag color="purple" bordered className="  text-[13px]">{v as string}</Tag> },
+    { title: 'Name', ellipsis: true, dataIndex: 'name', key: 'name', width: 180, sorter: true, render: v => <span className="text-[13px]">{v as string}</span> },
+    { title: 'Make', ellipsis: true, dataIndex: 'make', key: 'make', width: 120, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Model', ellipsis: true, dataIndex: 'model', key: 'model', width: 120, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Location', ellipsis: true, dataIndex: 'location', key: 'location', width: 130, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 130, sorter: true, render: v => <StatusTag color={EQ_STATUS_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
+    { title: 'Maint. Status', ellipsis: true, dataIndex: 'maintenance_status', key: 'maintenance_status', width: 140, sorter: true, render: v => <StatusTag color={MAINT_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
+    { title: 'Last Maintenance', ellipsis: true, dataIndex: 'last_maintenance_date', key: 'last_maintenance_date', width: 140, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
+    { title: 'Next Maintenance', ellipsis: true, dataIndex: 'next_maintenance_date', key: 'next_maintenance_date', width: 140, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
   ]
 
   return (
@@ -376,16 +388,16 @@ function InstrumentStatusTab() {
 
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 130, render: v => <Tag color="purple" bordered className="  text-[13px]">{v as string}</Tag> },
-    { title: 'Name', ellipsis: true, dataIndex: 'name', key: 'name', width: 180, render: v => <span className="text-[13px]">{v as string}</span> },
-    { title: 'Make', ellipsis: true, dataIndex: 'make', key: 'make', width: 120, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Model', ellipsis: true, dataIndex: 'model', key: 'model', width: 120, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Location', ellipsis: true, dataIndex: 'location', key: 'location', width: 130, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 130, render: v => <Tag color={EQ_STATUS_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</Tag> },
-    { title: 'Calib. Status', ellipsis: true, dataIndex: 'calibration_status', key: 'calibration_status', width: 130, render: v => <Tag color={MAINT_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{v as string}</Tag> },
+    { title: 'Asset ID', ellipsis: true, dataIndex: 'asset_id', key: 'asset_id', width: 130, sorter: true, render: v => <Tag color="purple" bordered className="  text-[13px]">{v as string}</Tag> },
+    { title: 'Name', ellipsis: true, dataIndex: 'name', key: 'name', width: 180, sorter: true, render: v => <span className="text-[13px]">{v as string}</span> },
+    { title: 'Make', ellipsis: true, dataIndex: 'make', key: 'make', width: 120, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Model', ellipsis: true, dataIndex: 'model', key: 'model', width: 120, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Location', ellipsis: true, dataIndex: 'location', key: 'location', width: 130, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 130, sorter: true, render: v => <StatusTag color={EQ_STATUS_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
+    { title: 'Calib. Status', ellipsis: true, dataIndex: 'calibration_status', key: 'calibration_status', width: 130, sorter: true, render: v => <StatusTag color={MAINT_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
     { title: 'Req. Calibration', ellipsis: true, dataIndex: 'required_calibration', key: 'required_calibration', width: 120, render: v => v ? <Tag color="blue" bordered className="text-[13px]">Yes</Tag> : <Tag bordered className="text-[13px]">No</Tag> },
-    { title: 'Last Calibration', ellipsis: true, dataIndex: 'last_calibration_date', key: 'last_calibration_date', width: 140, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
-    { title: 'Next Calibration', ellipsis: true, dataIndex: 'next_calibration_date', key: 'next_calibration_date', width: 140, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
+    { title: 'Last Calibration', ellipsis: true, dataIndex: 'last_calibration_date', key: 'last_calibration_date', width: 140, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
+    { title: 'Next Calibration', ellipsis: true, dataIndex: 'next_calibration_date', key: 'next_calibration_date', width: 140, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY') : 'NA'}</span> },
   ]
 
   return (
@@ -418,16 +430,16 @@ function WorkOrdersReportTab() {
 
 
   const cols: ColumnsType<Record<string, unknown>> = [
-    { title: 'Workorder No', ellipsis: true, dataIndex: 'workorder_no', key: 'workorder_no', width: 140, render: v => <span className="  text-[13px]">{v as string}</span> },
+    { title: 'Workorder No', ellipsis: true, dataIndex: 'workorder_no', key: 'workorder_no', width: 140, sorter: true, render: v => <span className="  text-[13px]">{v as string}</span> },
     { title: 'Code', ellipsis: true, dataIndex: 'equipment_code', key: 'equipment_code', width: 130, render: v => <span className="  text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Kind', ellipsis: true, dataIndex: 'kind', key: 'kind', width: 110, render: v => <span className="text-[13px]">{v as string}</span> },
-    { title: 'Log Type', ellipsis: true, dataIndex: 'log_type', key: 'log_type', width: 120, render: v => <span className="text-[13px]">{v as string}</span> },
-    { title: 'Source', ellipsis: true, dataIndex: 'calibration_source', key: 'calibration_source', width: 100, render: v => v ? <span className="text-[13px]">{v as string}</span> : 'NA' },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 170, render: v => <Tag color={WO_STATUS_COLOR[v as string] ?? 'default'} bordered className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</Tag> },
-    { title: 'Raised By', ellipsis: true, dataIndex: 'raised_by', key: 'raised_by', width: 130, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Raised At', ellipsis: true, dataIndex: 'raised_at', key: 'raised_at', width: 150, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY HH:mm') : 'NA'}</span> },
-    { title: 'Approved By', ellipsis: true, dataIndex: 'approved_by', key: 'approved_by', width: 130, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
-    { title: 'Approved At', ellipsis: true, dataIndex: 'approved_at', key: 'approved_at', width: 150, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY HH:mm') : 'NA'}</span> },
+    { title: 'Kind', ellipsis: true, dataIndex: 'kind', key: 'kind', width: 110, sorter: true, render: v => <span className="text-[13px]">{v as string}</span> },
+    { title: 'Log Type', ellipsis: true, dataIndex: 'log_type', key: 'log_type', width: 120, sorter: true, render: v => <span className="text-[13px]">{v as string}</span> },
+    { title: 'Source', ellipsis: true, dataIndex: 'calibration_source', key: 'calibration_source', width: 100, sorter: true, render: v => v ? <span className="text-[13px]">{v as string}</span> : 'NA' },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 170, sorter: true, render: v => <StatusTag color={WO_STATUS_COLOR[v as string] ?? 'default'} className="text-[13px]">{(v as string)?.replace(/_/g, ' ')}</StatusTag> },
+    { title: 'Raised By', ellipsis: true, dataIndex: 'raised_by', key: 'raised_by', width: 130, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Raised At', ellipsis: true, dataIndex: 'raised_at', key: 'raised_at', width: 150, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY HH:mm') : 'NA'}</span> },
+    { title: 'Approved By', ellipsis: true, dataIndex: 'approved_by', key: 'approved_by', width: 130, sorter: true, render: v => <span className="text-[13px]">{v as string ?? 'NA'}</span> },
+    { title: 'Approved At', ellipsis: true, dataIndex: 'approved_at', key: 'approved_at', width: 150, sorter: true, render: v => <span className="text-[13px]">{v ? dayjs(v as string).format('DD/MM/YYYY HH:mm') : 'NA'}</span> },
   ]
 
   return (

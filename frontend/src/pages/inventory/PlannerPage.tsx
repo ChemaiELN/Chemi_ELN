@@ -7,6 +7,7 @@ import type { SorterResult } from 'antd/es/table/interface'
 import { Download, Upload as UploadIcon, Plus, CheckCircle2, Trash2, Send, CalendarClock, MoreVertical } from 'lucide-react'
 import dayjs from 'dayjs'
 import { StatusTag } from '../../components/ui/StatusTag'
+import { STATUS_COLOR } from './EquipmentPage'
 import {
   scheduleApi, workOrderApi, masterTemplateApi, equipmentCatalogueApi, instrumentCatalogueApi,
   type Schedule, type EquipmentCatalogue, type InstrumentCatalogue,
@@ -16,6 +17,7 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 
 const SCHEDULE_TYPES = ['MONTHLY', 'QUARTERLY', 'HALF_YEARLY', 'YEARLY']
 const label = (s: string) => s.replace(/_/g, ' ')
+const titleCase = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 
 const STATUS_TAG: Record<string, string> = { DUE: 'gold', PLANNED: 'blue', DONE: 'green', CANCELLED: 'default' }
 
@@ -76,7 +78,20 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
     api.list({ active_only: true, limit: 50, ...(itemSearch ? { search: itemSearch } : {}) }).then(setItems)
   }, [isEquipment, itemSearch])
 
-  const openCreate = () => { form.resetFields(); setCreateOpen(true) }
+  const openCreate = () => { form.resetFields(); setItemSearchInput(''); setCreateOpen(true) }
+
+  // Auto-fill Due Date from the selected asset's own Next Maintenance/
+  // Calibration Date — mirrors the same field on its Edit form, kept in sync
+  // by the catalogue PATCH handlers (see backend-node catalogue.routes.ts).
+  const dueDateFieldOf = (item: EquipmentCatalogue | InstrumentCatalogue) =>
+    logType === 'CALIBRATION' ? (item as InstrumentCatalogue).next_calibration_date : item.next_maintenance_date
+
+  const handleItemSelect = (id: number) => {
+    const item = items.find(it => it.id === id)
+    const nextDue = item ? dueDateFieldOf(item) : null
+    form.setFieldsValue({ due_date: nextDue ? dayjs(nextDue) : undefined })
+  }
+
   const save = async (v: Record<string, unknown>) => {
     setSaving(true)
     try {
@@ -84,6 +99,7 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
       await scheduleApi.create({
         [idField]: v[idField], log_type: logType, schedule_type: v.schedule_type,
         due_date: dayjs(v.due_date as dayjs.Dayjs).format('YYYY-MM-DD'),
+        planned_date: v.planned_date ? dayjs(v.planned_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
         tolerance_days: v.tolerance_days,
       })
       message.success('Schedule created'); setCreateOpen(false); form.resetFields(); load()
@@ -168,12 +184,12 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
 
   const columns: ColumnsType<Schedule> = [
     { title: isEquipment ? 'Equipment Code' : 'Instrument Code', ellipsis: true, dataIndex: 'equipment_code', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Schedule Type', ellipsis: true, dataIndex: 'schedule_type', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{label(v)}</span> },
+    { title: 'Schedule Type', ellipsis: true, dataIndex: 'schedule_type', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{titleCase(v)}</span> },
     { title: 'Due Date', ellipsis: true, dataIndex: 'due_date', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span> },
     { title: 'Days', ellipsis: true, dataIndex: 'days_label', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     { title: 'Done On', ellipsis: true, dataIndex: 'done_on', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{dayjs(v).format('DD/MM/YYYY')}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, sorter: true, render: v => <StatusTag color={STATUS_TAG[v] ?? 'default'} className="text-[13px]">{v}</StatusTag> },
-    { title: 'Current Status', ellipsis: true, dataIndex: 'current_status', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{String(v).replace(/_/g, ' ')}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, align: 'center', sorter: true, render: v => <StatusTag color={STATUS_TAG[v] ?? 'default'} className="text-[13px]">{titleCase(v)}</StatusTag> },
+    { title: 'Current Status', ellipsis: true, dataIndex: 'current_status', width: 140, align: 'center', sorter: true, render: v => v ? <StatusTag color={STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{titleCase(v)}</StatusTag> : <span className="text-[13px] text-slate-800">NA</span> },
     {
       title: 'Actions', key: 'a', width: 70, align: 'center', render: (_, r) => {
         // Mark Done is only offered for schedules with NO checklist mapped.
@@ -224,7 +240,7 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
           onChange={(v) => v && v[0] && v[1] && setRange([v[0], v[1]])}
           format="DD/MM/YYYY"
         />
-        <div className="ml-auto flex gap-2">
+        <div className="flex gap-2">
           <Button icon={<Download size={14} />} onClick={() => masterTemplateApi.download(templateKey)}>Download Template</Button>
           <Upload beforeUpload={handleUpload} showUploadList={false} accept=".xlsx">
             <Button icon={<UploadIcon size={14} />}>Upload</Button>
@@ -267,17 +283,36 @@ export default function PlannerPage({ targetKind }: { targetKind: Kind }) {
       <Modal title="New Schedule" open={createOpen} closable={false} onCancel={() => { setCreateOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={save} initialValues={{ schedule_type: 'MONTHLY' }}>
           <Form.Item name={isEquipment ? 'equipment_id' : 'instrument_id'} label={isEquipment ? 'Equipment' : 'Instrument'} rules={[{ required: true }]}>
-            <Select showSearch optionFilterProp="label" options={items.map(it => ({ value: it.id, label: it.asset_id }))} />
+            <Select
+              showSearch
+              filterOption={false}
+              onSearch={setItemSearchInput}
+              onChange={handleItemSelect}
+              options={items.map(it => ({ value: it.id, label: it.asset_id }))}
+            />
           </Form.Item>
           <div className="grid grid-cols-2 gap-x-3">
             <Form.Item name="schedule_type" label="Schedule Type" rules={[{ required: true }]}>
               <Select options={SCHEDULE_TYPES.map(s => ({ value: s, label: label(s) }))} />
             </Form.Item>
             <Form.Item name="due_date" label="Due Date" rules={[{ required: true }]}>
-              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" />
+              <DatePicker style={{ width: '100%' }} format="DD/MM/YYYY" disabled />
             </Form.Item>
           </div>
-          <Form.Item name="tolerance_days" label="Tolerance Days"><Input type="number" min={0} /></Form.Item>
+          <div className="grid grid-cols-2 gap-x-3">
+            <Form.Item name="planned_date" label="Planned Date">
+              <DatePicker
+                style={{ width: '100%' }}
+                format="DD/MM/YYYY"
+                onChange={(v) => {
+                  const item = items.find(it => it.id === form.getFieldValue(isEquipment ? 'equipment_id' : 'instrument_id'))
+                  const nextDue = item ? dueDateFieldOf(item) : null
+                  form.setFieldsValue({ due_date: v ?? (nextDue ? dayjs(nextDue) : undefined) })
+                }}
+              />
+            </Form.Item>
+            <Form.Item name="tolerance_days" label="Tolerance Days"><Input type="number" min={0} /></Form.Item>
+          </div>
         </Form>
       </Modal>
 

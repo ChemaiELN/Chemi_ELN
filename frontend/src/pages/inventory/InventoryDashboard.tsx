@@ -110,7 +110,6 @@ export default function InventoryDashboard() {
   const approvalColumns = [
     { title: 'Type', ellipsis: true, dataIndex: 'type', key: 'type', width: 120 },
     { title: 'Reference No', ellipsis: true, dataIndex: 'reference_no', key: 'reference_no', width: 160 },
-    { title: 'Status', ellipsis: true, dataIndex: 'status', key: 'status', width: 130, render: (v: string) => <StatusTag color="gold">{v.replaceAll('_', ' ')}</StatusTag> },
     { title: 'Raised By', ellipsis: true, dataIndex: 'raised_by', key: 'raised_by', width: 140, render: (v: string | null) => v ?? 'NA' },
     { title: 'Age', ellipsis: true, dataIndex: 'age_days', key: 'age_days', width: 100, render: (v: number | null) => v != null ? `${v} day${v !== 1 ? 's' : ''}` : 'NA' },
   ]
@@ -165,16 +164,6 @@ export default function InventoryDashboard() {
   />
 
   <KpiCard
-    label="Low Stock"
-    value={kpis.low_stock}
-    icon={AlertTriangle}
-    bg="bg-gradient-to-br from-amber-50 to-amber-100"
-    iconColor="text-amber-600"
-    sub="<10% remaining"
-    onClick={() => navigate('/inventory/batches')}
-  />
-
-  <KpiCard
     label="Expiring Soon"
     value={kpis.expiring_soon}
     icon={Clock}
@@ -203,15 +192,6 @@ export default function InventoryDashboard() {
     icon={ShoppingCart}
     bg="bg-gradient-to-br from-blue-50 to-blue-100"
     iconColor="text-blue-600"
-    onClick={() => navigate('/inventory/stock-requests')}
-  />
-
-  <KpiCard
-    label="Critical Requests"
-    value={kpis.critical_stock_requests}
-    icon={AlertTriangle}
-    bg="bg-gradient-to-br from-red-50 to-red-100"
-    iconColor="text-red-600"
     onClick={() => navigate('/inventory/stock-requests')}
   />
 

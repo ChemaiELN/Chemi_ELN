@@ -28,6 +28,7 @@ import FillCalcTemplatePage from './pages/admin/calcTemplates/FillCalcTemplatePa
 import InventoryMasterDataPage from './pages/inventory/InventoryMasterDataPage'
 import MasterDataTypesPage from './pages/inventory/MasterDataTypesPage'
 import IdSequencesPage from './pages/admin/IdSequencesPage'
+import TemplateSettingsPage from './pages/admin/TemplateSettingsPage'
 import InventoryDashboard from './pages/inventory/InventoryDashboard'
 import MaterialsPage from './pages/inventory/MaterialsPage'
 import BatchesPage from './pages/inventory/BatchesPage'
@@ -238,6 +239,7 @@ export function AppRouter() {
         <Route path="settings" element={<SettingsPage />} />
         <Route path="audit-trail" element={<AdminAuditTrailPage />} />
         <Route path="master-data" element={<InventoryMasterDataPage />} />
+        <Route path="template-settings" element={<TemplateSettingsPage />} />
         <Route path="id-sequences" element={<IdSequencesPage />} />
       </Route>
 

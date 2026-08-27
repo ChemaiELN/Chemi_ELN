@@ -11,6 +11,10 @@ async function getBrowser(): Promise<Browser> {
   _browser = await puppeteer.launch({
     headless: true,
     args: ['--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage'],
+    // Puppeteer's own Chrome download can be unavailable in locked-down dev
+    // environments; PUPPETEER_EXECUTABLE_PATH lets ops point it at any
+    // already-installed Chrome/Chromium (e.g. Playwright's) instead.
+    executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
   })
   return _browser
 }

@@ -12,6 +12,7 @@ const STATUS_COLOR: Record<string, string> = {
   RAISED: 'gold', IN_PROGRESS: 'blue', PENDING_VERIFICATION: 'orange', PENDING_APPROVAL: 'purple', APPROVED: 'green',
 }
 const KIND_OPTIONS = [{ value: 'PLANNED', label: 'Planned' }, { value: 'UNPLANNED', label: 'Unplanned' }, { value: 'BREAKDOWN', label: 'Breakdown' }]
+const titleCase = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
 
 export default function WorkOrdersQueuePage() {
   const navigate = useNavigate()
@@ -53,7 +54,7 @@ export default function WorkOrdersQueuePage() {
       render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/work-orders/${r.id}`)}>{v}</a>,
     },
     {
-      title: 'Code',
+      title: 'Equipment / Instrument ID',
       dataIndex: 'equipment_code',
       ellipsis: true,
       width: 150,
@@ -69,7 +70,7 @@ export default function WorkOrdersQueuePage() {
       width: 150,
       sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-800">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{titleCase(v)}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {
@@ -79,7 +80,7 @@ export default function WorkOrdersQueuePage() {
       width: 150,
       sorter: true,
       render: (v: string | null) => v
-        ? <span className="text-[13px] text-slate-800">{v}</span>
+        ? <span className="text-[13px] text-slate-800">{titleCase(v)}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
     },
     {

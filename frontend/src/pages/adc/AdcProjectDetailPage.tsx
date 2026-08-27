@@ -14,9 +14,10 @@ import {
 } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
-  projectApi, notebookApi, workflowTemplateApi, userApi,
+  projectApi, notebookApi, userApi,
   type Project, type Notebook,
 } from '../../api/adc'
+import { templateSettingsApi } from '../../api/templateSettings'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useCan } from '../../hooks/usePrivilege'
@@ -111,10 +112,11 @@ function OverviewTab({ project, projectId }: { project: Project; projectId: stri
     enabled:  !!editTarget,
   })
 
-  // Templates for notebook modal
+  // Templates for notebook modal — admin-curated (Admin → Template Settings →
+  // ADC Template Settings), not every active ADC template.
   const { data: templatesData } = useQuery({
-    queryKey: ['workflow-templates'],
-    queryFn:  () => workflowTemplateApi.list({ is_active: true }),
+    queryKey: ['template-settings-adc-enabled'],
+    queryFn:  templateSettingsApi.listAdcEnabled,
     staleTime: 5 * 60 * 1000,
   })
   const templates = Array.isArray(templatesData) ? templatesData : []

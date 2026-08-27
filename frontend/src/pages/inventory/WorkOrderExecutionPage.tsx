@@ -16,6 +16,8 @@ import {
 } from '../../api/inventory'
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 
+const titleCase = (s: string) => s.toLowerCase().replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase())
+
 const STATUS_COLOR: Record<string, string> = {
   RAISED: 'gold', IN_PROGRESS: 'blue', PENDING_VERIFICATION: 'orange', PENDING_APPROVAL: 'purple', APPROVED: 'green',
 }
@@ -392,7 +394,7 @@ export default function WorkOrderExecutionPage() {
     {wo.status.replace(/_/g, " ")}
   </StatusTag>
 </div>
-          <p className="text-slate-500 text-sm">{wo.equipment_code} · {wo.kind} · {wo.log_type}{wo.calibration_source ? ` · ${wo.calibration_source}` : ''}</p>
+          <p className="text-slate-500 text-sm">{wo.equipment_code} · {titleCase(wo.kind)} · {titleCase(wo.log_type)}{wo.calibration_source ? ` · ${titleCase(wo.calibration_source)}` : ''}</p>
         </div>
         <div className="ml-auto flex items-center gap-2">
           

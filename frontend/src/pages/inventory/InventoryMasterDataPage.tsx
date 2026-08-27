@@ -248,7 +248,7 @@ function StorageLocationsTab() {
   // Lab names are matched by the route's subquery, so searching by lab still
   // works even though they live on a join table.
   const { reload: load, searchInput, setSearchInput, tableProps } = useServerTable<StorageLocation>(fetcher)
-  useEffect(() => { adminApi.listLabs().then(setLabs) }, [])
+  useEffect(() => { adminApi.listLabsLookup().then(setLabs).catch(() => message.error('Failed to load labs.')) }, [])
 
   const openCreate = () => { setEditing(null); form.resetFields(); setModalOpen(true) }
   const openEdit = (r: StorageLocation) => {

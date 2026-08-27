@@ -13,6 +13,8 @@ import { idSequenceApi } from '../../../api/admin'
 import { ApiError } from '../../../api/client'
 import AtrRequestField from './AtrRequestField'
 import UsageLogStartStopField from './UsageLogStartStopField'
+import TimerField, { type TimerFieldValue } from './TimerField'
+import VectorEditorField, { type VectorEditorFieldValue } from './VectorEditorField'
 
 function fileSize(bytes: number) {
   if (bytes < 1024) return `${bytes} B`
@@ -208,6 +210,7 @@ export default function CgtFieldControl({
           onChange={v => onChange(v)}
           onBlur={onBlur}
           min={field.minValue} max={field.maxValue}
+          addonAfter={field.unit || undefined}
         />
       )
     case 'DATE':
@@ -362,6 +365,23 @@ export default function CgtFieldControl({
         />
       )
     }
+    case 'TIMER':
+      return (
+        <TimerField
+          value={value as TimerFieldValue | undefined}
+          onChange={onChange}
+          disabled={dis}
+          durationUnit={field.timerConfig?.durationUnit ?? 'minutes'}
+        />
+      )
+    case 'VECTOR_EDITOR':
+      return (
+        <VectorEditorField
+          value={value as VectorEditorFieldValue | undefined}
+          onChange={onChange}
+          disabled={dis}
+        />
+      )
     default:
       return null
   }

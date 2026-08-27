@@ -5,10 +5,11 @@ import { Button, Modal, Form, Input, Select, Tag, Table, Tooltip, message, Grid 
 import type { ColumnsType } from 'antd/es/table'
 import { ArrowLeft, Plus, FolderOpen, Pencil, BookOpen, BookPlus, Search } from 'lucide-react'
 import dayjs from 'dayjs'
-import { cgtProjectApi, cgtNotebookApi, PROCESS_TO_TEMPLATE_CATEGORY, type CgtNotebook } from '../../api/cgt'
+import { cgtProjectApi, cgtNotebookApi, type CgtNotebook } from '../../api/cgt'
 import { ProjectLifecycleActions, LifecycleStatusTag } from '../../components/lifecycle/LifecycleActions'
 import { useCan } from '../../hooks/usePrivilege'
-import { workflowTemplateApi, userApi } from '../../api/adc'
+import { userApi } from '../../api/adc'
+import { templateSettingsApi } from '../../api/templateSettings'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { EmptyValue } from '../../components/ui/EmptyValue'
 import { glassModalProps } from '../../utils/modalStyles'
@@ -119,12 +120,10 @@ export default function CgtProjectDetailPage() {
     onSuccess: () => { invalidateProject(); message.success('Project deactivated.') },
   })
 
-  const templateCategory = project?.process ? PROCESS_TO_TEMPLATE_CATEGORY[project.process] : undefined
-
   const { data: templatesData } = useQuery({
-    queryKey: ['workflow-templates', templateCategory],
-    queryFn: () => workflowTemplateApi.list({ category: templateCategory, is_active: true }),
-    enabled: !!templateCategory,
+    queryKey: ['template-settings-cgt-process-templates-for-process', project?.process],
+    queryFn: () => templateSettingsApi.templatesForProcess(project!.process as string),
+    enabled: !!project?.process,
     staleTime: 5 * 60 * 1000,
   })
   const templates = Array.isArray(templatesData) ? templatesData : []
@@ -327,8 +326,8 @@ export default function CgtProjectDetailPage() {
             type="primary"
             icon={<BookPlus size={14} />}
             onClick={() => setNbModal(true)}
-            disabled={!templateCategory}
-            title={!templateCategory ? 'This project has no process set — cannot pick a template category' : undefined}
+            disabled={!project?.process}
+            title={!project?.process ? 'This project has no process set — cannot pick a template' : undefined}
             className="rounded-md font-medium"
           >
             New Notebook
@@ -383,7 +382,7 @@ export default function CgtProjectDetailPage() {
               showSearch
               filterOption={(input, opt) => String(opt?.label ?? '').toLowerCase().includes(input.toLowerCase())}
               options={templates.map(t => ({ value: t.id, label: `${t.name} (v${t.version})` }))}
-              notFoundContent={!templateCategory ? 'Set this project\'s process to see templates' : 'No templates found'}
+              notFoundContent={!project?.process ? 'Set this project\'s process to see templates' : 'No templates found'}
             />
           </Form.Item>
           <Form.Item label="Team Lead" name="tl_user_ids">

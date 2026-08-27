@@ -6,6 +6,17 @@ import { parsePagination, successResponse, listResponse, buildPagination, wantsP
 
 const auditTrailRouter = Router()
 
+// Whitelist of columns the Audit Trail table UI is allowed to sort by.
+const SORTABLE_COLUMNS: Record<string, string> = {
+  event_type: 'eventType',
+  entity_type: 'entityType',
+  entity_ref: 'entityRef',
+  performed_by: 'performedBy',
+  performed_at: 'performedAt',
+  old_value: 'oldValue',
+  new_value: 'newValue',
+}
+
 // GET /audit-trail — filtered list
 // Returns a bare array by default: the per-asset AuditTab in
 // EquipmentDetailPage.tsx/InstrumentDetailPage.tsx types this as an array and
@@ -15,7 +26,7 @@ auditTrailRouter.get('/audit-trail', async (req: Request, res: Response, next: N
   try {
     const paged = wantsPagination(req.query)
     const { page, limit, offset } = parsePagination(req.query, 200)
-    const { eventType, entityType, entityId, performedBy, dateFrom, dateTo, search } =
+    const { eventType, entityType, entityId, performedBy, dateFrom, dateTo, search, sort_by, sort_dir } =
       req.query as Record<string, string>
 
     const where: Record<string, unknown> = {}
@@ -39,7 +50,8 @@ auditTrailRouter.get('/audit-trail', async (req: Request, res: Response, next: N
       ]
     }
 
-    const order: any = [['performedAt', 'DESC']]
+    const sortColumn = SORTABLE_COLUMNS[sort_by] ?? 'performedAt'
+    const order: any = [[sortColumn, sort_dir === 'asc' ? 'ASC' : 'DESC']]
     if (!paged) {
       const rows = await InvAuditTrail.findAll({ where, order, limit })
       res.json(successResponse('Audit trail fetched', rows))

@@ -7,6 +7,7 @@ import { Plus, FolderOpen, Search } from 'lucide-react'
 import dayjs from 'dayjs'
 import { cgtProjectApi, type CgtProject } from '../../api/cgt'
 import { userApi } from '../../api/adc'
+import { templateSettingsApi } from '../../api/templateSettings'
 import { glassModalProps } from '../../utils/modalStyles'
 import { EmptyValue } from '../../components/ui/EmptyValue'
 import { useAppSelector } from '../../store'
@@ -16,8 +17,6 @@ import CgtHodDashboard from './CgtHodDashboard'
 import CgtTlDashboard from './CgtTlDashboard'
 
 const { useBreakpoint } = Grid
-
-const PROCESS_OPTIONS = ['Molecular Biology', 'Plasmid', 'AAV']
 
 const STATUS_COLOR: Record<string, string> = {
   ACTIVE: 'green',
@@ -92,6 +91,15 @@ export default function CgtProjectsPage() {
   const { data: cgtHodUsers = [] } = useQuery({
     queryKey: ['users-cgt-hod'],
     queryFn: () => userApi.list({ role_code: 'HOD', dept_code: 'CGT' }).then(r => r.items),
+    enabled: canCreate,
+    staleTime: 5 * 60 * 1000,
+  })
+
+  // Admin-curated Process options (Admin → Template Settings → CGT Template
+  // Settings), replacing the old hardcoded PROCESS_OPTIONS list.
+  const { data: cgtProcesses = [] } = useQuery({
+    queryKey: ['template-settings-cgt-processes-active'],
+    queryFn: () => templateSettingsApi.listCgtProcesses({ is_active: true }),
     enabled: canCreate,
     staleTime: 5 * 60 * 1000,
   })
@@ -316,7 +324,7 @@ export default function CgtProjectsPage() {
             >
               <Select
                 placeholder="Select process"
-                options={PROCESS_OPTIONS.map(p => ({ value: p, label: p }))}
+                options={cgtProcesses.map(p => ({ value: p.name, label: p.name }))}
               />
             </Form.Item>
             <Form.Item label="Start Date" name="start_date">

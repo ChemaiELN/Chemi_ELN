@@ -83,6 +83,8 @@ export class InvMaterial extends Model<InferAttributes<InvMaterial>, InferCreati
   declare storageCondition: string | null
   declare hazardClass: string | null
   declare isoType: string | null
+  declare antibioticResistanceMarker: string | null
+  declare stockConcentration: string | null
   declare description: string | null
   declare isActive: CreationOptional<boolean>
   declare departmentId: string | null
@@ -101,6 +103,8 @@ InvMaterial.init({
   storageCondition: { type: DataTypes.STRING(200), allowNull: true, field: 'storage_condition' },
   hazardClass: { type: DataTypes.STRING(100), allowNull: true, field: 'hazard_class' },
   isoType: { type: DataTypes.STRING(50), allowNull: true, field: 'iso_type' },
+  antibioticResistanceMarker: { type: DataTypes.STRING(200), allowNull: true, field: 'antibiotic_resistance_marker' },
+  stockConcentration: { type: DataTypes.STRING(100), allowNull: true, field: 'stock_concentration' },
   description: { type: DataTypes.TEXT, allowNull: true },
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: 'is_active' },
   departmentId: { type: DataTypes.UUID, allowNull: true, field: 'department_id' },

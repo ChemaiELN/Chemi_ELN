@@ -44,6 +44,7 @@ export {
   WorkflowTemplate, WorkflowTemplateVersion,
   CalcSheetTemplate, CalcSheetTemplateVersion,
 } from './WorkflowTemplate.model'
+export { CgtProcess, TemplateDropdownSelection } from './TemplateSettings.model'
 export {
   InvMaterial, InvMaterialChemicalProp, InvMaterialFormulationProp, InvMaterialCodeCounter,
   InvManufacturer, InvManufacturerMapping,

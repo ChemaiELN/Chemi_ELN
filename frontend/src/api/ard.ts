@@ -416,8 +416,10 @@ export interface ArdTestRow {
 const ATR_BASE = '/api/ard/atrs'
 
 export const ardAtrApi = {
-  list: (params?: { status?: string; statuses?: string; tab?: string; q?: string; scope?: string; page?: number; pageSize?: number }) =>
+  list: (params?: { status?: string; statuses?: string; tab?: string; q?: string; scope?: string; teamId?: string; page?: number; pageSize?: number }) =>
     apiGet<AtrListResponse>(ATR_BASE, params),
+  bulkReassignForms: (body: { atrIds: string[]; tlId: string; remarks: string; password: string }) =>
+    apiPost<{ updatedCount: number }>(`${ATR_BASE}/bulk-reassign`, body),
   getCounts: () => apiGet<{ counts: Record<string, number>; unassigned: number; methodDev: number }>(`${ATR_BASE}/counts`),
   get: (id: string) => apiGet<AtrForm>(`${ATR_BASE}/${id}`),
   create: (body: Record<string, unknown>) => apiPost<AtrForm>(ATR_BASE, body),

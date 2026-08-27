@@ -41,7 +41,11 @@ export default function ArdAtrsPage() {
   const [params, setParams] = useSearchParams()
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
-  const [activeTab, setActiveTab] = useState('all')
+  // HOD no longer sees the "All ATRs" tab, so it can't land there by default —
+  // opens on the first tab in the HOD flow order instead.
+  const [activeTab, setActiveTab] = useState(() =>
+    ['HOD', 'HEAD_OF_DEPT', 'MANAGER'].includes(user?.role_code ?? '') ? 'verification_request' : 'all'
+  )
   const [withdrawId, setWithdrawId] = useState<string | null>(null)
   const [withdrawRemarks, setWithdrawRemarks] = useState('')
 
@@ -104,6 +108,39 @@ export default function ArdAtrsPage() {
       qc.invalidateQueries({ queryKey: ['ard-reassign-tests'] })
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to reassign tests.'),
+  })
+
+  // ── Re-assign Forms tab (HOD only) — moves whole ATR forms, not individual
+  // tests (see the Re-assign Test tab above for that) ──────────────────────
+  const myLedTeamOptions = myLedTeams.map((t) => ({ value: t.id, label: t.teamName }))
+  const [reassignFormsTeamId, setReassignFormsTeamId] = useState<string | undefined>()
+  const [activeReassignFormsTeamId, setActiveReassignFormsTeamId] = useState<string | undefined>()
+  const [reassignFormsSelectedIds, setReassignFormsSelectedIds] = useState<string[]>([])
+  const [reassignFormsModalOpen, setReassignFormsModalOpen] = useState(false)
+  const [reassignFormsEsignOpen, setReassignFormsEsignOpen] = useState(false)
+  const [reassignFormsTargetTl, setReassignFormsTargetTl] = useState<string | undefined>()
+  const [reassignFormsRemarks, setReassignFormsRemarks] = useState('')
+
+  const { data: reassignFormsData, isLoading: reassignFormsLoading } = useQuery({
+    queryKey: ['ard-reassign-forms', activeReassignFormsTeamId],
+    queryFn: () => ardAtrApi.list({ teamId: activeReassignFormsTeamId, pageSize: 200 }),
+    enabled: !!activeReassignFormsTeamId,
+  })
+  const reassignForms = reassignFormsData?.items ?? []
+
+  const bulkReassignFormsMut = useMutation({
+    mutationFn: (password: string) =>
+      ardAtrApi.bulkReassignForms({ atrIds: reassignFormsSelectedIds, tlId: reassignFormsTargetTl!, remarks: reassignFormsRemarks, password }),
+    onSuccess: (res) => {
+      msg.success(`Reassigned ${res.updatedCount} form${res.updatedCount !== 1 ? 's' : ''}.`)
+      setReassignFormsModalOpen(false)
+      setReassignFormsEsignOpen(false)
+      setReassignFormsTargetTl(undefined)
+      setReassignFormsRemarks('')
+      setReassignFormsSelectedIds([])
+      qc.invalidateQueries({ queryKey: ['ard-reassign-forms'] })
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to reassign forms.'),
   })
 
   // ── Form Pending Approval tab (HOD + TL) ──────────────────────────────
@@ -267,32 +304,36 @@ export default function ArdAtrsPage() {
       (getValue(row) ?? '').toString().toLowerCase().includes(String(value).toLowerCase()),
   })
 
-  const tabItems = [
-    { key: 'all', label: `All ATRs (${data?.total ?? items.length})` },
-    { key: 'my_raised', label: `My Raised ATRs (${countMyRaised})` },
-    { key: 'qa_pre_approval', label: `QA Pre-Approval (${countPreApprove})` },
-    { key: 'in_lab', label: `Active In Lab (${countInLab})` },
-    { key: 'pending_certification', label: `Pending Cert. (${countCertReq})` },
-    { key: 'certified', label: `Certified (${countCertified})` },
-    ...(isTl || isUnscopedAdmin ? [
-      { key: 'queued', label: `Queued ATR (${countQueued})` },
-      { key: 'unassigned', label: `Un-assigned (${countUnassigned})` },
-      { key: 'verification_request', label: `Verification Request (${countVerReq})` },
-      { key: 'enhancement', label: `Enhancement (${countEnhancement})` },
-    ] : []),
-    ...(isQa || isUnscopedAdmin ? [
-      { key: 'cert_rework', label: `Cert. Rework (${countCertRework})` },
-      { key: 'pending_clarification', label: `Pending Clarification (${countPendingClar})` },
-    ] : []),
-    { key: 'method_dev', label: `Method Development (${countMethodDev})` },
-    ...(isHodUser ? [{ key: 're_assign', label: 'Re-assign Test' }] : []),
-    ...(isHodUser ? [{ key: 'unsatisfactory', label: 'Unsatisfactory Tests' }] : []),
-    ...(isHodOrTl ? [{ key: 'form_pending_approval', label: `Form Pending Approval (${countVerReq})` }] : []),
+  // Requested HOD flow order: Test Pending Verification, Enhancement Request,
+  // Re-assign Forms, Form Pending Approval, My ATR's,
+  // Re-assign Tests, [Batch Number Summary — not built yet], Unsatisfactory
+  // Test, Queued ATR, then everything else in its prior relative order.
+  // Visibility per tab is unchanged from before — only position moved.
+  const allTabDescriptors: { key: string; label: string; show: boolean }[] = [
+    { key: 'verification_request', label: `Test Pending Verification (${countVerReq})`, show: isTl || isUnscopedAdmin },
+    { key: 'enhancement', label: `Enhancement Request (${countEnhancement})`, show: isTl || isUnscopedAdmin },
+    { key: 're_assign_forms', label: 'Re-assign Forms', show: isHodUser },
+    { key: 'form_pending_approval', label: `Form Pending Approval (${countVerReq})`, show: isHodOrTl },
+    { key: 'my_raised', label: `My ATR's (${countMyRaised})`, show: true },
+    { key: 're_assign', label: 'Re-assign Tests', show: isHodUser },
+    { key: 'unsatisfactory', label: 'Unsatisfactory Test', show: isHodUser },
+    { key: 'queued', label: `Queued ATR (${countQueued})`, show: isTl || isUnscopedAdmin },
+    { key: 'all', label: `All ATRs (${data?.total ?? items.length})`, show: !isHodUser },
+    { key: 'qa_pre_approval', label: `QA Pre-Approval (${countPreApprove})`, show: true },
+    { key: 'in_lab', label: `Active In Lab (${countInLab})`, show: true },
+    { key: 'pending_certification', label: `Pending Cert. (${countCertReq})`, show: true },
+    { key: 'certified', label: `Certified (${countCertified})`, show: true },
+    { key: 'unassigned', label: `Un-assigned (${countUnassigned})`, show: isTl || isUnscopedAdmin },
+    { key: 'cert_rework', label: `Cert. Rework (${countCertRework})`, show: isQa || isUnscopedAdmin },
+    { key: 'pending_clarification', label: `Pending Clarification (${countPendingClar})`, show: isQa || isUnscopedAdmin },
+    { key: 'method_dev', label: `Method Development (${countMethodDev})`, show: true },
   ]
+  const tabItems = allTabDescriptors.filter((t) => t.show).map(({ key, label }) => ({ key, label }))
 
   const isReassignTab = activeTab === 're_assign'
+  const isReassignFormsTab = activeTab === 're_assign_forms'
   const isUnsatisfactoryTab = activeTab === 'unsatisfactory'
-  const isCustomTab = isReassignTab || isUnsatisfactoryTab || isFormApprovalTab
+  const isCustomTab = isReassignTab || isReassignFormsTab || isUnsatisfactoryTab || isFormApprovalTab
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -390,6 +431,20 @@ export default function ArdAtrsPage() {
             selectedIds={reassignSelectedIds}
             setSelectedIds={setReassignSelectedIds}
             onReassignClick={() => setReassignModalOpen(true)}
+          />
+        ) : isReassignFormsTab ? (
+          <ReassignFormsPanel
+            myLedTeamOptions={myLedTeamOptions}
+            allTlOptions={allTlOptions}
+            teamId={reassignFormsTeamId}
+            setTeamId={setReassignFormsTeamId}
+            onGo={() => { setActiveReassignFormsTeamId(reassignFormsTeamId); setReassignFormsSelectedIds([]) }}
+            forms={reassignForms}
+            loading={reassignFormsLoading}
+            activeTeamId={activeReassignFormsTeamId}
+            selectedIds={reassignFormsSelectedIds}
+            setSelectedIds={setReassignFormsSelectedIds}
+            onReassignClick={() => setReassignFormsModalOpen(true)}
           />
         ) : isUnsatisfactoryTab ? (
           <UnsatisfactoryTestsPanel />
@@ -520,6 +575,56 @@ export default function ArdAtrsPage() {
         }}
       />
 
+      {/* Re-assign Forms modal — pick the destination TL + mandatory remarks,
+          then e-signature. Moves the whole ATR form (every test on it), unlike
+          Re-assign Test above which moves individual tests. */}
+      <Modal
+        {...glassModalProps}
+        title="Re-assign Forms"
+        open={reassignFormsModalOpen}
+        onCancel={() => setReassignFormsModalOpen(false)}
+        onOk={() => setReassignFormsEsignOpen(true)}
+        okText="Continue"
+        okButtonProps={{ disabled: !reassignFormsTargetTl || !reassignFormsRemarks.trim() }}
+      >
+        <div className="py-2 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Select TL <span className="text-red-500">*</span></label>
+            <Select
+              className="w-full"
+              placeholder="Select Team Lead"
+              value={reassignFormsTargetTl}
+              options={allTlOptions}
+              onChange={setReassignFormsTargetTl}
+              showSearch
+              optionFilterProp="label"
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Remarks <span className="text-red-500">*</span></label>
+            <Input.TextArea
+              rows={4}
+              value={reassignFormsRemarks}
+              onChange={(e) => setReassignFormsRemarks(e.target.value)}
+              placeholder="Reason for reassignment..."
+            />
+          </div>
+        </div>
+      </Modal>
+
+      <ESignatureModal
+        open={reassignFormsEsignOpen}
+        title="Re-assign Forms (E-Signature)"
+        description="Re-authenticate with your password to confirm this team reassignment."
+        userName={user?.username || 'Current User'}
+        requireReason={false}
+        loading={bulkReassignFormsMut.isPending}
+        onCancel={() => setReassignFormsEsignOpen(false)}
+        onConfirm={async (payload) => {
+          await bulkReassignFormsMut.mutateAsync(payload.password)
+        }}
+      />
+
       {/* Events — workflow history for the selected ATR(s) on Form Pending Approval */}
       <Modal
         {...glassModalProps}
@@ -631,6 +736,85 @@ function ReassignTestPanel({
                 ),
               },
               { title: 'Remarks', dataIndex: 'remarks', render: (v) => v || '—' },
+            ]}
+          />
+
+          <Button
+            type="primary"
+            disabled={selectedIds.length === 0}
+            onClick={onReassignClick}
+            icon={<Repeat size={14} />}
+            className="bg-indigo-600 hover:bg-indigo-700 border-none"
+          >
+            Re-assign
+          </Button>
+        </>
+      )}
+    </div>
+  )
+}
+
+function ReassignFormsPanel({
+  myLedTeamOptions, allTlOptions, teamId, setTeamId, onGo,
+  forms, loading, activeTeamId, selectedIds, setSelectedIds, onReassignClick,
+}: {
+  myLedTeamOptions: { value: string; label: string }[]
+  allTlOptions: { value: string; label: string }[]
+  teamId: string | undefined
+  setTeamId: (v: string | undefined) => void
+  onGo: () => void
+  forms: AtrForm[]
+  loading: boolean
+  activeTeamId: string | undefined
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onReassignClick: () => void
+}) {
+  return (
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">Choose Team (Team Lead) <span className="text-red-500">*</span></label>
+          <Select
+            style={{ width: 320 }}
+            placeholder="Select your team"
+            value={teamId}
+            options={myLedTeamOptions}
+            onChange={setTeamId}
+            showSearch
+            optionFilterProp="label"
+            notFoundContent={myLedTeamOptions.length === 0 ? "You don't lead any team." : undefined}
+          />
+        </div>
+        <Button type="primary" onClick={onGo} disabled={!teamId} className="bg-emerald-600 hover:bg-emerald-700 border-none">
+          Go
+        </Button>
+      </div>
+
+      {activeTeamId && (
+        <>
+          <Table
+            rowKey="id"
+            loading={loading}
+            dataSource={forms}
+            size="small"
+            rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+            pagination={{ pageSize: 10, showTotal: (t) => `${t} forms` }}
+            columns={[
+              { title: 'Sample Code', render: (_, r) => sampleField(r, 'sampleCode') },
+              { title: 'Project Code', dataIndex: 'projectCode', render: (v) => <Tag color="blue" className="text-xs font-semibold">{v}</Tag> },
+              { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+              { title: 'Form Type', dataIndex: 'formTypeName', render: (v) => v || '—' },
+              { title: 'Status', dataIndex: 'status', render: (v: AtrStatus) => <Tag color={statusColor(v)} className="text-xs font-semibold">{v.replace(/_/g, ' ')}</Tag> },
+              { title: 'Submitted To', dataIndex: 'assignedTl', render: (v) => v || '—' },
+              {
+                title: 'Raised By (On)', render: (_, r) => (
+                  <div className="text-xs">
+                    <p className="font-medium text-slate-700">{r.raisedBy || r.createdBy || '—'}</p>
+                    <p className="text-[11px] text-slate-400">{r.raisedOn ? dayjs(r.raisedOn).format('DD MMM YYYY') : '—'}</p>
+                  </div>
+                ),
+              },
             ]}
           />
 

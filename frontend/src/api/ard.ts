@@ -388,6 +388,28 @@ export interface AtrListResponse {
   pageSize: number
 }
 
+// Flattened test row from GET /api/ard/tests (testOut() in ardTests.routes.ts)
+// — used by the HOD's "Re-assign Test" tool. assignedTlId/assignedTl already
+// reflect a test's CURRENT team (its own reassignedTlId override if it has
+// one, else its parent ATR's assignedTlId).
+export interface ArdTestRow {
+  id: string
+  atrId: string
+  formNo: string
+  projectCode: string | null
+  productName: string | null
+  sampleCode: string | null
+  batchNo: string | null
+  testType: string
+  testSubtype: string | null
+  status: string
+  assignedTlId: string | null
+  assignedTl: string | null
+  requestedBy: string | null
+  requestedOn: string | null
+  remarks: string | null
+}
+
 const ATR_BASE = '/api/ard/atrs'
 
 export const ardAtrApi = {
@@ -427,6 +449,10 @@ export const ardAtrApi = {
     apiPost<AtrSampleTestSummary>(`/api/ard/tests/${atrId}/${testId}/unlock`, body),
   bulkAssign: (body: { testIds: { atrId: string; testId: string }[]; analystId: string; analystName: string; actionRemarks?: string }) =>
     apiPost<{ assigned: number; skipped: number }>('/api/ard/tests/bulk-assign', body),
+  listTests: (params?: { tlId?: string; q?: string; pageSize?: number }) =>
+    apiGet<{ items: ArdTestRow[]; total: number }>('/api/ard/tests', params),
+  bulkReassignTeam: (body: { testIds: string[]; tlId: string; remarks: string; password: string }) =>
+    apiPost<{ updatedCount: number }>('/api/ard/tests/bulk-reassign-team', body),
   getSupportingDocs: (atrId: string) =>
     apiGet<{ items: AtrSupportingDoc[] }>(`${ATR_BASE}/${atrId}/supporting-docs`),
   addSupportingDoc: (atrId: string, body: { name: string; type?: string; description?: string; url?: string; fileSize?: number; checksum?: string }) =>

@@ -6,13 +6,24 @@ import 'ketcher-react/dist/index.css'
 // Standalone value/onChange wrapper around the Ketcher chemical structure
 // editor — same package/loading pattern as pages/adc/tabs/SchemeTab.tsx, but
 // decoupled from that page's own save-mutation/SMILES-input UI so it can be
-// dropped into any form as a plain controlled field. `value` is a molfile
-// (preferred) or SMILES string; `onChange` fires with the current molfile
-// whenever the user edits the structure.
+// dropped into any form as a plain controlled field.
+//
+// `value` is a Ketcher-native ".ket" JSON document (getKet()/setMolecule()
+// both accept it, and setMolecule() auto-detects the format on load) — NOT a
+// plain MOL-format molfile. A plain MDL molfile can only represent a single
+// molecule; the moment the canvas holds a multi-step REACTION (reactants +
+// "+" + arrow + products, containsReaction() === true), getMolfile() either
+// drops the reaction scaffold or produces something that fails to round-trip
+// through setMolecule(). .ket is the one format that losslessly represents
+// everything Ketcher can draw — single molecules and full reactions alike —
+// so it's used unconditionally here rather than branching between
+// getMolfile()/getRxn() by content type. `onChange` fires with the current
+// .ket JSON whenever the user edits the canvas.
 interface KetcherInstance {
-  getSmiles:   () => Promise<string>
-  getMolfile:  () => Promise<string>
-  setMolecule: (data: string) => Promise<void>
+  getSmiles:        () => Promise<string>
+  getKet:            () => Promise<string>
+  setMolecule:       (data: string) => Promise<void>
+  containsReaction?: () => boolean
   editor?: { subscribe: (event: string, cb: () => void) => unknown }
 }
 
@@ -20,11 +31,46 @@ interface KetcherInstance {
 type AnyComp = React.ComponentType<any>
 type AnyClass = new () => unknown
 
-// A V2000 molfile's 4th line is the counts line — its first 3 chars are the
-// atom count. Used to tell a real structure from an "empty canvas" molfile,
-// which is a non-empty string and so can't be detected by truthiness alone.
-function molfileAtomCount(mol?: string): number {
-  if (!mol) return 0
+// Ketcher publishes itself on `window.ketcher` in its own demo/integration
+// docs, and parts of ketcher-core genuinely DEPEND on that global rather than
+// on the instance handed to onInit. Specifically, the S-group bracket-box
+// calculation falls back to it when it isn't given a renderer:
+//
+//     if (!render) render = window.ketcher.editor.render
+//
+// so importing ANY structure containing a superatom S-group / abbreviation
+// (NH2HCl, CF3, .2HCl, CN, …) — which is most real ChemDraw/Marvin exports —
+// throws "Cannot read properties of undefined (reading 'editor')" and the
+// file silently fails to open. Structures without abbreviations never hit
+// that branch, which is why plain molecules/SMILES imported fine and only
+// *some* files failed. Setting the global fixes every abbreviation-bearing
+// format at once (.cdxml/.mrv/.mol/.rxn/.sdf/.cxon).
+declare global {
+  interface Window { ketcher?: unknown }
+}
+
+// A .ket document's root.nodes array holds one entry per molecule/reaction
+// component on the canvas — empty on a blank canvas. Used to tell a real
+// structure from an "empty canvas" document, which is still valid non-empty
+// JSON and so can't be detected by truthiness alone.
+//
+// Back-compat: experiments saved before this field switched from
+// getMolfile() to getKet() still hold a plain MOL-format molfile string in
+// their stored data, which JSON.parse() rejects outright — falls through to
+// the legacy "V2000 counts line" check so those single-molecule structures
+// keep loading instead of silently appearing blank the next time someone
+// opens that screen. New saves always write .ket JSON going forward.
+function ketNodeCount(value?: string): number {
+  if (!value) return 0
+  try {
+    const parsed = JSON.parse(value) as { root?: { nodes?: unknown[] } }
+    return parsed.root?.nodes?.length ?? 0
+  } catch {
+    return legacyMolfileAtomCount(value)
+  }
+}
+
+function legacyMolfileAtomCount(mol: string): number {
   const lines = mol.split('\n')
   if (lines.length < 4) return 0
   const n = parseInt(lines[3].slice(0, 3).trim(), 10)
@@ -62,6 +108,13 @@ export default function KetcherField({ value, onChange, disabled }: {
   // screen. Stay closed until the saved value has been loaded back in.
   const initialSettledRef = useRef(false)
 
+  // Drop the global published in onInit when this editor goes away, so a
+  // later import can't reach through it into an unmounted instance's render.
+  // Guarded so a newer field that has already claimed the global keeps it.
+  useEffect(() => () => {
+    if (window.ketcher === ketcherRef.current) window.ketcher = undefined
+  }, [])
+
   // Load Ketcher eagerly on mount — WASM init is expensive, do it once.
   useEffect(() => {
     Promise.all([
@@ -85,7 +138,7 @@ export default function KetcherField({ value, onChange, disabled }: {
     // change they make.
     if (loadedInitialValueRef.current || initialSettledRef.current) return
     if (!ketcherReady || !ketcherRef.current) return
-    if (molfileAtomCount(value) === 0) {
+    if (ketNodeCount(value) === 0) {
       // Nothing meaningful saved — open the gate so the user's own edits commit.
       initialSettledRef.current = true
       return
@@ -97,8 +150,8 @@ export default function KetcherField({ value, onChange, disabled }: {
         try {
           await ketcherRef.current!.setMolecule(value!)
           await new Promise(r => setTimeout(r, 150))
-          const readBack = await ketcherRef.current!.getMolfile()
-          if (molfileAtomCount(readBack) > 0) break
+          const readBack = await ketcherRef.current!.getKet()
+          if (ketNodeCount(readBack) > 0) break
         } catch { /* editor not ready yet — retry below */ }
         await new Promise(r => setTimeout(r, 250))
       }
@@ -114,8 +167,8 @@ export default function KetcherField({ value, onChange, disabled }: {
     // an already-saved structure.
     if (!initialSettledRef.current) return
     try {
-      const molfile = await ketcherRef.current.getMolfile()
-      cb(molfile)
+      const ket = await ketcherRef.current.getKet()
+      cb(ket)
     } catch {
       // Editor not ready / nothing drawn yet — leave value as-is.
     }
@@ -127,7 +180,7 @@ export default function KetcherField({ value, onChange, disabled }: {
   //
   // setMolecule()'s promise resolves before Ketcher's internal editor state
   // has actually finished committing the new structure — calling
-  // getMolfile() immediately afterward can read back stale/empty data even
+  // getKet() immediately afterward can read back stale/empty data even
   // though the canvas visibly shows the loaded structure right away. A short
   // delay before reading it back avoids silently saving an empty value.
   const loadFromSmiles = async () => {
@@ -174,6 +227,14 @@ export default function KetcherField({ value, onChange, disabled }: {
           structServiceProvider={svcInstance}
           onInit={(k: KetcherInstance) => {
             ketcherRef.current = k
+            // See the `declare global` note above — ketcher-core reads this
+            // global while laying out S-group brackets, so abbreviation-
+            // bearing imports crash without it. Last editor to mount wins,
+            // which is correct here: only one KETCHER field is ever on
+            // screen at a time (one screen renders at a time), and the
+            // unmount effect below clears it so a dead instance is never
+            // left published.
+            window.ketcher = k
             setKetcherReady(true)
             if (!disabled) {
               try {

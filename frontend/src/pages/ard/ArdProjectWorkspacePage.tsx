@@ -23,7 +23,7 @@ import ProjectSpecificationsPanel from '../../components/ard/ProjectSpecificatio
 import { calcTemplateApi } from '../../api/calcTemplates'
 import SpreadsheetFieldRuntime from '../../pages/admin/templateBuilder/SpreadsheetFieldRuntime'
 import { ESignatureModal } from '../../components/common/ESignatureModal'
-import { glassModalProps } from '../../utils/modalStyles'
+import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 
 const { TextArea } = Input
 const { Text } = Typography
@@ -1739,7 +1739,7 @@ export default function ArdProjectWorkspacePage() {
           <Button key="close" onClick={() => setViewStp(null)}>Close</Button>
         ]}
         width={1100}
-        styles={{ ...glassModalProps.styles, body: { ...glassModalProps.styles?.body, maxHeight: '75vh', overflowY: 'auto' } }}
+        styles={{ ...glassModalStyles, body: { ...glassModalStyles.body, maxHeight: '75vh', overflowY: 'auto' } }}
       >
         {viewStp && (
           <div className="space-y-4 pt-2 text-xs">

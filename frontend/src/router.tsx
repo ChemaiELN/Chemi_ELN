@@ -89,6 +89,7 @@ import ArdTemplateBuilderPage from './pages/ard/ArdTemplateBuilderPage'
 import ArdTestsPage from './pages/ard/ArdTestsPage'
 import ArdTestExecutePage from './pages/ard/ArdTestExecutePage'
 import ArdExperimentsPage from './pages/ard/ArdExperimentsPage'
+import ArdAdExperimentsPage from './pages/ard/ArdAdExperimentsPage'
 import ArdExperimentWorkspacePage from './pages/ard/ArdExperimentWorkspacePage'
 import ArdQcTrfPage from './pages/ard/ArdQcTrfPage'
 import ArdQcTrfWorkspacePage from './pages/ard/ArdQcTrfWorkspacePage'
@@ -360,6 +361,7 @@ export function AppRouter() {
         <Route path="experiments" element={<ArdExperimentsPage />} />
         <Route path="experiments/pending-review" element={<ArdPendingReviewPage />} />
         <Route path="experiments/:experimentId" element={<ArdExperimentWorkspacePage />} />
+        <Route path="ad-experiments" element={<ArdAdExperimentsPage />} />
         <Route path="qc-trf" element={<ArdQcTrfPage />} />
         <Route path="qc-trf/:trfId" element={<ArdQcTrfWorkspacePage />} />
         <Route path="search" element={<ArdSearchPage />} />

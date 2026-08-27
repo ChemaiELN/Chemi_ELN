@@ -73,12 +73,13 @@ interface ApiMenuResponse {
 
 /** Group metadata (label + icon) matching the hardcoded makeArdItems groups. */
 const GROUP_META: Record<string, { label: string; icon: string }> = {
-  work:      { label: 'Work',      icon: 'FlaskConical' },
-  notebook:  { label: 'ELN',       icon: 'BookOpen'     },
-  insights:  { label: 'Insights',  icon: 'BarChart3'    },
-  admin:     { label: 'Admin',     icon: 'Settings2'    },
+  work:          { label: 'Work',          icon: 'FlaskConical' },
+  notebook:      { label: 'ELN',           icon: 'BookOpen'     },
+  ad_experiments: { label: 'AD Experiments', icon: 'FlaskConical' },
+  insights:      { label: 'Insights',      icon: 'BarChart3'    },
+  admin:         { label: 'Admin',         icon: 'Settings2'    },
 }
-const GROUP_ORDER = ['work', 'notebook', 'insights', 'admin']
+const GROUP_ORDER = ['work', 'notebook', 'ad_experiments', 'insights', 'admin']
 
 function iconEl(name: string) {
   const Comp = ICON_MAP[name]
@@ -168,6 +169,16 @@ function makeArdItems(roleCode?: string): MenuItem[] {
       ],
     },
     {
+      // Placeholder — a new section coming right after ELN; the real screens
+      // land later, this just reserves its spot in the sidebar for now.
+      key: 'ad_experiments',
+      icon: <FlaskConical size={15} />,
+      label: 'AD Experiments',
+      children: [
+        { key: '/ard/ad-experiments', icon: <FlaskConical size={15} />, label: 'AD Experiments' },
+      ],
+    },
+    {
       key: 'insights',
       icon: <BarChart3 size={15} />,
       label: 'Insights',
@@ -205,7 +216,7 @@ export default function ArdSidebar({ collapsed, onItemClick }: ArdSidebarProps) 
   const navigate = useNavigate()
   const location = useLocation()
   const user = useAppSelector(selectUser)
-  const [openKeys, setOpenKeys] = useState<string[]>(['work', 'notebook', 'insights', 'admin'])
+  const [openKeys, setOpenKeys] = useState<string[]>(['work', 'notebook', 'ad_experiments', 'insights', 'admin'])
 
   // Fetch role-filtered menu from the backend (GAP-028).
   // Falls back to the static makeArdItems() on loading or error.
@@ -228,6 +239,7 @@ export default function ArdSidebar({ collapsed, onItemClick }: ArdSidebarProps) 
   const prefixes = [
     '/ard/my-queue', '/ard/configuration', '/ard/projects', '/ard/notebooks', '/ard/atrs',
     '/ard/tests', '/ard/templates', '/ard/experiments/pending-review', '/ard/experiments/compare', '/ard/experiments',
+    '/ard/ad-experiments',
     '/ard/qc-trf', '/ard/qualification-matrix', '/ard/search', '/ard/team',
     '/ard/audit', '/ard/notifications', '/ard/reports'
   ]

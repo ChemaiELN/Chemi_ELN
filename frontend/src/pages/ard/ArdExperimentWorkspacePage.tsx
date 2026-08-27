@@ -5,7 +5,7 @@ import {
   Tag, Button, Card, Space, Popconfirm, message, Empty, Spin, Alert, Divider,
   Drawer, Timeline, Select, Table, Input, Form, Modal, Tooltip, Segmented, Dropdown, Upload,
 } from 'antd'
-import { ArrowLeft, FlaskConical, Save, Download, History, Link, Eye, Trash2, Search, FileText, RotateCcw, Copy, Activity, Database } from 'lucide-react'
+import { ArrowLeft, FlaskConical, Save, Download, History, Link, Eye, Trash2, Search, FileText, RotateCcw, Copy, Activity, Database, MessageSquare } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
   ardExperimentApi, ardApi, type ExperimentStatus, type ArdExperimentDoc,
@@ -54,10 +54,10 @@ const STATUS_LABEL: Record<string, string> = {
 // Both VERIFICATION_REQUESTED and SUBMITTED are offered from IN_PROGRESS; backend enforces the setting.
 const EXPERIMENT_TRANSITIONS: Record<ExperimentStatus, ExperimentStatus[]> = {
   IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
-  VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK'],
+  VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK', 'DEACTIVATED'],
   VERIFICATION_REWORK: ['VERIFICATION_REQUESTED'],
   VERIFIED: ['SUBMITTED'],
-  SUBMITTED: ['APPROVED', 'REWORK'],
+  SUBMITTED: ['APPROVED', 'REWORK', 'DEACTIVATED'],
   REWORK: ['SUBMITTED'],
   APPROVED: ['UNLOCK_REQUESTED'],
   UNLOCK_REQUESTED: ['UNLOCKED'],
@@ -89,7 +89,7 @@ const TRANSITION_LABEL: Record<string, string> = {
   REWORK: 'Return for Rework',
   UNLOCK_REQUESTED: 'Request Unlock',
   UNLOCKED: 'Approve Unlock',
-  DEACTIVATED: 'Deactivate',
+  DEACTIVATED: 'Discontinue Experiment',
   IN_PROGRESS: 'Resume Experiment',
 }
 
@@ -867,6 +867,8 @@ function ArdExperimentWorkspacePage() {
   const [takeoverAnalystId, setTakeoverAnalystId] = useState<string | undefined>()
   const [takeoverRemarks, setTakeoverRemarks] = useState('')
   const [qaComment, setQaComment] = useState('')
+  const [sectionCommentTarget, setSectionCommentTarget] = useState<{ id: string; label: string } | null>(null)
+  const [sectionCommentDraft, setSectionCommentDraft] = useState('')
   const [lockedByOther, setLockedByOther] = useState<string | null>(null)
   const lockAcquired = useRef(false)
   const [empowerModalOpen, setEmpowerModalOpen] = useState(false)
@@ -1035,8 +1037,8 @@ function ArdExperimentWorkspacePage() {
   })
 
   const reassignReviewer = useMutation({
-    mutationFn: ({ reviewerId, remarks }: { reviewerId: string; remarks: string }) =>
-      ardExperimentApi.reassignReviewer(experimentId!, { reviewerId, remarks }),
+    mutationFn: ({ reviewerId }: { reviewerId: string }) =>
+      ardExperimentApi.reassignReviewer(experimentId!, { reviewerId }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
       setReviewerOpen(false)
@@ -1088,13 +1090,33 @@ function ArdExperimentWorkspacePage() {
   })
 
   const addQaComment = useMutation({
-    mutationFn: (message: string) => ardExperimentApi.addComment(experimentId!, { message }),
+    // Displays from exp.clarifications below, so it must write through the
+    // matching endpoint — this previously called addComment (which posts to
+    // section-comments, a completely different array), so a submitted QA
+    // comment vanished from this list the moment the query refetched.
+    mutationFn: (message: string) => ardExperimentApi.addClarification(experimentId!, { message }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
       setQaComment('')
       msg.success('QA comment added.')
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to add comment.'),
+  })
+
+  const addSectionComment = useMutation({
+    mutationFn: (comment: string) => ardExperimentApi.addComment(experimentId!, { sectionKey: sectionCommentTarget!.id, comment }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
+      setSectionCommentDraft('')
+      msg.success('Comment added.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to add comment.'),
+  })
+
+  const deleteSectionComment = useMutation({
+    mutationFn: (commentId: string) => ardExperimentApi.deleteComment(experimentId!, commentId),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] }),
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to delete comment.'),
   })
 
   const { data: eventsData } = useQuery({
@@ -1316,6 +1338,30 @@ function ArdExperimentWorkspacePage() {
 
   const sectionDefs = Array.isArray(exp.sectionDefs) ? (exp.sectionDefs as SectionDef[]) : []
 
+  // Per-section comments (approver feedback tied to one specific section,
+  // not the whole experiment) — every section gets this icon in its title.
+  const sectionComments = Array.isArray(exp.sectionComments) ? exp.sectionComments : []
+  const commentCountFor = (sectionId: string) => sectionComments.filter(c => c.sectionKey === sectionId).length
+  const SectionCommentIcon = ({ sectionId, label }: { sectionId: string; label: string }) => {
+    const count = commentCountFor(sectionId)
+    return (
+      <Tooltip title="Section Comments">
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); setSectionCommentTarget({ id: sectionId, label }) }}
+          className="relative inline-flex items-center justify-center w-6 h-6 rounded-md text-slate-400 hover:text-violet-600 hover:bg-violet-50 transition-colors"
+        >
+          <MessageSquare size={14} />
+          {count > 0 && (
+            <span className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full bg-violet-600 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+              {count}
+            </span>
+          )}
+        </button>
+      </Tooltip>
+    )
+  }
+
   // Section-routing nav — every experiment always renders as one continuous
   // page (no more Tabbed/Single Page toggle); this lets you jump straight to
   // a section instead of scrolling, mirroring the legacy ELN's top nav strip.
@@ -1521,7 +1567,15 @@ function ArdExperimentWorkspacePage() {
       <LinkedAtrTestsPanel experimentId={experimentId!} />
 
       {/* Aim/Objective — fixed block, every experiment has this regardless of template */}
-      <Card id="sec-aim" size="small" title="Aim / Objective" className="rounded-lg overflow-hidden glass-card">
+      <Card
+        id="sec-aim" size="small" className="rounded-lg overflow-hidden glass-card"
+        title={
+          <div className="flex items-center justify-between">
+            <span>Aim / Objective</span>
+            <SectionCommentIcon sectionId="sec-aim" label="Aim / Objective" />
+          </div>
+        }
+      >
         <RichEditor
           value={aimDraft ?? exp.aim ?? ''}
           onChange={setAimDraft}
@@ -1551,10 +1605,13 @@ function ArdExperimentWorkspacePage() {
               id={`sec-${section?.id || idx}`}
               size="small"
               title={
-                <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
-                  {section?.title || 'Section'}
-                  {section?.required && <Tag color="red" className="text-xs font-normal">Required</Tag>}
-                </span>
+                <div className="flex items-center justify-between">
+                  <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
+                    {section?.title || 'Section'}
+                    {section?.required && <Tag color="red" className="text-xs font-normal">Required</Tag>}
+                  </span>
+                  <SectionCommentIcon sectionId={section?.id || `sec-${idx}`} label={section?.title || 'Section'} />
+                </div>
               }
               className="rounded-lg overflow-hidden"
             >
@@ -1573,7 +1630,15 @@ function ArdExperimentWorkspacePage() {
       )}
 
       {/* Attachments — fixed block, not a template-authored section */}
-      <Card id="sec-attachments" size="small" title="Attachments" className="rounded-lg overflow-hidden glass-card">
+      <Card
+        id="sec-attachments" size="small" className="rounded-lg overflow-hidden glass-card"
+        title={
+          <div className="flex items-center justify-between">
+            <span>Attachments</span>
+            <SectionCommentIcon sectionId="sec-attachments" label="Attachments" />
+          </div>
+        }
+      >
         <ArdAttachmentsPanel entityType="ard_experiment" entityId={exp.id} readOnly={!editable} />
       </Card>
 
@@ -1583,7 +1648,15 @@ function ArdExperimentWorkspacePage() {
           template-authored sections) with a stable synthetic section id, so
           its data persists through the same sections JSONB/onChange path
           every other section already uses — no new column needed. */}
-      <Card id="sec-experiment-parameters" size="small" title="Experiment Parameters" className="rounded-lg overflow-hidden glass-card">
+      <Card
+        id="sec-experiment-parameters" size="small" className="rounded-lg overflow-hidden glass-card"
+        title={
+          <div className="flex items-center justify-between">
+            <span>Experiment Parameters</span>
+            <SectionCommentIcon sectionId="sec-experiment-parameters" label="Experiment Parameters" />
+          </div>
+        }
+      >
         <ExperimentSectionRenderer
           section={{ id: 'experiment_parameters', title: 'Experiment Parameters', type: 'params' }}
           data={data}
@@ -1595,7 +1668,15 @@ function ArdExperimentWorkspacePage() {
       </Card>
 
       {/* Conclusion — fixed block, every experiment has this regardless of template */}
-      <Card id="sec-conclusion" size="small" title="Conclusion" className="rounded-lg overflow-hidden glass-card">
+      <Card
+        id="sec-conclusion" size="small" className="rounded-lg overflow-hidden glass-card"
+        title={
+          <div className="flex items-center justify-between">
+            <span>Conclusion</span>
+            <SectionCommentIcon sectionId="sec-conclusion" label="Conclusion" />
+          </div>
+        }
+      >
         <RichEditor
           value={conclusionDraft ?? exp.conclusion ?? ''}
           onChange={setConclusionDraft}
@@ -1616,6 +1697,10 @@ function ArdExperimentWorkspacePage() {
 
       {/* Reference Experiments */}
       <div id="sec-reference-experiments">
+      <div className="flex items-center justify-between mb-1.5 px-0.5">
+        <span className="text-sm font-semibold text-slate-700">Reference Experiments</span>
+        <SectionCommentIcon sectionId="sec-reference-experiments" label="Reference Experiments" />
+      </div>
       <ReferenceExperimentsPanel
         experimentId={experimentId!}
         currentProjectId={exp.projectId ?? undefined}
@@ -1780,7 +1865,7 @@ function ArdExperimentWorkspacePage() {
         onCancel={() => { setReviewerOpen(false); setReviewerSelectedId(undefined); setReviewerRemarks('') }}
         onOk={() => {
           if (!reviewerSelectedId) { msg.warning('Select a reviewer.'); return }
-          reassignReviewer.mutate({ reviewerId: reviewerSelectedId, remarks: reviewerRemarks })
+          reassignReviewer.mutate({ reviewerId: reviewerSelectedId })
         }}
         confirmLoading={reassignReviewer.isPending}
         okText="Reassign"
@@ -1945,6 +2030,62 @@ function ArdExperimentWorkspacePage() {
               onClick={() => stpEmpowerMut.mutate(empowerCsvText)}
               style={{ background: '#7c3aed', borderColor: '#7c3aed' }}>
               Import Data
+            </Button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Section Comment Modal — the approver's per-section feedback, one
+          thread per section, matching the legacy ELN's own section-comment
+          popup (mirrored here rather than copied pixel-for-pixel). */}
+      <Modal
+        {...glassModalProps}
+        title={`${sectionCommentTarget?.label ?? 'Section'} Comments`}
+        open={!!sectionCommentTarget}
+        onCancel={() => { setSectionCommentTarget(null); setSectionCommentDraft('') }}
+        footer={null}
+      >
+        <div className="py-2 space-y-4">
+          <div className="space-y-2 max-h-60 overflow-y-auto">
+            {sectionComments.filter(c => c.sectionKey === sectionCommentTarget?.id).length === 0 ? (
+              <p className="text-xs text-slate-400 italic">No comments yet.</p>
+            ) : (
+              sectionComments
+                .filter(c => c.sectionKey === sectionCommentTarget?.id)
+                .map(c => (
+                  <div key={c.id} className="bg-violet-50 border border-violet-100 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex justify-between items-center mb-0.5 gap-2">
+                      <span className="font-semibold text-violet-700">{c.byName || 'User'}</span>
+                      <div className="flex items-center gap-2 shrink-0">
+                        <span className="text-slate-400">{c.at ? dayjs(c.at).format('DD MMM YYYY HH:mm') : ''}</span>
+                        <Popconfirm title="Delete this comment?" onConfirm={() => deleteSectionComment.mutate(c.id)}>
+                          <button type="button" className="text-slate-300 hover:text-red-500 transition-colors">
+                            <Trash2 size={12} />
+                          </button>
+                        </Popconfirm>
+                      </div>
+                    </div>
+                    <p className="text-slate-700 whitespace-pre-wrap">{c.comment}</p>
+                  </div>
+                ))
+            )}
+          </div>
+          <div className="flex gap-2">
+            <Input.TextArea
+              rows={2}
+              placeholder="Add a comment on this section..."
+              value={sectionCommentDraft}
+              onChange={(e) => setSectionCommentDraft(e.target.value)}
+              style={{ flex: 1 }}
+            />
+            <Button
+              type="primary"
+              loading={addSectionComment.isPending}
+              disabled={!sectionCommentDraft.trim()}
+              onClick={() => addSectionComment.mutate(sectionCommentDraft)}
+              style={{ alignSelf: 'flex-end' }}
+            >
+              Add
             </Button>
           </div>
         </div>

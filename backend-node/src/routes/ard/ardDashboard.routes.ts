@@ -34,6 +34,9 @@ const ARD_MENU_ITEMS: Array<{
   { key: 'experiments', label: 'Experiments', href: '/ard/experiments', group: 'notebook', icon: 'FlaskConical' },
   { key: 'pending-review', label: 'Pending Review', href: '/ard/experiments/pending-review', group: 'notebook', icon: 'FlaskConical' },
   { key: 'templates', label: 'Templates', href: '/ard/templates', group: 'notebook', icon: 'FileText' },
+  // Placeholder — a new section coming right after ELN; the actual screens
+  // land later, this just reserves its spot in the sidebar for now.
+  { key: 'ad-experiments', label: 'AD Experiments', href: '/ard/ad-experiments', group: 'ad_experiments', icon: 'FlaskConical' },
   { key: 'compare', label: 'Compare Exps', href: '/ard/experiments/compare', group: 'insights', icon: 'GitCompareArrows' },
   { key: 'reports', label: 'Reports', href: '/ard/reports', group: 'insights', icon: 'BarChart3' },
   { key: 'notifications', label: 'Notifications', href: '/ard/notifications', group: 'insights', icon: 'Bell' },

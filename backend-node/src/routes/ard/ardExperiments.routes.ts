@@ -4,6 +4,7 @@ import { Op } from 'sequelize';
 import { v4 as uuidv4 } from 'uuid';
 import { createHash } from 'crypto';
 import { authenticate } from '../../middleware/auth.middleware';
+import { verifyPassword } from '../../utils/auth.utils';
 import { requirePrivilege, userHasPrivilege, CREATOR_ROLES } from '../../shared/privileges';
 import { settingEnabled, enforceEsignature, ESIGN_FLAGS } from '../../shared/ardSettings';
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response';
@@ -32,9 +33,9 @@ function isLabRole(rc: string): boolean {
 // Status machine
 const EXPERIMENT_TRANSITIONS: Record<string, string[]> = {
   IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
-  VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK'],
+  VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK', 'DEACTIVATED'],
   VERIFIED: ['SUBMITTED'],
-  SUBMITTED: ['APPROVED', 'REWORK'],
+  SUBMITTED: ['APPROVED', 'REWORK', 'DEACTIVATED'],
   APPROVED: ['UNLOCK_REQUESTED'],
   REWORK: ['IN_PROGRESS'],
   UNLOCK_REQUESTED: ['UNLOCKED'],
@@ -299,6 +300,43 @@ ardExperimentRouter.post('/', authenticate, async (req: Request, res: Response, 
   }
 });
 
+// GET /ongoing — the AD Experiments "Ongoing" tab: experiments still being
+// worked on (IN_PROGRESS), not yet sent anywhere for review. Flat list, no
+// mine/others split — that only makes sense once something's been submitted.
+ardExperimentRouter.get('/ongoing', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rows = await (ArdExperiment as any).findAll({ where: { status: 'IN_PROGRESS' }, order: [['updatedAt', 'DESC']] });
+
+    const projectIds = Array.from(new Set(rows.map((e: any) => e.projectId).filter(Boolean)));
+    const projects = projectIds.length
+      ? await (ArdProject as any).findAll({ where: { id: { [Op.in]: projectIds } }, attributes: ['id', 'code', 'productName'] })
+      : [];
+    const projectMap = new Map(projects.map((p: any) => [p.id, p]));
+
+    const MS_PER_DAY = 86_400_000;
+    const now = Date.now();
+    const items = rows.map((e: any) => {
+      const project: any = e.projectId ? projectMap.get(e.projectId) : null;
+      return {
+        id: String(e.id),
+        code: e.code,
+        templateName: e.templateName ?? null,
+        status: e.status,
+        aim: e.aim ?? null,
+        projectCode: project?.code ?? null,
+        productName: project?.productName ?? null,
+        ageDays: e.createdAt ? Math.floor((now - new Date(e.createdAt).getTime()) / MS_PER_DAY) : null,
+        notebookId: e.notebookId ? String(e.notebookId) : null,
+        createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
+      };
+    });
+
+    res.json(successResponse('Ongoing experiments', { items, total: items.length }));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /pending-review
 ardExperimentRouter.get('/pending-review', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -308,17 +346,22 @@ ardExperimentRouter.get('/pending-review', authenticate, async (req: Request, re
     //            experiment; a TL sees SUBMITTED ones raised by someone else; anyone
     //            else has nothing to review.
     const REVIEW_STATUSES = ['SUBMITTED', 'VERIFICATION_REQUESTED'];
-    const { perspective = 'mine' } = req.query as Record<string, string>;
+    const { perspective = 'mine', status } = req.query as Record<string, string>;
+    // AD Experiments has two distinct tabs sharing this same endpoint —
+    // Approval (SUBMITTED) and Verification (VERIFICATION_REQUESTED) — so a
+    // caller narrows to exactly one status; omitting it keeps the original
+    // combined behavior for any other consumer.
+    const statuses = status ? [status] : REVIEW_STATUSES;
     const user = (req as any).user;
     const roleCode: string = (user?.role as any)?.code ?? '';
 
     let where: any;
     if (perspective === 'others') {
-      where = { createdById: user.id, status: { [Op.in]: REVIEW_STATUSES } };
+      where = { createdById: user.id, status: { [Op.in]: statuses } };
     } else if (['QA', 'HOD', 'SUPER_ADMIN', 'ADMIN'].includes(roleCode)) {
-      where = { status: { [Op.in]: REVIEW_STATUSES } };
+      where = { status: { [Op.in]: statuses } };
     } else if (['TL', 'TEAM_LEAD'].includes(roleCode)) {
-      where = { status: 'SUBMITTED', createdById: { [Op.ne]: user.id } };
+      where = { status: { [Op.in]: statuses }, createdById: { [Op.ne]: user.id } };
     } else {
       where = null;
     }
@@ -327,22 +370,42 @@ ardExperimentRouter.get('/pending-review', authenticate, async (req: Request, re
       ? []
       : await (ArdExperiment as any).findAll({ where, order: [['updatedAt', 'DESC']] });
 
+    // Product/Project Code live on the parent project, not the experiment —
+    // one lookup for every distinct projectId instead of N+1 per row.
+    const projectIds = Array.from(new Set(rows.map((e: any) => e.projectId).filter(Boolean)));
+    const projects = projectIds.length
+      ? await (ArdProject as any).findAll({ where: { id: { [Op.in]: projectIds } }, attributes: ['id', 'code', 'productName'] })
+      : [];
+    const projectMap = new Map(projects.map((p: any) => [p.id, p]));
+
     // Who submitted and when is derived from the most recent SUBMITTED /
     // VERIFICATION_REQUESTED history entry (experiments.py:1091-1116).
+    // requestCount tallies every such entry — how many times this experiment
+    // has been sent out for review (resubmissions after rework count too).
     const MS_PER_DAY = 86_400_000;
     const now = Date.now();
     const items = rows.map((e: any) => {
       const history: any[] = (e.history as any[]) || [];
       let submittedBy: string | null = null;
       let submittedAt: string | null = null;
+      let requestCount = 0;
       for (let i = history.length - 1; i >= 0; i -= 1) {
         const entry = history[i];
-        if (entry?.action === 'SUBMITTED' || entry?.action === 'VERIFICATION_REQUESTED') {
-          submittedBy = entry?.by ?? null;
-          submittedAt = entry?.at ?? null;
-          break;
+        // History entries record the transition as {from, to}, not an
+        // {action} field — this previously always missed (both here and in
+        // the original single-entry version this replaced), leaving
+        // Submitted By/On blank for every row.
+        if (entry?.to === 'SUBMITTED' || entry?.to === 'VERIFICATION_REQUESTED') {
+          requestCount += 1;
+          if (submittedAt === null) {
+            // byName is the resolved username recorded alongside every
+            // history entry — `by` itself is only the raw user id.
+            submittedBy = entry?.byName ?? entry?.by ?? null;
+            submittedAt = entry?.at ?? null;
+          }
         }
       }
+      const project: any = e.projectId ? projectMap.get(e.projectId) : null;
       return {
         id: String(e.id),
         code: e.code,
@@ -350,9 +413,15 @@ ardExperimentRouter.get('/pending-review', authenticate, async (req: Request, re
         status: e.status,
         submittedBy,
         submittedAt,
+        submittedTo: e.reviewerName ?? null,
+        aim: e.aim ?? null,
+        requestCount,
+        projectCode: project?.code ?? null,
+        productName: project?.productName ?? null,
         ageDays: e.createdAt ? Math.floor((now - new Date(e.createdAt).getTime()) / MS_PER_DAY) : null,
         notebookId: e.notebookId ? String(e.notebookId) : null,
         createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
+        history,
       };
     });
 
@@ -696,9 +765,15 @@ ardExperimentRouter.post('/:experimentId/section-comments', authenticate, async 
     const entry = {
       id: uuidv4(),
       sectionKey: section_key,
+      // sectionId/authorRole are what the ModifyAfterRework "unlock sections
+      // with reviewer comments" check on the frontend actually reads — this
+      // entry previously only carried sectionKey/by, so that check silently
+      // never matched anything and no section ever unlocked during rework.
+      sectionId: section_key,
       comment,
       by: user.id,
       byName: user.username,
+      authorRole: (user.role as any)?.code ?? null,
       at: new Date(),
     };
     await (exp as any).update({
@@ -839,6 +914,51 @@ ardExperimentRouter.post('/:experimentId/reassign-reviewer', authenticate, async
     }
     await (exp as any).update({ reviewerId: reviewer_id, reviewerName: resolvedName });
     res.json(successResponse('Reviewer reassigned', exp));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /bulk-take-over-review — the "Take Over" action on the AD Experiments
+// Approval > Submitted to Others tab. Claims the review for the current user.
+// Always requires e-signature (unconditional, like ardTests.routes.ts's
+// bulk-reassign-team) since this changes who owns a GxP review decision.
+ardExperimentRouter.post('/bulk-take-over-review', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user;
+    const body = z.object({
+      experimentIds: z.array(z.string()).min(1),
+      remarks: z.string().min(1),
+      password: z.string().min(1),
+    }).parse(req.body);
+
+    const passwordValid = await verifyPassword(body.password, user.passwordHash);
+    if (!passwordValid) {
+      throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED');
+    }
+
+    const experiments = await (ArdExperiment as any).findAll({ where: { id: { [Op.in]: body.experimentIds } } });
+    let updatedCount = 0;
+    for (const exp of experiments) {
+      const fromReviewer = (exp as any).reviewerName ?? null;
+      const historyEntry = {
+        action: 'REVIEWER_TAKEOVER',
+        by: user.id,
+        byName: user.username,
+        at: new Date(),
+        remarks: body.remarks,
+        ...(fromReviewer ? { from: fromReviewer } : {}),
+        to: user.username,
+      };
+      await exp.update({
+        reviewerId: user.id,
+        reviewerName: user.username,
+        history: [...((exp as any).history || []), historyEntry],
+      });
+      updatedCount++;
+    }
+
+    res.json(successResponse('Review taken over', { updatedCount }));
   } catch (err) {
     next(err);
   }

@@ -90,6 +90,6 @@ New `GET /api/ard/tests/unsatisfactory-report` — query params `from?`, `to?`, 
 
 ## Out of scope
 
-- No changes to the existing single-ATR "Reassign Team Lead" UI/UX beyond the one-line `assignedTeamId` fix.
+- No changes to the existing single-ATR "Reassign Team Lead" button/endpoint (`assign-tl`) at all — it's a separate, unrelated flow from the "Re-assign Test" tool this spec touches.
 - No changes to how a test gets marked unsatisfactory in the first place (workflow/permissions there are untouched — only the remarks-persistence bug is fixed).
 - No new permission model — both tabs reuse the existing plain role-code check pattern (`role_code === 'HOD'`) already used throughout ARD, not the privilege-table system ADC/CGT use.

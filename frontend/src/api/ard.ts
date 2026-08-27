@@ -704,6 +704,17 @@ export interface ExperimentLockInfo {
   expiresAt: string | null
 }
 
+export interface SectionCommentEntry {
+  id: string
+  sectionKey: string
+  sectionId?: string
+  comment: string
+  by: string
+  byName: string
+  authorRole?: string | null
+  at: string
+}
+
 export interface ArdExperimentDoc {
   id: string
   code: string
@@ -717,7 +728,7 @@ export interface ArdExperimentDoc {
   linkedSamples: unknown[]
   referenceExperiments: RefExperiment[]
   clarifications: unknown[]
-  sectionComments: unknown[]
+  sectionComments: SectionCommentEntry[]
   notebookId: string | null
   projectId: string | null
   projectStpId: string | null
@@ -743,6 +754,19 @@ export interface ArdExperimentDoc {
   printedAt?: string | null
 }
 
+export interface OngoingExperimentItem {
+  id: string
+  code: string
+  templateName: string | null
+  status: string
+  aim: string | null
+  projectCode: string | null
+  productName: string | null
+  ageDays: number | null
+  notebookId: string | null
+  createdAt: string | null
+}
+
 export interface PendingReviewItem {
   id: string
   code: string
@@ -750,9 +774,15 @@ export interface PendingReviewItem {
   status: string
   submittedBy: string | null
   submittedAt: string | null
+  submittedTo: string | null
+  aim: string | null
+  requestCount: number
+  projectCode: string | null
+  productName: string | null
   ageDays: number | null
   notebookId: string | null
   createdAt: string | null
+  history: { action?: string; from?: string; to?: string; by?: string; byName?: string; at?: string; remarks?: string }[]
 }
 
 const EXPERIMENT_BASE = '/api/ard/experiments'
@@ -771,10 +801,14 @@ export const ardExperimentApi = {
   compareVersions: (id: string, v1: number, v2: number) =>
     apiGet<VersionCompareResponse>(`${EXPERIMENT_BASE}/${id}/versions/compare`, { v1, v2 }),
   getByCode: (code: string) => apiGet<ArdExperimentDoc>(`${EXPERIMENT_BASE}/lookup/by-code/${encodeURIComponent(code)}`),
-  addComment: (id: string, body: { sectionId?: string; message: string }) =>
-    apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/section-comments`, body),
+  // Backend schema is section_key/comment (snake_case, required) — this
+  // previously sent sectionId/message, which don't exist on the schema at
+  // all, so every call 422'd with "section_key: Required". Never had a
+  // caller to surface the bug until now.
+  addComment: (id: string, body: { sectionKey: string; comment: string }) =>
+    apiPost<SectionCommentEntry>(`${EXPERIMENT_BASE}/${id}/section-comments`, { section_key: body.sectionKey, comment: body.comment }),
   deleteComment: (id: string, commentId: string) =>
-    apiDelete<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/section-comments/${commentId}`),
+    apiDelete<void>(`${EXPERIMENT_BASE}/${id}/section-comments/${commentId}`),
   addClarification: (id: string, body: { message: string }) =>
     apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/clarifications`, body),
   deleteClarification: (id: string, clarId: string) =>
@@ -787,14 +821,21 @@ export const ardExperimentApi = {
     apiDelete<{ items: Record<string, unknown>[] }>(`${EXPERIMENT_BASE}/${id}/post-analytical/${itemId}`),
   takeover: (id: string, body: { newAnalystId: string; remarks: string }) =>
     apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/takeover`, body),
-  reassignReviewer: (id: string, body: { reviewerId: string; remarks?: string }) =>
-    apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/reassign-reviewer`, body),
+  // The backend schema requires reviewer_id/reviewer_name specifically (snake_case,
+  // not aliased from camelCase — normalizeRequestCase only adds camelCase aliases
+  // for snake_case input, never the reverse) — sending reviewerId/remarks here
+  // always 422'd with "reviewer_id: Required", silently breaking every caller.
+  reassignReviewer: (id: string, body: { reviewerId: string; reviewerName?: string }) =>
+    apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/reassign-reviewer`, { reviewer_id: body.reviewerId, reviewer_name: body.reviewerName }),
+  bulkTakeOverReview: (body: { experimentIds: string[]; remarks: string; password: string }) =>
+    apiPost<{ updatedCount: number }>(`${EXPERIMENT_BASE}/bulk-take-over-review`, body),
   restore: (id: string, remarks?: string) =>
     apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/restore`, { remarks }),
   toggleHighlight: (id: string) =>
     apiPatch<{ highlighted: boolean }>(`${EXPERIMENT_BASE}/${id}/highlight`, {}),
-  pendingReview: (perspective: 'mine' | 'others') =>
-    apiGet<{ items: PendingReviewItem[]; total: number }>(`${EXPERIMENT_BASE}/pending-review`, { perspective }),
+  ongoing: () => apiGet<{ items: OngoingExperimentItem[]; total: number }>(`${EXPERIMENT_BASE}/ongoing`),
+  pendingReview: (perspective: 'mine' | 'others', status?: 'SUBMITTED' | 'VERIFICATION_REQUESTED') =>
+    apiGet<{ items: PendingReviewItem[]; total: number }>(`${EXPERIMENT_BASE}/pending-review`, { perspective, status }),
   acquireLock: (id: string) => apiPost<ExperimentLockInfo>(`${EXPERIMENT_BASE}/${id}/acquire-lock`),
   releaseLock: (id: string) => apiDelete<{ released: boolean }>(`${EXPERIMENT_BASE}/${id}/lock`),
   checkLock: (id: string) => apiGet<ExperimentLockInfo>(`${EXPERIMENT_BASE}/${id}/check-lock`),

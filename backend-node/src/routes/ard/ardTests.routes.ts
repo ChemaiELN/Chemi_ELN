@@ -375,6 +375,60 @@ ardTestRouter.post('/bulk-reassign-team', authenticate, async (req: Request, res
   }
 })
 
+// GET /unsatisfactory-report — HOD's cross-team view of every test currently
+// UNSATISFACTORY across every team they lead (not just one team at a time,
+// unlike the tlId filter above — this pools all of them). Optionally bounded
+// by a date range on updatedAt: UNSATISFACTORY is a terminal status (see the
+// `terminal` list further down in this file), so nothing updates a test's
+// row after it lands in this status — updatedAt reliably means "when it was
+// marked unsatisfactory."
+ardTestRouter.get('/unsatisfactory-report', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    assertRole(req, ['HOD', 'SUPER_ADMIN'])
+    const user = (req as any).user
+
+    const myTeams = await ArdTeam.findAll({ where: { hodId: user.id }, attributes: ['tlIds'] })
+    const tlIds = Array.from(new Set(myTeams.flatMap((t: any) => (t.tlIds ?? []) as string[])))
+
+    const and: any[] = [{ status: 'UNSATISFACTORY' }]
+    if (tlIds.length > 0) {
+      and.push({
+        [Op.or]: [
+          { reassignedTlId: { [Op.in]: tlIds } },
+          { reassignedTlId: { [Op.is]: null }, '$sample.atrForm.assigned_tl_id$': { [Op.in]: tlIds } },
+        ],
+      })
+    } else {
+      // This HOD leads no teams — never fall through to "no team filter at
+      // all" (which would leak every other HOD's tests); force zero rows.
+      and.push({ id: null })
+    }
+
+    if (req.query.applyDate === 'true') {
+      const from = req.query.from ? new Date(req.query.from as string) : null
+      const to = req.query.to ? new Date(req.query.to as string) : null
+      if (from && to && from.getTime() > to.getTime()) {
+        throw new BadRequestError('"From" date must be before "To" date')
+      }
+      const dateWhere: any = {}
+      if (from) dateWhere[Op.gte] = from
+      if (to) dateWhere[Op.lte] = to
+      if (from || to) and.push({ updatedAt: dateWhere })
+    }
+
+    const tests = await ArdTestRequest.findAll({
+      where: { [Op.and]: and },
+      include: TEST_CONTEXT_INCLUDE as any,
+      order: [['updatedAt', 'DESC']],
+      subQuery: false,
+    })
+
+    return res.json(successResponse('Unsatisfactory tests', tests.map(testOut)))
+  } catch (err) {
+    next(err)
+  }
+})
+
 // GET /:atrId/:testId
 ardTestRouter.get('/:atrId/:testId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {

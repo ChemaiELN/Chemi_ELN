@@ -499,6 +499,9 @@ export class ArdTestRequest extends Model<InferAttributes<ArdTestRequest>, Infer
   declare acceptedBy: CreationOptional<string | null>
   declare acceptRemarks: CreationOptional<string | null>
   declare testReassignRemarks: CreationOptional<string | null>
+  declare unsatisfactoryRemarks: CreationOptional<string | null>
+  declare reassignedTlId: CreationOptional<string | null>
+  declare reassignedTlName: CreationOptional<string | null>
   declare arGeneratedAt: CreationOptional<Date | null>
   declare sourceDept: CreationOptional<string | null>
   declare trfFormId: CreationOptional<string | null>
@@ -570,6 +573,9 @@ ArdTestRequest.init({
   acceptedBy: { type: DataTypes.STRING, allowNull: true, field: 'accepted_by' },
   acceptRemarks: { type: DataTypes.TEXT, allowNull: true, field: 'accept_remarks' },
   testReassignRemarks: { type: DataTypes.TEXT, allowNull: true, field: 'test_reassign_remarks' },
+  unsatisfactoryRemarks: { type: DataTypes.TEXT, allowNull: true, field: 'unsatisfactory_remarks' },
+  reassignedTlId: { type: DataTypes.UUID, allowNull: true, field: 'reassigned_tl_id' },
+  reassignedTlName: { type: DataTypes.STRING, allowNull: true, field: 'reassigned_tl_name' },
   arGeneratedAt: { type: DataTypes.DATE, allowNull: true, field: 'ar_generated_at' },
   sourceDept: { type: DataTypes.STRING, allowNull: true, field: 'source_dept' },
   trfFormId: { type: DataTypes.UUID, allowNull: true, field: 'trf_form_id' },

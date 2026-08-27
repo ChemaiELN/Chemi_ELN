@@ -8,14 +8,39 @@ import ArdSidebar from './ArdSidebar'
 import Header from './Header'
 import { useSSE } from '../../hooks/useSSE'
 
-// Context that lets child pages override the display label for a path segment
-interface BreadcrumbCtx { setLabel: (segment: string, label: string) => void }
-export const BreadcrumbContext = createContext<BreadcrumbCtx>({ setLabel: () => {} })
+export interface BreadcrumbItem { label: string; href: string }
+
+// Context that lets child pages override the display label for a path segment,
+// and inject extra crumbs the flat URL can't express on its own — e.g. ARD's
+// notebook/experiment routes are flat (/ard/notebooks/:id,
+// /ard/experiments/:id, not nested under their project/notebook), so a page
+// reached via Project → Notebook → Experiment would otherwise only ever show
+// its own single segment, with no way back to the project or notebook it
+// actually came from.
+interface BreadcrumbCtx {
+  setLabel: (segment: string, label: string) => void
+  setPrefixCrumbs: (crumbs: BreadcrumbItem[] | null) => void
+}
+export const BreadcrumbContext = createContext<BreadcrumbCtx>({ setLabel: () => {}, setPrefixCrumbs: () => {} })
 export function useBreadcrumbLabel(segment: string, label: string | null | undefined) {
   const { setLabel } = useContext(BreadcrumbContext)
   useEffect(() => {
     if (segment && label) setLabel(segment, label)
   }, [segment, label, setLabel])
+}
+// Inserts `crumbs` right after the leading "ARD" crumb, e.g. on the notebook
+// workspace: ARD > [Projects, ProjectName] > Notebooks > NotebookName.
+// Pass null/empty (or just navigate away) to fall back to the plain
+// URL-derived trail — the effect clears its own registration on unmount so
+// leaving the page never leaves a stale trail behind for the next one.
+export function useBreadcrumbPrefix(crumbs: BreadcrumbItem[] | null) {
+  const { setPrefixCrumbs } = useContext(BreadcrumbContext)
+  const key = crumbs ? JSON.stringify(crumbs) : null
+  useEffect(() => {
+    setPrefixCrumbs(crumbs && crumbs.length ? crumbs : null)
+    return () => setPrefixCrumbs(null)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [key, setPrefixCrumbs])
 }
 
 const STATIC_LABELS: Record<string, string> = {
@@ -39,7 +64,12 @@ export default function ArdShell() {
   const setLabel = useCallback((segment: string, label: string) => {
     setLabelOverrides(prev => prev[segment] === label ? prev : { ...prev, [segment]: label })
   }, [])
-  const breadcrumbs = useBreadcrumbs(labelOverrides)
+  const [prefixCrumbs, setPrefixCrumbs] = useState<BreadcrumbItem[] | null>(null)
+  const urlBreadcrumbs = useBreadcrumbs(labelOverrides)
+  // Splice the extra crumbs in right after the leading "ARD" entry.
+  const breadcrumbs = prefixCrumbs
+    ? [urlBreadcrumbs[0], ...prefixCrumbs, ...urlBreadcrumbs.slice(1)]
+    : urlBreadcrumbs
   const screens = useBreakpoint()
 
   // SSE: real-time push notifications for the whole ARD session
@@ -110,7 +140,7 @@ export default function ArdShell() {
       <div className="flex flex-col flex-1 min-w-0">
         <Header onToggle={handleToggle} isMobile={isMobile} breadcrumbs={breadcrumbs} />
         <main className="flex-1 overflow-y-auto">
-          <BreadcrumbContext.Provider value={{ setLabel }}>
+          <BreadcrumbContext.Provider value={{ setLabel, setPrefixCrumbs }}>
             <Outlet />
           </BreadcrumbContext.Provider>
         </main>

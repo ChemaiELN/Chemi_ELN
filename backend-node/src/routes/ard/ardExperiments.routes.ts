@@ -15,10 +15,12 @@ import {
   ArdNotebook,
   ArdTestRequest,
   ArdAtrForm,
+  ArdProject,
   User,
   Role,
 } from '../../models/index';
 import { generateArdExperimentCode } from '../../utils/idSequence';
+import { buildExperimentSectionDefs } from './ardTemplates.routes';
 
 const ardExperimentRouter = Router();
 
@@ -53,7 +55,7 @@ const MAX_SNAPSHOTS = 50;
 // (camelCase, straight from the Form's field names) — the old snake_case
 // schema here never matched, so every experiment create 400'd.
 const createExperimentSchema = z.object({
-  templateId: z.string(),
+  templateId: z.string().optional(),
   notebookId: z.string().optional(),
   projectId: z.string().optional(),
   name: z.string().optional(),
@@ -74,6 +76,11 @@ const updateExperimentSchema = z.object({
   highlighted: z.boolean().optional(),
   aim_achieved: z.boolean().optional(),
   aim_remarks: z.string().optional(),
+  // Rich-text Aim/Objective and Conclusion — fixed blocks every experiment
+  // has regardless of its template's attached sections (mirrors the
+  // Attachments panel, which is likewise not a template-authored section).
+  aim: z.string().nullable().optional(),
+  conclusion: z.string().nullable().optional(),
   linked_samples: z.any().optional(),
   reference_experiments: z.any().optional(),
   linked_atr_ids: z.any().optional(),
@@ -187,16 +194,14 @@ ardExperimentRouter.post('/', authenticate, async (req: Request, res: Response, 
     const templateId = body.templateId || body.template_id;
     const notebookId = body.notebookId || body.notebook_id;
     const projectId = body.projectId || body.project_id;
-    if (!templateId) throw new BadRequestError('templateId is required');
-
-    const template = await (ArdTemplate as any).findByPk(templateId);
-    if (!template) throw new NotFoundError('Template not found');
+    const projectStpId = body.projectStpId;
+    if (!templateId && !projectStpId) throw new BadRequestError('templateId or projectStpId is required');
 
     if (notebookId) {
       const notebook = await (ArdNotebook as any).findByPk(notebookId);
       if (!notebook) throw new NotFoundError('Notebook not found');
-      if (notebook.status !== 'OPEN') {
-        throw new BadRequestError('Cannot add an experiment to a notebook that is not OPEN', 'INVALID_STATE');
+      if (notebook.status !== 'ACTIVE') {
+        throw new BadRequestError('Cannot add an experiment to a notebook that is not Active', 'INVALID_STATE');
       }
       if ((notebook as any).maxExperiments) {
         const existingCount = await (ArdExperiment as any).count({ where: { notebookId } });
@@ -207,18 +212,81 @@ ardExperimentRouter.post('/', authenticate, async (req: Request, res: Response, 
     }
 
     const code = await generateArdExperimentCode();
+
+    let templateName: string | null = null;
+    let sectionDefs: any[];
+    let stp: any = null;
+    if (projectStpId) {
+      // STP-sourced experiment: NOT a snapshot-of-attached-Sections like a
+      // template — the STP itself carries a fixed, ordered set of section
+      // types the renderer already knows (sample_details/equipment/material/
+      // weighing/ph/column/spreadsheet/further_actions — the same block
+      // types Template Builder already defines, matching the legacy STP
+      // Worksheet's experiment screen: Sample Details, Equipment Details,
+      // Material Details always present; Weighing/pH/Column only when the
+      // STP checked them; one spreadsheet block per uploaded Excel; Further
+      // Actions at the end), so sectionDefs are built directly here rather
+      // than via buildExperimentSectionDefs (which reads the ArdTemplate
+      // snapshot tables STPs have no relationship to).
+      if (!projectId) throw new BadRequestError('projectId is required when creating from an STP');
+      const project = await (ArdProject as any).findByPk(projectId);
+      if (!project) throw new NotFoundError('Project not found');
+      stp = ((project.stpDocuments as any[]) || []).find((s: any) => s.id === projectStpId);
+      if (!stp) throw new NotFoundError('STP document on this project');
+      if (stp.status !== 'APPROVED') throw new BadRequestError('Only an APPROVED STP can be used to create an experiment', 'INVALID_STATE');
+
+      templateName = stp.title;
+      sectionDefs = [
+        { id: uuidv4(), type: 'sample_details', title: 'Sample Details', required: true },
+        { id: uuidv4(), type: 'equipment', title: 'Equipment Details', required: true },
+        { id: uuidv4(), type: 'material', title: 'Material Details', required: true },
+      ];
+      if (stp.weighingDetails) sectionDefs.push({ id: uuidv4(), type: 'weighing', title: 'Weighing Details', required: true });
+      if (stp.phDetails) sectionDefs.push({ id: uuidv4(), type: 'ph', title: 'pH Details', required: true });
+      if (stp.columnDetails) sectionDefs.push({ id: uuidv4(), type: 'column', title: 'Column Details', required: true });
+      if (stp.sampleMappingSpreadsheet) {
+        sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'Sample Mapping Details', required: true, spreadsheet: stp.sampleMappingSpreadsheet });
+      }
+      if (stp.procedureSpreadsheet) {
+        sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'Procedure', required: true, spreadsheet: stp.procedureSpreadsheet });
+      }
+      if (stp.stpCalculationSpreadsheet) {
+        sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'STP Calculation', required: true, spreadsheet: stp.stpCalculationSpreadsheet });
+      }
+      sectionDefs.push({ id: uuidv4(), type: 'further_actions', title: 'Further Actions', required: false });
+    } else {
+      const template = await (ArdTemplate as any).findByPk(templateId);
+      if (!template) throw new NotFoundError('Template not found');
+      templateName = template.name;
+      sectionDefs = await buildExperimentSectionDefs(templateId as string);
+    }
+
+    // Test Type/Sub-Type mirror the selected STP when created via Project
+    // STP (matching the legacy Angular "Add Experiment" form, where these
+    // were read-only, derived from the chosen STP, not independently
+    // picked) — body.testType/testSubType stay as an explicit override for
+    // the Via-Template flow, which has no STP to derive them from.
+    const testType = body.testType || stp?.testType || null;
+    const testSubtype = body.testSubType || stp?.testSubtype || null;
+
     const exp = await (ArdExperiment as any).create({
       code,
       name: body.name || null,
-      templateId,
-      templateName: template.name,
-      sectionDefs: template.sections,
+      templateId: projectStpId ? null : templateId,
+      templateName,
+      projectStpId: projectStpId || null,
+      testType,
+      testSubtype,
+      aim: body.aimObjective || null,
+      sectionDefs,
       sections: {},
       notebookId,
       projectId,
       createdById: user.id,
       status: 'IN_PROGRESS',
       history: [],
+      linkedSamples: [],
+      referenceExperiments: [],
       clarifications: [],
       sectionComments: [],
       postAnalytical: [],
@@ -351,6 +419,8 @@ ardExperimentRouter.patch('/:experimentId', authenticate, async (req: Request, r
     if (body.highlighted !== undefined) updates.highlighted = body.highlighted;
     if (body.aim_achieved !== undefined) updates.aimAchieved = body.aim_achieved;
     if (body.aim_remarks !== undefined) updates.aimRemarks = body.aim_remarks;
+    if (body.aim !== undefined) updates.aim = body.aim;
+    if (body.conclusion !== undefined) updates.conclusion = body.conclusion;
     if (body.linked_samples !== undefined) updates.linkedSamples = body.linked_samples;
     if (body.reference_experiments !== undefined) updates.referenceExperiments = body.reference_experiments;
     if (body.linked_atr_ids !== undefined) updates.linkedAtrIds = body.linked_atr_ids;
@@ -443,6 +513,8 @@ ardExperimentRouter.post('/:experimentId/clone', authenticate, async (req: Reque
       status: 'IN_PROGRESS',
       createdById: user.id,
       history: [],
+      linkedSamples: [],
+      referenceExperiments: [],
       clarifications: [],
       sectionComments: [],
       postAnalytical: [],
@@ -475,6 +547,8 @@ ardExperimentRouter.post('/:experimentId/clone-blank', authenticate, async (req:
       status: 'IN_PROGRESS',
       createdById: user.id,
       history: [],
+      linkedSamples: [],
+      referenceExperiments: [],
       clarifications: [],
       sectionComments: [],
       postAnalytical: [],

@@ -11,6 +11,7 @@ import {
   ArdAtrSample,
   ArdTeam,
   ArdAuditLog,
+  ArdExperiment,
   User,
   Role,
   Department,
@@ -196,6 +197,7 @@ ardTestRouter.get('/', authenticate, async (req: Request, res: Response, next: N
     const and: any[] = []
     if (req.query.status) and.push({ status: req.query.status })
     if (req.query.view === 'unlocked') and.push({ status: 'UNLOCKED' })
+    if (req.query.experimentId) and.push({ experimentId: req.query.experimentId })
 
     if (req.query.q) {
       const q = `%${req.query.q}%`
@@ -279,17 +281,14 @@ ardTestRouter.post('/bulk-assign', authenticate, async (req: Request, res: Respo
       })
       if (!test) continue
 
-      let arNumber = (test as any).arNumber
-      if (!arNumber) {
-        arNumber = await generateArTestNumber((test as any).techniqueCode || 'GEN')
-      }
-
+      // AR number is generated only when the analyst actually starts the
+      // test (see POST /:atrId/:testId/start) — not at assignment, so an
+      // assigned-but-not-yet-started test has no AR# yet.
       await test.update({
         assignedToId: body.analystId,
         assignedToName: body.analystName,
         assignedAt: new Date(),
         status: 'ASSIGNED',
-        arNumber,
       })
       updatedCount++
     }
@@ -422,20 +421,16 @@ ardTestRouter.post(
 
       await assertAnalystQualifiedForTest(body.analystId as string, test as any)
 
-      let arNumber = (test as any).arNumber
-      if (!arNumber) {
-        arNumber = await generateArTestNumber((test as any).techniqueCode || 'GEN')
-      }
-
       const user = req.user as any
       await recordTestHistory((test as any).id, 'ASSIGNED', user.id, user.username)
 
+      // AR number is generated only when the analyst actually starts the
+      // test (see POST /:atrId/:testId/start) — not at assignment.
       await test.update({
         assignedToId: body.analystId,
         assignedToName: body.analystName ?? null,
         assignedAt: new Date(),
         status: 'ASSIGNED',
-        arNumber
       })
 
       return res.json(successResponse('Test assigned', test))
@@ -460,19 +455,16 @@ ardTestRouter.post(
       assertStatus(test, ['UNASSIGNED', 'PENDING'], 'claim')
 
       const user = req.user as any
-      let arNumber = (test as any).arNumber
-      if (!arNumber) {
-        arNumber = await generateArTestNumber((test as any).techniqueCode || 'GEN')
-      }
 
-      await recordTestHistory((test as any).id, 'CLAIMED', user.id, user.username)
+      await recordTestHistory((test as any).id, 'CLAIMED', user.id, user.username, req.body?.remarks as string | undefined)
 
+      // AR number is generated only when the analyst actually starts the
+      // test (see POST /:atrId/:testId/start) — not at claim time.
       await test.update({
         assignedToId: user.id,
         assignedToName: user.username,
         assignedAt: new Date(),
         status: 'ASSIGNED',
-        arNumber
       })
 
       return res.json(successResponse('Test claimed', test))
@@ -550,7 +542,14 @@ ardTestRouter.post(
       const user = req.user as any
       await recordTestHistory((test as any).id, 'IN_PROGRESS', user.id, user.username)
 
-      await test.update({ status: 'IN_PROGRESS', startedAt: new Date() })
+      // AR number is deliberately generated here, not at assign/claim time —
+      // it should only exist once the analyst actually starts the test.
+      let arNumber = (test as any).arNumber
+      if (!arNumber) {
+        arNumber = await generateArTestNumber((test as any).techniqueCode || 'GEN')
+      }
+
+      await test.update({ status: 'IN_PROGRESS', startedAt: new Date(), arNumber })
       const atr = await ArdAtrForm.findByPk(req.params.atrId as string)
       if (atr && shouldMoveAtrToPartialOnTestStart((atr as any).status)) {
         await (atr as any).update({ status: 'PARTIAL', updatedAt: new Date() })
@@ -712,10 +711,141 @@ ardTestRouter.post(
       assertStatus(test, ['ASSIGNED', 'IN_PROGRESS'], 'withdraw')
 
       const user = req.user as any
+      // Withdrawing a test is the requester's call, not the analyst executing
+      // it — an analyst pulling their own assignment mid-test would silently
+      // drop work with no oversight. Only whoever raised the parent ATR (or a
+      // supervisory role) may withdraw it.
+      const atr = await ArdAtrForm.findByPk(req.params.atrId as string)
+      const isCreator = atr && (atr as any).createdById === user.id
+      const allowed = isCreator || TL_ROLES.includes(roleCode(req)) || (user.department as any)?.code === 'QA'
+      if (!allowed) throw new ForbiddenError('Insufficient privileges for this action')
+
       await recordTestHistory((test as any).id, 'WITHDRAWN', user.id, user.username)
 
       await test.update({ status: 'WITHDRAWN' })
       return res.json(successResponse('Test withdrawn', test))
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// Mirrors ExperimentSectionRenderer.tsx's handleAddAtr() row-building — the
+// manual "Add ATR Test" flow already turns an ATR's samples/tests into
+// Sample Details rows; this ports the same shape so a test that links itself
+// to an experiment (rather than being added there by hand) still shows up.
+async function buildSampleRowsFromAtr(atrId: string): Promise<any[]> {
+  const atr = await ArdAtrForm.findByPk(atrId, {
+    include: [{ model: ArdAtrSample, as: 'samples', include: [{ model: ArdTestRequest, as: 'tests' }] }],
+  })
+  if (!atr) return []
+  const atrPlain = atr.toJSON() as any
+  return (atrPlain.samples ?? []).map((s: any) => {
+    const tests = (s.tests ?? []).map((t: any) => {
+      const firstResult = (t.results ?? [])[0] ?? {}
+      return {
+        id: String(t.id ?? uuidv4()),
+        atrId: String(atrPlain.id ?? ''),
+        testType: t.testType || '',
+        testSubtype: t.testSubtype || '',
+        arNumber: t.arNumber || '',
+        status: t.status || 'UNASSIGNED',
+        techniqueName: t.techniqueName || '',
+        techniqueCode: t.techniqueCode || '',
+        instrumentCode: t.instrumentCode || '',
+        assignedToName: t.assignedToName || '',
+        lowerLimit: t.lowerLimit || firstResult.lower_limit || '',
+        upperLimit: t.upperLimit || firstResult.upper_limit || '',
+        limitsUom: t.limitsUom || firstResult.uom || '',
+        resultValue: t.resultValue || '',
+        resultUom: t.resultUom || '',
+        resultStatus: t.resultStatus || '',
+      }
+    })
+    const qty = [s.quantity, s.uom].filter(Boolean).join(' ')
+    return {
+      id: uuidv4(),
+      atrId: String(atrPlain.id ?? ''),
+      atrFormNo: atrPlain.formNo || '',
+      projectCode: atrPlain.projectCode || '',
+      sampleCode: s.sampleCode || s.internalSampleNo || '',
+      sampleType: s.sampleType || '',
+      testSubtype: atrPlain.formTypeName || '',
+      batchNo: s.batchNo || '',
+      sampleCondition: s.storageCondition || s.sampleIntegrity || '',
+      qty,
+      status: s.status || 'UNASSIGNED',
+      remarks: s.additionalRemarks || '',
+      tests,
+    }
+  })
+}
+
+// Appends this ATR's Sample Details row(s) into the experiment's first
+// sample_details-type section, unless that ATR is already represented there
+// (re-linking/re-saving shouldn't duplicate rows). Best-effort: an
+// experiment with no sample_details section, or any failure building the
+// rows, must never block the link itself — this is a convenience side
+// effect, not the source of truth (the test's own experimentId is).
+async function attachAtrToExperimentSampleDetails(experiment: InstanceType<typeof ArdExperiment>, atrId: string): Promise<void> {
+  try {
+    const sectionDefs = Array.isArray((experiment as any).sectionDefs) ? (experiment as any).sectionDefs as any[] : []
+    const sampleSection = sectionDefs.find((s) => (s?.type || '').toLowerCase().replace(/-/g, '_') === 'sample_details')
+    if (!sampleSection?.id) return
+
+    const sections = { ...((experiment as any).sections as Record<string, any> ?? {}) }
+    const existingRows: any[] = Array.isArray(sections[sampleSection.id]) ? sections[sampleSection.id] : []
+    if (existingRows.some((r) => r?.atrId === atrId)) return
+
+    const newRows = await buildSampleRowsFromAtr(atrId)
+    if (newRows.length === 0) return
+
+    sections[sampleSection.id] = [...existingRows, ...newRows]
+    await experiment.update({ sections })
+  } catch {
+    // best-effort — the notebook link itself already succeeded
+  }
+}
+
+// POST /:atrId/:testId/link-notebook
+// Sets how this test's "Notebook Reference" is recorded — either a free-text
+// manual note, or a structured link to a real ArdExperiment (existing or
+// freshly created by the caller via POST /api/ard/experiments, whose id is
+// passed in here as experimentId). Structured links denormalize the
+// experiment's code into notebookReference so list/detail views don't need
+// an extra join just to show it.
+const linkNotebookSchema = z.object({
+  experimentId: z.string().uuid().nullable().optional(),
+  notebookReference: z.string().nullable().optional(),
+})
+ardTestRouter.post(
+  '/:atrId/:testId/link-notebook',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const test = await findTest(req.params.atrId as string, req.params.testId as string)
+      const body = linkNotebookSchema.parse(req.body)
+      const user = req.user as any
+
+      if (body.experimentId) {
+        const experiment = await ArdExperiment.findByPk(body.experimentId)
+        if (!experiment) throw new NotFoundError('Experiment not found')
+        await test.update({
+          experimentId: experiment.id,
+          notebookRefLink: true,
+          notebookReference: (experiment as any).code,
+        })
+        await attachAtrToExperimentSampleDetails(experiment, req.params.atrId as string)
+      } else {
+        await test.update({
+          experimentId: null,
+          notebookRefLink: false,
+          notebookReference: body.notebookReference ?? null,
+        })
+      }
+
+      await recordTestHistory((test as any).id, 'NOTEBOOK_LINKED', user.id, user.username, (test as any).notebookReference ?? undefined)
+      return res.json(successResponse('Notebook reference updated', test))
     } catch (err) {
       next(err)
     }
@@ -926,25 +1056,6 @@ ardTestRouter.post(
       await test.update({ status: 'PUBLISHED' })
       await writeAuditLog(req.params.testId as string, 'TEST_PUBLISHED_TENTATIVE', user.id)
       return res.json(successResponse('Test result published as tentative', test))
-    } catch (err) {
-      next(err)
-    }
-  },
-)
-
-ardTestRouter.post(
-  '/:atrId/:testId/generate-ar',
-  authenticate,
-  async (req: Request, res: Response, next: NextFunction) => {
-    try {
-      assertRole(req, TL_ROLES)
-      const test = await findTest(req.params.atrId as string, req.params.testId as string)
-      if ((test as any).arNumber) {
-        return res.json(successResponse('AR number already exists', { arNumber: (test as any).arNumber }))
-      }
-      const arNumber = await generateArTestNumber((test as any).techniqueCode || 'GEN')
-      await test.update({ arNumber })
-      return res.json(successResponse('AR number generated', { arNumber }))
     } catch (err) {
       next(err)
     }

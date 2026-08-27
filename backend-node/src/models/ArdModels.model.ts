@@ -615,6 +615,7 @@ export class ArdTemplate extends Model<InferAttributes<ArdTemplate>, InferCreati
   declare includeResults: CreationOptional<boolean>
   declare includeConclusion: CreationOptional<boolean>
   declare includeCdsReport: CreationOptional<boolean>
+  declare includeExperimentParameters: CreationOptional<boolean>
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 }
@@ -647,6 +648,7 @@ ArdTemplate.init({
   includeResults: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'include_results' },
   includeConclusion: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'include_conclusion' },
   includeCdsReport: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'include_cds_report' },
+  includeExperimentParameters: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'include_experiment_parameters' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, field: 'updated_at' },
 }, { sequelize, tableName: 'ard_templates', timestamps: false })
@@ -679,6 +681,8 @@ export class ArdExperiment extends Model<InferAttributes<ArdExperiment>, InferCr
   declare reviewerName: string | null
   declare aimAchieved: boolean | null
   declare aimRemarks: string | null
+  declare aim: string | null
+  declare conclusion: string | null
   declare contributors: object | null
   declare linkedAtrIds: object | null
   declare editorLockUserId: string | null
@@ -704,8 +708,8 @@ ArdExperiment.init({
   sectionDefs: { type: DataTypes.JSONB, allowNull: true, field: 'section_defs' },
   sections: { type: DataTypes.JSONB, allowNull: true },
   history: { type: DataTypes.JSONB, allowNull: true },
-  linkedSamples: { type: DataTypes.JSONB, allowNull: true, field: 'linked_samples' },
-  referenceExperiments: { type: DataTypes.JSONB, allowNull: true, field: 'reference_experiments' },
+  linkedSamples: { type: DataTypes.JSONB, allowNull: true, defaultValue: [], field: 'linked_samples' },
+  referenceExperiments: { type: DataTypes.JSONB, allowNull: true, defaultValue: [], field: 'reference_experiments' },
   clarifications: { type: DataTypes.JSONB, allowNull: true },
   sectionComments: { type: DataTypes.JSONB, allowNull: true, field: 'section_comments' },
   postAnalytical: { type: DataTypes.JSONB, allowNull: true, field: 'post_analytical' },
@@ -721,6 +725,8 @@ ArdExperiment.init({
   reviewerName: { type: DataTypes.STRING(200), allowNull: true, field: 'reviewer_name' },
   aimAchieved: { type: DataTypes.BOOLEAN, allowNull: true, field: 'aim_achieved' },
   aimRemarks: { type: DataTypes.TEXT, allowNull: true, field: 'aim_remarks' },
+  aim: { type: DataTypes.TEXT, allowNull: true, field: 'aim' },
+  conclusion: { type: DataTypes.TEXT, allowNull: true, field: 'conclusion' },
   contributors: { type: DataTypes.JSONB, allowNull: true },
   linkedAtrIds: { type: DataTypes.JSONB, allowNull: true, field: 'linked_atr_ids' },
   editorLockUserId: { type: DataTypes.UUID, allowNull: true, field: 'editor_lock_user_id' },
@@ -764,7 +770,7 @@ ArdNotebook.init({
   description: { type: DataTypes.TEXT, allowNull: true },
   projectId: { type: DataTypes.UUID, allowNull: true, field: 'project_id' },
   notebookType: { type: DataTypes.STRING(50), allowNull: true, field: 'notebook_type' },
-  status: { type: DataTypes.STRING(20), defaultValue: 'OPEN' },
+  status: { type: DataTypes.STRING(20), defaultValue: 'ACTIVE' },
   assignedUsers: { type: DataTypes.JSONB, allowNull: true, field: 'assigned_users' },
   resultParameters: { type: DataTypes.JSONB, allowNull: true, field: 'result_parameters' },
   auditTrail: { type: DataTypes.JSONB, allowNull: true, field: 'audit_trail' },
@@ -987,7 +993,7 @@ ArdQcTrfForm.init({
 export class ArdProjectSpecification extends Model<InferAttributes<ArdProjectSpecification>, InferCreationAttributes<ArdProjectSpecification>> {
   declare id: CreationOptional<string>
   declare projectId: string
-  declare specCode: string
+  declare specCode: string | null
   declare version: CreationOptional<string>
   declare title: string
   declare shortName: CreationOptional<string | null>
@@ -995,6 +1001,8 @@ export class ArdProjectSpecification extends Model<InferAttributes<ArdProjectSpe
   declare description: CreationOptional<string | null>
   declare status: CreationOptional<string>
   declare testParameters: object
+  declare submitRemarks: string | null
+  declare approveRemarks: string | null
   declare createdBy: string
   declare createdById: string | null
   declare approvedBy: string | null
@@ -1006,7 +1014,7 @@ export class ArdProjectSpecification extends Model<InferAttributes<ArdProjectSpe
 ArdProjectSpecification.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   projectId: { type: DataTypes.UUID, allowNull: false, field: 'project_id' },
-  specCode: { type: DataTypes.STRING(50), allowNull: false, field: 'spec_code' },
+  specCode: { type: DataTypes.STRING(50), allowNull: true, field: 'spec_code' },
   version: { type: DataTypes.STRING(20), defaultValue: '1.0' },
   title: { type: DataTypes.STRING(200), allowNull: false },
   shortName: { type: DataTypes.STRING(60), allowNull: true, field: 'short_name' },
@@ -1014,6 +1022,8 @@ ArdProjectSpecification.init({
   description: { type: DataTypes.TEXT, allowNull: true },
   status: { type: DataTypes.STRING(30), defaultValue: 'DRAFT' },
   testParameters: { type: DataTypes.JSONB, allowNull: false, defaultValue: [], field: 'test_parameters' },
+  submitRemarks: { type: DataTypes.TEXT, allowNull: true, field: 'submit_remarks' },
+  approveRemarks: { type: DataTypes.TEXT, allowNull: true, field: 'approve_remarks' },
   createdBy: { type: DataTypes.STRING(200), allowNull: false, field: 'created_by' },
   createdById: { type: DataTypes.UUID, allowNull: true, field: 'created_by_id' },
   approvedBy: { type: DataTypes.STRING(200), allowNull: true, field: 'approved_by' },

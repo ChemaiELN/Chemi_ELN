@@ -4,23 +4,24 @@ import { useBreadcrumbLabel } from '../../components/layout/ArdShell'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Button, Tabs, Input, InputNumber, Tag, Spin, Alert, Modal, Table, Select,
-  Typography, Empty, Popconfirm, message, Form, DatePicker, Card, Tooltip, Space, Steps, Segmented, Upload
+  Typography, Empty, Popconfirm, message, Form, DatePicker, Card, Tooltip, Space, Steps, Segmented
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import type { UploadFile } from 'antd/es/upload/interface'
 import {
   ArrowLeft, FolderOpen, Plus, Trash2, CheckCircle2,
-  RotateCcw, Edit3, Lock, Unlock, BookOpen, Send, Users, ShieldCheck, Eye, Calendar, Filter, UserPlus, LayoutList, FileText, Paperclip
+  RotateCcw, Edit3, Lock, Unlock, BookOpen, Send, Users, ShieldCheck, Eye, Calendar, UserPlus, LayoutList, FileText, Upload as UploadIcon
 } from 'lucide-react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { ardProjectsApi, type Project, type ProjectStp, type ProjectAttribute, type ProjectTeamMember } from '../../api/ard-projects'
 import { ardNotebooksApi, type Notebook, type AssignedUser } from '../../api/ard-notebooks'
-import { ardApi, ardOpsApi } from '../../api/ard'
+import { ardApi, ardOpsApi, ardProjectSpecsApi } from '../../api/ard'
 import { ApiError, apiGet } from '../../api/client'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import ArdAttachmentsPanel from '../../components/ard/ArdAttachmentsPanel'
 import ProjectSpecificationsPanel from '../../components/ard/ProjectSpecificationsPanel'
+import { calcTemplateApi } from '../../api/calcTemplates'
+import SpreadsheetFieldRuntime from '../../pages/admin/templateBuilder/SpreadsheetFieldRuntime'
 import { ESignatureModal } from '../../components/common/ESignatureModal'
 import { glassModalProps } from '../../utils/modalStyles'
 
@@ -66,6 +67,11 @@ export default function ArdProjectWorkspacePage() {
 
   // Details edit state
   const [viewMode, setViewMode] = useState<'tabbed' | 'single'>('tabbed')
+  // Details tab starts read-only — the fields are already filled in from
+  // creation, so showing them as live inputs by default made every visit
+  // look like an edit form. An explicit Edit toggle matches the rest of the
+  // app's row-edit pattern (click to edit, instead of always-editable).
+  const [detailsEditMode, setDetailsEditMode] = useState(false)
   const [description, setDescription] = useState('')
   const [customer, setCustomer] = useState('')
   const [projectType, setProjectType] = useState('')
@@ -82,6 +88,51 @@ export default function ArdProjectWorkspacePage() {
   // STP modal state
   const [stpModalOpen, setStpModalOpen] = useState(false)
   const [editingStp, setEditingStp] = useState<ProjectStp | null>(null)
+  // Assigned as soon as the modal opens (create or edit) rather than only at
+  // submit time, so the id is stable across the whole editing session.
+  const [pendingStpId, setPendingStpId] = useState<string>('')
+
+  // All three uploads (Procedure, Sample Mapping, STP Calculation) go
+  // through the same "upload the Excel file and it should come like this"
+  // pipeline — converts a real .xlsx straight into a live embedded
+  // spreadsheet (same server-side import the admin Calc Template builder
+  // and Template Builder's Preconfigured Spreadsheet section use),
+  // preserving sheets/formulas/formatting/locked-cell protection, instead of
+  // a plain file attachment or a hand-built sheet.
+  const [procedureSpreadsheet, setProcedureSpreadsheet] = useState<ProjectStp['procedureSpreadsheet']>(undefined)
+  const [sampleMappingSpreadsheet, setSampleMappingSpreadsheet] = useState<ProjectStp['sampleMappingSpreadsheet']>(undefined)
+  const [stpCalculationSpreadsheet, setStpCalculationSpreadsheet] = useState<ProjectStp['stpCalculationSpreadsheet']>(undefined)
+  const [spreadsheetImporting, setSpreadsheetImporting] = useState<'procedure' | 'sampleMapping' | 'stpCalculation' | null>(null)
+  const procedureFileInputRef = useRef<HTMLInputElement>(null)
+  const sampleMappingFileInputRef = useRef<HTMLInputElement>(null)
+  const stpCalculationFileInputRef = useRef<HTMLInputElement>(null)
+
+  const SPREADSHEET_SETTERS = {
+    procedure: setProcedureSpreadsheet,
+    sampleMapping: setSampleMappingSpreadsheet,
+    stpCalculation: setStpCalculationSpreadsheet,
+  } as const
+
+  const handleSpreadsheetFilePicked = (field: keyof typeof SPREADSHEET_SETTERS) => async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    e.target.value = ''
+    if (!file) return
+    setSpreadsheetImporting(field)
+    try {
+      const result = await calcTemplateApi.importXlsx(file)
+      SPREADSHEET_SETTERS[field]({
+        mode: 'inline',
+        workbookData: result.workbook_data,
+        fields: result.metadata.fields,
+        protectedRanges: result.metadata.protectedRanges,
+      })
+      msgApi.success(`Imported ${file.name} (${result.stats.sheets} sheet${result.stats.sheets === 1 ? '' : 's'}).`)
+    } catch (err) {
+      msgApi.error(err instanceof ApiError ? err.detail : 'Failed to import spreadsheet.')
+    } finally {
+      setSpreadsheetImporting(null)
+    }
+  }
   const [viewStp, setViewStp] = useState<ProjectStp | null>(null)
   const [esignStp, setEsignStp] = useState<ProjectStp | null>(null)
   const [stpForm] = Form.useForm()
@@ -105,7 +156,6 @@ export default function ArdProjectWorkspacePage() {
   // STP Submit modal state
   const [submitStpOpen, setSubmitStpOpen] = useState(false)
   const [submitStpItem, setSubmitStpItem] = useState<ProjectStp | null>(null)
-  const [submitStpForm] = Form.useForm()
 
   // Project status E-Signature state
   const [esignProjectAction, setEsignProjectAction] = useState<'close' | 'deactivate' | 'reopen' | null>(null)
@@ -140,6 +190,18 @@ export default function ArdProjectWorkspacePage() {
     enabled: !!projectId,
     refetchOnWindowFocus: false,
   })
+
+  const { data: projectSpecs } = useQuery({
+    queryKey: ['ard-project-specs', projectId],
+    queryFn: () => ardProjectSpecsApi.list(projectId!),
+    enabled: !!projectId,
+  })
+  // Only approved specs actually have a spec number assigned — see
+  // ProjectSpecificationsPanel, where specCode is generated on approval,
+  // not at creation. Draft/submitted specs have nothing to reference yet.
+  const approvedSpecOptions = (projectSpecs ?? [])
+    .filter(s => s.status === 'APPROVED' && s.specCode)
+    .map(s => ({ value: s.specCode as string, label: `${s.specCode} — ${s.title}` }))
 
   const { data: dbAuditData } = useQuery<{ items: any[]; total: number }>({
     queryKey: ['ard-project-audit', projectId],
@@ -250,34 +312,6 @@ export default function ArdProjectWorkspacePage() {
     setTeamMembers(data.team ?? [])
   }, [data])
 
-  // H-15: Prompt to add a default notebook when the project has none yet
-  const notebookPromptShown = useRef(false)
-  useEffect(() => {
-    if (!data || !notebooksData || notebookPromptShown.current) return
-    if ((notebooksData.items?.length ?? 0) === 0) {
-      const userRole = user?.role_code ?? ''
-      const isEditable = ['TL', 'HOD', 'SUPER_ADMIN'].includes(userRole) && data.status === 'OPEN'
-      if (!isEditable) return
-      notebookPromptShown.current = true
-      Modal.confirm({
-        title: 'Add Default Notebook?',
-        content: 'Would you like to create a default notebook for this project now?',
-        okText: 'Yes, Create Notebook',
-        cancelText: 'Skip',
-        onOk: async () => {
-          try {
-            await ardNotebooksApi.create({ name: 'Notebook 1', description: null, projectId: data.id })
-            msgApi.success('Default notebook created.')
-            refetchNotebooks()
-            qc.invalidateQueries({ queryKey: ['ard-project-notebooks', projectId] })
-          } catch {
-            msgApi.error('Failed to create notebook.')
-          }
-        },
-      })
-    }
-  }, [data, notebooksData]) // eslint-disable-line react-hooks/exhaustive-deps
-
   const invalidate = () => {
     qc.invalidateQueries({ queryKey: ['ard-project', projectId] })
     qc.invalidateQueries({ queryKey: ['ard-project-audit', projectId] })
@@ -290,6 +324,7 @@ export default function ArdProjectWorkspacePage() {
     mutationFn: ({ body }: { body: Partial<Project>; successMsg?: string }) => ardProjectsApi.update(projectId, body),
     onSuccess: (_, variables) => {
       msgApi.success(variables.successMsg || 'Project details saved successfully.')
+      setDetailsEditMode(false)
       invalidate()
     },
     onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Save failed.'),
@@ -326,14 +361,14 @@ export default function ArdProjectWorkspacePage() {
   })
 
   const stpSubmitMut = useMutation({
-    mutationFn: ({ stpId, approverUsername, description: desc }: { stpId: string; approverUsername?: string; description?: string }) =>
-      ardProjectsApi.submitStp(projectId, stpId, { approverUsername, description: desc }),
+    mutationFn: ({ stpId, remarks, password }: { stpId: string; remarks?: string; password: string }) =>
+      ardProjectsApi.submitStp(projectId, stpId, { remarks, password }),
     onSuccess: () => { msgApi.success('STP submitted for approval.'); setSubmitStpOpen(false); setSubmitStpItem(null); invalidate() },
     onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Submit failed.'),
   })
 
   const stpApproveMut = useMutation({
-    mutationFn: ({ stpId, body }: { stpId: string; body?: { remarks?: string; password?: string } }) =>
+    mutationFn: ({ stpId, body }: { stpId: string; body: { remarks?: string; password: string } }) =>
       ardProjectsApi.approveStp(projectId, stpId, body),
     onSuccess: () => { msgApi.success('STP approved.'); setEsignStp(null); invalidate() },
     onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Approve failed.'),
@@ -346,50 +381,53 @@ export default function ArdProjectWorkspacePage() {
   })
 
   const canEdit = ['TL', 'HOD', 'SUPER_ADMIN'].includes(role) && data?.status === 'OPEN'
-  const canApproveStp = ['HOD', 'SUPER_ADMIN'].includes(role)
+  const canApproveStp = ['TL', 'TEAM_LEAD', 'HOD', 'SUPER_ADMIN'].includes(role)
 
   // ── STP save helper ──────────────────────────────────────────────────────────
-  function saveStpList(newList: ProjectStp[], customMsg?: string) {
-    saveMut.mutate({ body: { stpDocuments: newList }, successMsg: customMsg || 'STP documents updated successfully.' })
+  function saveStpList(newList: ProjectStp[], customMsg?: string, onSaved?: () => void) {
+    saveMut.mutate(
+      { body: { stpDocuments: newList }, successMsg: customMsg || 'STP documents updated successfully.' },
+      onSaved ? { onSuccess: onSaved } : undefined,
+    )
   }
 
   function openCreateStp() {
     setEditingStp(null)
+    setPendingStpId(newStpId())
+    setProcedureSpreadsheet(undefined)
+    setSampleMappingSpreadsheet(undefined)
+    setStpCalculationSpreadsheet(undefined)
     stpForm.resetFields()
     stpForm.setFieldsValue({ version: '1.0', status: 'DRAFT' })
     setStpModalOpen(true)
   }
 
-  const stpFileFields = ['sampleMappingFile', 'stpProcedureFile', 'stpCalculationFile'] as const
-
-  function fileNameToList(name?: string): UploadFile[] {
-    return name ? [{ uid: '-1', name, status: 'done' }] : []
-  }
-
   function openEditStp(stp: ProjectStp) {
     setEditingStp(stp)
-    stpForm.setFieldsValue({
-      ...stp,
-      sampleMappingFile: fileNameToList(stp.sampleMappingFile),
-      stpProcedureFile: fileNameToList(stp.stpProcedureFile),
-      stpCalculationFile: fileNameToList(stp.stpCalculationFile),
-    })
+    setPendingStpId(stp.id)
+    setProcedureSpreadsheet(stp.procedureSpreadsheet)
+    setSampleMappingSpreadsheet(stp.sampleMappingSpreadsheet)
+    setStpCalculationSpreadsheet(stp.stpCalculationSpreadsheet)
+    stpForm.setFieldsValue(stp)
     setStpModalOpen(true)
   }
 
   function handleStpSubmit(values: Partial<ProjectStp> & Record<string, any>) {
-    const normalized: Partial<ProjectStp> = { ...values }
-    for (const f of stpFileFields) {
-      const list = (values as any)[f] as UploadFile[] | undefined
-      normalized[f] = list?.[0]?.name || undefined
+    const normalized: Partial<ProjectStp> = {
+      ...values, procedureSpreadsheet, sampleMappingSpreadsheet, stpCalculationSpreadsheet,
     }
     const current = data?.stpDocuments ?? []
     if (editingStp) {
       const updated = current.map(s => s.id === editingStp.id ? { ...s, ...normalized, updatedAt: new Date().toISOString() } : s)
-      saveStpList(updated, 'STP document updated successfully.')
+      const savedStp = updated.find(s => s.id === editingStp.id)!
+      // Show the STP Worksheet preview right after Save, mirroring the
+      // legacy app — the author sees exactly what got saved (including the
+      // live-rendered spreadsheets) without a separate "View" click.
+      saveStpList(updated, 'STP document updated successfully.', () => setViewStp(savedStp))
     } else {
       const newStp: ProjectStp = {
-        id: newStpId(),
+        // Reuse the id assigned when the modal opened.
+        id: pendingStpId || newStpId(),
         documentNo: normalized.documentNo ?? '',
         title: normalized.title ?? '',
         version: normalized.version ?? '1.0',
@@ -397,19 +435,18 @@ export default function ArdProjectWorkspacePage() {
         status: normalized.status || 'DRAFT',
         updatedAt: new Date().toISOString(),
       }
-      saveStpList([...current, newStp], 'STP document added successfully.')
+      saveStpList([...current, newStp], 'STP document added successfully.', () => setViewStp(newStp))
     }
     setStpModalOpen(false)
   }
 
   function handleSubmitForApprovalStp(stp: ProjectStp) {
     setSubmitStpItem(stp)
-    submitStpForm.resetFields()
     setSubmitStpOpen(true)
   }
 
-  function handleApproveStpWithEsign(stp: ProjectStp, reason?: string) {
-    stpApproveMut.mutate({ stpId: stp.id, body: reason ? { remarks: reason } : {} })
+  function handleApproveStpWithEsign(stp: ProjectStp, remarks: string | undefined, password: string) {
+    stpApproveMut.mutate({ stpId: stp.id, body: { remarks, password } })
   }
 
   function handleReturnStp(stp: ProjectStp) {
@@ -597,6 +634,22 @@ export default function ArdProjectWorkspacePage() {
       const invalid = updated.find((a) => !a.key.trim() || !String(a.value ?? '').trim())
       if (invalid) {
         msgApi.warning('Every attribute needs both a name and a value before saving.')
+        return
+      }
+
+      const seenKeys = new Set<string>()
+      for (const a of updated) {
+        const normalized = a.key.trim().toLowerCase()
+        if (seenKeys.has(normalized)) {
+          msgApi.warning(`Attribute name "${a.key.trim()}" is already used — attribute names must be unique.`)
+          return
+        }
+        seenKeys.add(normalized)
+      }
+
+      const badNumber = updated.find((a) => a.type === 'Number' && !Number.isFinite(Number(String(a.value ?? '').trim())))
+      if (badNumber) {
+        msgApi.warning('Invalid format. Please enter Integer.')
         return
       }
     }
@@ -803,38 +856,45 @@ export default function ArdProjectWorkspacePage() {
             label: 'Details',
             children: (
               <div className="pb-5 space-y-4">
+                {canEdit && !detailsEditMode && (
+                  <div className="flex justify-end">
+                    <Button size="small" icon={<Edit3 size={12} />} onClick={() => setDetailsEditMode(true)}>
+                      Edit
+                    </Button>
+                  </div>
+                )}
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                   <div>
                     <p className="text-xs text-slate-500 font-medium mb-1">Project Code</p>
                     <Input value={projectCode} onChange={e => setProjectCode(e.target.value)}
-                      disabled={!canEdit} placeholder="Project Code" />
+                      disabled={!canEdit || !detailsEditMode} placeholder="Project Code" />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 font-medium mb-1">Product Name</p>
                     <Input value={productName} onChange={e => setProductName(e.target.value)}
-                      disabled={!canEdit} placeholder="Product Name" />
+                      disabled={!canEdit || !detailsEditMode} placeholder="Product Name" />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 font-medium mb-1">Customer / Sponsor</p>
                     <Input value={customer} onChange={e => setCustomer(e.target.value)}
-                      disabled={!canEdit} placeholder="Customer / Sponsor" />
+                      disabled={!canEdit || !detailsEditMode} placeholder="Customer / Sponsor" />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 font-medium mb-1">Project Type</p>
-                    <Select value={projectType || undefined} onChange={v => setProjectType(v)} disabled={!canEdit}
+                    <Select value={projectType || undefined} onChange={v => setProjectType(v)} disabled={!canEdit || !detailsEditMode}
                       allowClear placeholder="Select type" className="w-full"
                       options={['ANALYSIS', 'DEVELOPMENT', 'STABILITY', 'QC', 'OTHERS'].map(v => ({ value: v, label: v }))} />
                   </div>
                   <div>
                     <p className="text-xs text-slate-500 font-medium mb-1">Target Date</p>
-                    <DatePicker value={targetDate} onChange={v => setTargetDate(v)} disabled={!canEdit}
+                    <DatePicker value={targetDate} onChange={v => setTargetDate(v)} disabled={!canEdit || !detailsEditMode}
                       className="w-full" format="YYYY-MM-DD" allowClear />
                   </div>
                 </div>
                 <div>
                   <p className="text-xs text-slate-500 font-medium mb-1">Description</p>
                   <TextArea rows={3} value={description} onChange={e => setDescription(e.target.value)}
-                    disabled={!canEdit} placeholder="Project scope, objectives..." />
+                    disabled={!canEdit || !detailsEditMode} placeholder="Project scope, objectives..." />
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
                   <div>
@@ -846,8 +906,22 @@ export default function ArdProjectWorkspacePage() {
                     <Input value={data.createdAt ? dayjs(data.createdAt).format('DD MMM YYYY HH:mm') : '—'} disabled className="bg-slate-50 text-slate-700 font-medium" />
                   </div>
                 </div>
-                {canEdit && (
-                  <div className="flex justify-end pt-2">
+                {canEdit && detailsEditMode && (
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button
+                      size="middle"
+                      onClick={() => {
+                        setDetailsEditMode(false)
+                        setProjectCode(data.code ?? '')
+                        setProductName(data.productName ?? '')
+                        setCustomer(data.customer ?? '')
+                        setProjectType(data.projectType ?? '')
+                        setDescription(data.description ?? '')
+                        setTargetDate(data.targetDate ? dayjs(data.targetDate) : null)
+                      }}
+                    >
+                      Cancel
+                    </Button>
                     <Button
                       type="primary"
                       size="middle"
@@ -966,6 +1040,70 @@ export default function ArdProjectWorkspacePage() {
             ),
           },
 
+          // ── Notebooks ────────────────────────────────────────────────────────
+          {
+            key: 'notebooks',
+            label: `Notebooks (${notebooksData?.items?.length ?? 0})`,
+            children: (
+              <div className="pb-5 space-y-3">
+                {!['ANALYST', 'CHEMIST', 'CHEM'].includes((user?.role_code || '').toUpperCase()) && data.status === 'OPEN' && (
+                  <div className="flex justify-end">
+                    <Button icon={<Plus size={13} />} onClick={() => { setNotebookName(''); setNotebookDescription(''); setNotebookTypeSel(undefined); setNotebookTypeOther(''); setNotebookModalOpen(true) }} loading={createNotebook.isPending}>
+                      New Notebook
+                    </Button>
+                  </div>
+                )}
+                {(notebooksData?.items?.length ?? 0) === 0 ? (
+                  <Empty description="No notebooks in this project" className="py-8" />
+                ) : (
+                  <Table
+                    rowKey="id"
+                    dataSource={notebooksData?.items ?? []}
+                    onRow={r => ({ onClick: () => navigate(`/ard/notebooks/${r.id}`), className: 'cursor-pointer' })}
+                    pagination={false}
+                    size="small"
+                    columns={[
+                      { title: 'Code', dataIndex: 'code', width: 160, render: v => <span className="font-mono text-xs">{v}</span> },
+                      { title: 'Name', dataIndex: 'name', render: (v) => (
+                        <span className="flex items-center gap-2 font-medium text-slate-700"><BookOpen size={14} className="text-violet-500" />{v}</span>
+                      )},
+                      { title: 'Type', dataIndex: 'notebookType', width: 160, render: v => v?.replace(/_/g, ' ') ?? '—' },
+                      { title: 'Status', dataIndex: 'status', width: 100, render: (v: string) => (
+                        <Tag color={v === 'ACTIVE' ? 'green' : v === 'DEACTIVE' ? 'volcano' : 'default'}>{v}</Tag>
+                      )},
+                      { title: 'Created', dataIndex: 'createdAt', width: 130, render: (v: string) => v ? dayjs(v).format('DD MMM YYYY') : '—' },
+                      {
+                        title: '',
+                        width: 90,
+                        render: (_: unknown, r: Notebook) => r.status === 'CLOSED' && canEdit ? (
+                          <Button
+                            size="small"
+                            icon={<Unlock size={12} />}
+                            onClick={e => { e.stopPropagation(); setReopenNotebookId(r.id); setReopenRemarks('') }}
+                            loading={reopenNotebookMut.isPending && reopenNotebookId === r.id}
+                          >
+                            Reopen
+                          </Button>
+                        ) : null,
+                      },
+                    ]}
+                  />
+                )}
+              </div>
+            ),
+          },
+
+          // ── Specifications ───────────────────────────────────────────────────
+          {
+            key: 'specifications',
+            label: 'Specifications',
+            children: (
+              <div className="pb-4">
+                <ProjectSpecificationsPanel projectId={data.id} readOnly={!canEdit} />
+              </div>
+            ),
+          },
+
           // ── STP ──────────────────────────────────────────────────────────────
           {
             key: 'stp',
@@ -1015,59 +1153,6 @@ export default function ArdProjectWorkspacePage() {
                     size="small"
                     className="rounded-lg overflow-hidden border border-slate-200"
                     scroll={{ x: 'max-content' }}
-                  />
-                )}
-              </div>
-            ),
-          },
-
-          // ── Notebooks ────────────────────────────────────────────────────────
-          {
-            key: 'notebooks',
-            label: `Notebooks (${notebooksData?.items?.length ?? 0})`,
-            children: (
-              <div className="pb-5 space-y-3">
-                {!['ANALYST', 'CHEMIST', 'CHEM'].includes((user?.role_code || '').toUpperCase()) && data.status === 'OPEN' && (
-                  <div className="flex justify-end">
-                    <Button icon={<Plus size={13} />} onClick={() => { setNotebookName(''); setNotebookDescription(''); setNotebookTypeSel(undefined); setNotebookTypeOther(''); setNotebookModalOpen(true) }} loading={createNotebook.isPending}>
-                      New Notebook
-                    </Button>
-                  </div>
-                )}
-                {(notebooksData?.items?.length ?? 0) === 0 ? (
-                  <Empty description="No notebooks in this project" className="py-8" />
-                ) : (
-                  <Table
-                    rowKey="id"
-                    dataSource={notebooksData?.items ?? []}
-                    onRow={r => ({ onClick: () => navigate(`/ard/notebooks/${r.id}`), className: 'cursor-pointer' })}
-                    pagination={false}
-                    size="small"
-                    columns={[
-                      { title: 'Code', dataIndex: 'code', width: 160, render: v => <span className="font-mono text-xs">{v}</span> },
-                      { title: 'Name', dataIndex: 'name', render: (v) => (
-                        <span className="flex items-center gap-2 font-medium text-slate-700"><BookOpen size={14} className="text-violet-500" />{v}</span>
-                      )},
-                      { title: 'Type', dataIndex: 'notebookType', width: 160, render: v => v?.replace(/_/g, ' ') ?? '—' },
-                      { title: 'Status', dataIndex: 'status', width: 100, render: (v: string) => (
-                        <Tag color={v === 'OPEN' ? 'green' : 'default'}>{v}</Tag>
-                      )},
-                      { title: 'Created', dataIndex: 'createdAt', width: 130, render: (v: string) => v ? dayjs(v).format('DD MMM YYYY') : '—' },
-                      {
-                        title: '',
-                        width: 90,
-                        render: (_: unknown, r: Notebook) => r.status !== 'OPEN' && canEdit ? (
-                          <Button
-                            size="small"
-                            icon={<Unlock size={12} />}
-                            onClick={e => { e.stopPropagation(); setReopenNotebookId(r.id); setReopenRemarks('') }}
-                            loading={reopenNotebookMut.isPending && reopenNotebookId === r.id}
-                          >
-                            Reopen
-                          </Button>
-                        ) : null,
-                      },
-                    ]}
                   />
                 )}
               </div>
@@ -1159,17 +1244,6 @@ export default function ArdProjectWorkspacePage() {
             ),
           },
 
-          // ── Specifications ───────────────────────────────────────────────────
-          {
-            key: 'specifications',
-            label: 'Specifications',
-            children: (
-              <div className="pb-4">
-                <ProjectSpecificationsPanel projectId={data.id} readOnly={!canEdit} />
-              </div>
-            ),
-          },
-
           // ── Attachments ──────────────────────────────────────────────────────
           {
             key: 'attachments',
@@ -1186,49 +1260,39 @@ export default function ArdProjectWorkspacePage() {
             key: 'audit',
             label: 'Project Events',
             children: (
-              <div className="pb-5 space-y-4">
-
-                {/* Filter Controls Bar */}
-                <div className="bg-slate-50 p-3 rounded-lg border border-slate-200 flex items-center gap-3 flex-wrap text-xs">
-                  <div className="flex items-center gap-1 font-semibold text-slate-700">
-                    <Filter size={13} className="text-slate-500" /> Filter Log:
-                  </div>
+              <div className="pb-5">
+                {/* Filter row — same layout convention as the ATR Tests screen's filter bar */}
+                <div className="flex flex-wrap items-center gap-2 py-3">
                   <Select
                     allowClear
-                    placeholder="Event Action"
-                    style={{ width: 170 }}
-                    size="small"
+                    placeholder="Event Type"
+                    style={{ flex: '1 1 170px', maxWidth: 220 }}
                     options={auditActionOptions}
                     value={auditAction}
                     onChange={setAuditAction}
                   />
+                  <DatePicker
+                    placeholder="From"
+                    style={{ flex: '1 1 150px', maxWidth: 180 }}
+                    value={auditDateRange?.[0] ?? null}
+                    onChange={(d) => setAuditDateRange([d, auditDateRange?.[1] ?? null])}
+                  />
+                  <DatePicker
+                    placeholder="To"
+                    style={{ flex: '1 1 150px', maxWidth: 180 }}
+                    value={auditDateRange?.[1] ?? null}
+                    onChange={(d) => setAuditDateRange([auditDateRange?.[0] ?? null, d])}
+                  />
                   <Select
                     allowClear
-                    placeholder="User / Actor"
-                    style={{ width: 170 }}
-                    size="small"
+                    placeholder="User"
+                    style={{ flex: '1 1 170px', maxWidth: 220 }}
                     options={auditUserOptions}
                     value={auditUser}
                     onChange={setAuditUser}
                   />
-                  <DatePicker.RangePicker
-                    size="small"
-                    allowEmpty={[true, true]}
-                    value={auditDateRange}
-                    onChange={(range) => setAuditDateRange(range as [Dayjs | null, Dayjs | null] | null)}
-                  />
-                  <Button size="small" type="primary" style={{ background: '#7c3aed' }}>
-                    Show Events
-                  </Button>
                   {(auditAction || auditUser || auditDateRange) && (
-                    <Button
-                      size="small"
-                      onClick={() => {
-                        setAuditAction(undefined)
-                        setAuditUser(undefined)
-                        setAuditDateRange(null)
-                      }}
-                    >
+                    <Button onClick={() => { setAuditAction(undefined); setAuditUser(undefined); setAuditDateRange(null) }}>
                       Clear Filters
                     </Button>
                   )}
@@ -1240,17 +1304,11 @@ export default function ArdProjectWorkspacePage() {
                   <Table
                     rowKey="id"
                     size="small"
-                    pagination={false}
+                    pagination={{ defaultPageSize: 10, showSizeChanger: true, pageSizeOptions: ['10', '25', '50', '100'], size: 'small', showTotal: (t, r) => `${r[0]}-${r[1]} of ${t}` }}
                     dataSource={filteredAuditTrail}
                     columns={[
                       {
-                        title: 'Timestamp',
-                        dataIndex: 'createdAt',
-                        width: 170,
-                        render: (v) => <span className="font-mono text-slate-500 text-xs">{dayjs(v).format('DD-MMM-YYYY HH:mm:ss')}</span>,
-                      },
-                      {
-                        title: 'Action',
+                        title: 'Event Type',
                         dataIndex: 'action',
                         width: 180,
                         render: (v: string) => {
@@ -1265,13 +1323,19 @@ export default function ArdProjectWorkspacePage() {
                         },
                       },
                       {
-                        title: 'Actor / User',
+                        title: 'Event Time',
+                        dataIndex: 'createdAt',
+                        width: 170,
+                        render: (v) => <span className="font-mono text-slate-500 text-xs">{dayjs(v).format('DD-MMM-YYYY HH:mm:ss')}</span>,
+                      },
+                      {
+                        title: 'User',
                         dataIndex: 'actorName',
                         width: 140,
                         render: (v) => <span className="font-semibold text-slate-700">{v || 'System'}</span>,
                       },
                       {
-                        title: 'Details',
+                        title: 'Event Details',
                         dataIndex: 'detail',
                         render: (v) => v ? <span className="text-slate-600">{v}</span> : <span className="text-slate-400">—</span>,
                       },
@@ -1320,7 +1384,7 @@ export default function ArdProjectWorkspacePage() {
           {data.status === 'OPEN' && (
             <>
               <Button icon={<Lock size={14} />} onClick={() => setEsignProjectAction('close')} loading={closeMut.isPending}>Close Project</Button>
-              <Button danger icon={<Trash2 size={14} />} onClick={() => setEsignProjectAction('deactivate')} loading={deactivateMut.isPending}>Deactivate Project</Button>
+              <Button danger icon={<Trash2 size={14} />} onClick={() => setEsignProjectAction('deactivate')} loading={deactivateMut.isPending}>Deactive</Button>
             </>
           )}
           {data.status !== 'OPEN' && (
@@ -1525,7 +1589,6 @@ export default function ArdProjectWorkspacePage() {
                 <div key={idx} className="grid grid-cols-12 gap-2 items-center bg-slate-50 p-2.5 rounded-lg border border-slate-200">
                   <div className="col-span-8 flex items-center gap-2">
                     <span className="font-semibold text-slate-800 text-xs">{member.userName}</span>
-                    {member.userId && <span className="text-[11px] text-slate-400">({member.userId})</span>}
                   </div>
                   <div className="col-span-3 flex justify-end">
                     <Tag color={member.role === 'HOD' ? 'gold' : member.role === 'GL' ? 'purple' : member.role === 'TL' ? 'blue' : 'geekblue'} className="font-medium">
@@ -1665,19 +1728,21 @@ export default function ArdProjectWorkspacePage() {
         })()}
       </Modal>
 
-      {/* STP View Modal */}
+      {/* STP Worksheet preview — shown automatically right after Save, and
+          reachable any time via the "View" action on an STP row. */}
       <Modal
         {...glassModalProps}
-        title={`STP Document Details — ${viewStp?.documentNo}`}
+        title={`STP Worksheet — ${viewStp?.documentNo}`}
         open={!!viewStp}
         onCancel={() => setViewStp(null)}
         footer={[
           <Button key="close" onClick={() => setViewStp(null)}>Close</Button>
         ]}
-        width={550}
+        width={1100}
+        styles={{ ...glassModalProps.styles, body: { ...glassModalProps.styles?.body, maxHeight: '75vh', overflowY: 'auto' } }}
       >
         {viewStp && (
-          <div className="space-y-3 pt-2 text-xs">
+          <div className="space-y-4 pt-2 text-xs">
             <div className="grid grid-cols-2 gap-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
               <div>
                 <span className="text-slate-400 block font-semibold uppercase text-[10px]">Document No.</span>
@@ -1760,6 +1825,17 @@ export default function ArdProjectWorkspacePage() {
                 <div className="p-2 bg-slate-50 rounded border border-slate-200 text-slate-600">{viewStp.remarks}</div>
               </div>
             )}
+
+            {([
+              ['Sample Mapping Details', viewStp.sampleMappingSpreadsheet],
+              ['Procedure', viewStp.procedureSpreadsheet],
+              ['STP Calculation', viewStp.stpCalculationSpreadsheet],
+            ] as const).map(([label, sheet]) => sheet?.workbookData ? (
+              <div key={label} className="rounded-lg border border-slate-200 overflow-hidden">
+                <div className="bg-teal-700 text-white text-sm font-semibold px-3 py-1.5">{label}</div>
+                <SpreadsheetFieldRuntime spreadsheet={sheet} value={{}} onChange={() => {}} disabled />
+              </div>
+            ) : null)}
           </div>
         )}
       </Modal>
@@ -1774,7 +1850,8 @@ export default function ArdProjectWorkspacePage() {
           requireReason
           reasonLabel="Reason for Approval"
           onCancel={() => setEsignStp(null)}
-          onConfirm={(payload) => handleApproveStpWithEsign(esignStp, payload.reason)}
+          loading={stpApproveMut.isPending}
+          onConfirm={(payload) => handleApproveStpWithEsign(esignStp, payload.reason, payload.password)}
         />
       )}
 
@@ -1784,7 +1861,7 @@ export default function ArdProjectWorkspacePage() {
         title={
           <div className="flex items-center gap-2">
             <FileText size={16} className="text-indigo-500" />
-            <span>{editingStp ? `Edit STP — ${editingStp.documentNo}` : 'Add STP Document'}</span>
+            <span className="font-bold text-slate-800 text-base">{editingStp ? `Edit STP — ${editingStp.documentNo}` : 'Create New STP'}</span>
           </div>
         }
         open={stpModalOpen}
@@ -1792,121 +1869,129 @@ export default function ArdProjectWorkspacePage() {
         onOk={() => stpForm.validateFields().then(handleStpSubmit)}
         confirmLoading={saveMut.isPending}
         okText={editingStp ? 'Save Changes' : 'Create STP'}
-        width={980}
+        okButtonProps={{ className: 'bg-indigo-600 hover:bg-indigo-700 text-white font-medium border-none' }}
+        width={860}
       >
-        <Form form={stpForm} layout="vertical" className="pt-2">
+        <Form
+          form={stpForm}
+          layout="horizontal"
+          colon={false}
+          labelAlign="left"
+          className="pt-2"
+        >
           {/* Version is tracked internally for revisions but not shown in this form. */}
           <Form.Item name="version" initialValue="1.0" className="hidden">
             <Input />
           </Form.Item>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-x-5">
-            {/* Left column */}
-            <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">STP Details</div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 mb-4">
-                <Form.Item name="title" label="STP Name" rules={[{ required: true, message: 'Required' }]} className="mb-3">
-                  <Input placeholder="Standard Test Procedure title" />
-                </Form.Item>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
-                  <Form.Item name="testType" label="Test Type" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
-                    <Select showSearch optionFilterProp="label" allowClear placeholder="Select Test Type" options={testTypeOptions} />
-                  </Form.Item>
-                  <Form.Item name="testSubtype" label="Sub Type" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
-                    <Select showSearch optionFilterProp="label" allowClear placeholder="Select Sub Type" options={testSubtypeOptions} />
-                  </Form.Item>
-                  <Form.Item name="stpType" label="STP Type" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
-                    <Select allowClear placeholder="Select STP Type"
-                      options={['Compendial', 'Non-Compendial', 'In-House', 'Pharmacopoeial'].map(v => ({ value: v, label: v }))} />
-                  </Form.Item>
-                  <Form.Item name="documentNo" label="STP Code" rules={[{ required: true, message: 'Required' }]} className="col-span-1 mb-3">
-                    <Input placeholder="e.g. STP-ARD-001" />
-                  </Form.Item>
-                  <Form.Item name="stpGrade" label="STP Grade" className="col-span-1 mb-0">
-                    <Input placeholder="e.g. Pharmaceutical" />
-                  </Form.Item>
-                  <Form.Item name="specificationNo" label="Specification/Protocol No" className="col-span-1 mb-0">
-                    <Input placeholder="e.g. SPEC-ARD-001" />
-                  </Form.Item>
-                </div>
-              </div>
+          <div className="rounded-lg bg-slate-50/60 p-4">
+            <Form.Item name="title" label="STP Name" labelCol={{ flex: '150px' }} rules={[{ required: true, message: 'Required' }]}>
+              <Input placeholder="Standard Test Procedure title" />
+            </Form.Item>
 
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Select Section to be Included</div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 flex flex-wrap gap-4">
-                <Form.Item name="weighingDetails" valuePropName="checked" className="mb-0">
-                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
-                    <input type="checkbox" className="rounded accent-violet-600" />
-                    Weighing Details
-                  </label>
-                </Form.Item>
-                <Form.Item name="phDetails" valuePropName="checked" className="mb-0">
-                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
-                    <input type="checkbox" className="rounded accent-violet-600" />
-                    pH Details
-                  </label>
-                </Form.Item>
-                <Form.Item name="columnDetails" valuePropName="checked" className="mb-0">
-                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
-                    <input type="checkbox" className="rounded accent-violet-600" />
-                    Column Details
-                  </label>
-                </Form.Item>
-              </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-6">
+              <Form.Item name="testType" label="Test Type" labelCol={{ flex: '150px' }} rules={[{ required: true, message: 'Required' }]}>
+                <Select showSearch optionFilterProp="label" allowClear placeholder="Select Test Type" options={testTypeOptions} />
+              </Form.Item>
+              <Form.Item name="testSubtype" label="Sub Type" labelCol={{ flex: '150px' }} rules={[{ required: true, message: 'Required' }]}>
+                <Select showSearch optionFilterProp="label" allowClear placeholder="Select Sub Type" options={testSubtypeOptions} />
+              </Form.Item>
+              <Form.Item name="stpType" label="STP Type" labelCol={{ flex: '150px' }} rules={[{ required: true, message: 'Required' }]}>
+                <Select allowClear placeholder="Select STP Type"
+                  options={['Compendial', 'Non-Compendial', 'In-House', 'Pharmacopoeial'].map(v => ({ value: v, label: v }))} />
+              </Form.Item>
+              <Form.Item name="documentNo" label="STP Code" labelCol={{ flex: '150px' }} rules={[{ required: true, message: 'Required' }]}>
+                <Input placeholder="e.g. STP-ARD-001" />
+              </Form.Item>
+              <Form.Item name="stpGrade" label="STP Grade" labelCol={{ flex: '150px' }}>
+                <Input placeholder="e.g. Pharmaceutical" />
+              </Form.Item>
+              <Form.Item name="specificationNo" label="Specification/Protocol No" labelCol={{ flex: '150px' }}>
+                <Select
+                  allowClear
+                  showSearch
+                  placeholder="Select an approved specification"
+                  options={approvedSpecOptions}
+                  notFoundContent="No approved specifications on this project yet"
+                />
+              </Form.Item>
             </div>
 
-            {/* Right column */}
-            <div>
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Attachments</div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 mb-4 space-y-3">
-                <Form.Item
-                  name="sampleMappingFile"
-                  label="Sample Mapping Details"
-                  valuePropName="fileList"
-                  getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
-                  className="mb-0"
-                >
-                  <Upload beforeUpload={() => false} maxCount={1}>
-                    <Button icon={<Paperclip size={13} />}>Choose File</Button>
-                  </Upload>
-                </Form.Item>
-                <Form.Item
-                  name="stpProcedureFile"
-                  label="STP Procedure"
-                  valuePropName="fileList"
-                  getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
-                  rules={[{ required: true, message: 'STP Procedure attachment is required' }]}
-                  className="mb-0"
-                >
-                  <Upload beforeUpload={() => false} maxCount={1}>
-                    <Button icon={<Paperclip size={13} />}>Choose File</Button>
-                  </Upload>
-                </Form.Item>
-                <Form.Item
-                  name="stpCalculationFile"
-                  label="STP Calculation"
-                  valuePropName="fileList"
-                  getValueFromEvent={(e) => (Array.isArray(e) ? e : e?.fileList)}
-                  className="mb-0"
-                >
-                  <Upload beforeUpload={() => false} maxCount={1}>
-                    <Button icon={<Paperclip size={13} />}>Choose File</Button>
-                  </Upload>
-                </Form.Item>
-                <Form.Item name="chromatogramReport" valuePropName="checked" className="mb-0">
-                  <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
-                    <input type="checkbox" className="rounded accent-violet-600" />
-                    Include Chromatogram Report
-                  </label>
-                </Form.Item>
-              </div>
-
-              <div className="mb-1 text-[11px] font-semibold uppercase tracking-wide text-slate-400">Description</div>
-              <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3">
-                <Form.Item name="description" rules={[{ required: true, message: 'Required' }]} className="mb-0">
-                  <TextArea rows={8} placeholder="Describe this STP..." />
-                </Form.Item>
-              </div>
+            <div className="flex items-center gap-6 flex-wrap mb-4">
+              <span className="text-sm font-medium text-slate-700">Select section to be included</span>
+              <Form.Item name="weighingDetails" valuePropName="checked" className="mb-0">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input type="checkbox" className="rounded accent-indigo-600" />
+                  Weighing Details
+                </label>
+              </Form.Item>
+              <Form.Item name="phDetails" valuePropName="checked" className="mb-0">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input type="checkbox" className="rounded accent-indigo-600" />
+                  pH Details
+                </label>
+              </Form.Item>
+              <Form.Item name="columnDetails" valuePropName="checked" className="mb-0">
+                <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                  <input type="checkbox" className="rounded accent-indigo-600" />
+                  Column Details
+                </label>
+              </Form.Item>
             </div>
+
+            {/* All three convert the uploaded .xlsx into a live embedded
+                spreadsheet — same import pipeline, same fidelity (formulas,
+                merges, locked-cell protection) as Template Builder's
+                Preconfigured Spreadsheet section — not a plain file
+                attachment. Each renders in the STP Worksheet preview after
+                Save, and Procedure additionally seeds the "Procedure"
+                section of any experiment created from this STP. */}
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-sm text-slate-600 w-[150px] shrink-0">Sample mapping details</span>
+              <input ref={sampleMappingFileInputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={handleSpreadsheetFilePicked('sampleMapping')} />
+              <Space size="small">
+                <Button size="small" icon={<UploadIcon size={13} />} loading={spreadsheetImporting === 'sampleMapping'}
+                  onClick={() => sampleMappingFileInputRef.current?.click()}>
+                  {sampleMappingSpreadsheet?.workbookData ? 'Replace' : 'Choose File'}
+                </Button>
+                {sampleMappingSpreadsheet?.workbookData && <Tag color="blue" className="text-xs">Uploaded</Tag>}
+              </Space>
+            </div>
+
+            <div className="flex items-center gap-3 mb-3">
+              <span className="text-sm text-slate-600 w-[150px] shrink-0">STP Procedure<span className="text-red-500 ml-0.5">*</span></span>
+              <input ref={procedureFileInputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={handleSpreadsheetFilePicked('procedure')} />
+              <Space size="small">
+                <Button size="small" icon={<UploadIcon size={13} />} loading={spreadsheetImporting === 'procedure'}
+                  onClick={() => procedureFileInputRef.current?.click()}>
+                  {procedureSpreadsheet?.workbookData ? 'Replace' : 'Choose File'}
+                </Button>
+                {procedureSpreadsheet?.workbookData && <Tag color="blue" className="text-xs">Uploaded</Tag>}
+              </Space>
+            </div>
+
+            <div className="flex items-center gap-3 mb-4">
+              <span className="text-sm text-slate-600 w-[150px] shrink-0">STP Calculation</span>
+              <input ref={stpCalculationFileInputRef} type="file" accept=".xlsx,.xlsm" className="hidden" onChange={handleSpreadsheetFilePicked('stpCalculation')} />
+              <Space size="small">
+                <Button size="small" icon={<UploadIcon size={13} />} loading={spreadsheetImporting === 'stpCalculation'}
+                  onClick={() => stpCalculationFileInputRef.current?.click()}>
+                  {stpCalculationSpreadsheet?.workbookData ? 'Replace' : 'Choose File'}
+                </Button>
+                {stpCalculationSpreadsheet?.workbookData && <Tag color="blue" className="text-xs">Uploaded</Tag>}
+              </Space>
+            </div>
+
+            <Form.Item name="chromatogramReport" valuePropName="checked" className="mb-4">
+              <label className="flex items-center gap-2 cursor-pointer text-sm text-slate-700">
+                <input type="checkbox" className="rounded accent-indigo-600" />
+                Include Chromatogram Report
+              </label>
+            </Form.Item>
+
+            <Form.Item name="description" label="Description" labelCol={{ flex: '150px' }} rules={[{ required: true, message: 'Required' }]} className="mb-0">
+              <TextArea rows={4} placeholder="Describe this STP..." />
+            </Form.Item>
           </div>
         </Form>
       </Modal>
@@ -2010,34 +2095,22 @@ export default function ArdProjectWorkspacePage() {
         </div>
       </Modal>
 
-      {/* STP Submit for Approval Modal */}
-      <Modal
-        {...glassModalProps}
-        title={`Submit STP for Approval — ${submitStpItem?.documentNo}`}
-        open={submitStpOpen}
-        onCancel={() => { setSubmitStpOpen(false); setSubmitStpItem(null); submitStpForm.resetFields() }}
-        onOk={() => submitStpForm.validateFields().then(vals => {
-          if (!submitStpItem) return
-          stpSubmitMut.mutate({ stpId: submitStpItem.id, approverUsername: vals.approverUsername, description: vals.submitDescription })
-        })}
-        confirmLoading={stpSubmitMut.isPending}
-        okText="Submit for Approval"
-        width={500}
-      >
-        <Form form={submitStpForm} layout="vertical" className="pt-2">
-          <Form.Item name="approverUsername" label="Select Approver" rules={[{ required: true, message: 'Please select an approver' }]}>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              placeholder="Select approver (HOD / QA)"
-              options={dbUserOptions.filter((o: any) => ['HOD', 'QA', 'QC_MANAGER', 'SUPER_ADMIN'].includes(o.role?.toUpperCase() || ''))}
-            />
-          </Form.Item>
-          <Form.Item name="submitDescription" label="Description / Remarks">
-            <TextArea rows={3} placeholder="Reason for submission or additional notes..." />
-          </Form.Item>
-        </Form>
-      </Modal>
+      {/* STP Submit for Approval — remarks + e-signature, no approver to
+          pre-select: any TL/HOD on the project (other than the submitter)
+          can pick it up and approve. */}
+      {submitStpOpen && submitStpItem && (
+        <ESignatureModal
+          open={submitStpOpen}
+          title={`Submit STP for Approval — ${submitStpItem.documentNo}`}
+          description="Re-authenticate with your password and add remarks to submit this STP for approval."
+          userName={user?.username || 'user'}
+          requireReason
+          reasonLabel="Remarks"
+          loading={stpSubmitMut.isPending}
+          onCancel={() => { setSubmitStpOpen(false); setSubmitStpItem(null) }}
+          onConfirm={(payload) => stpSubmitMut.mutate({ stpId: submitStpItem.id, remarks: payload.reason, password: payload.password })}
+        />
+      )}
 
       {/* Project Status E-Signature Modal */}
       {esignProjectAction && (

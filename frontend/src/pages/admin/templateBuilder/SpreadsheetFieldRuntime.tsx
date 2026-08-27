@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import { Spin } from 'antd'
 import { EmptyValue } from '../../../components/ui/EmptyValue'
 import { useQuery } from '@tanstack/react-query'
@@ -77,6 +77,15 @@ export default function SpreadsheetFieldRuntime({ spreadsheet, value, onChange, 
 
   const inputFields = (resolved?.fields ?? []).filter(f => f.role === 'input')
   const outputFields = (resolved?.fields ?? []).filter(f => f.role === 'output')
+  // A preconfigured_excel section (ARD Sections library) has no named input/
+  // output fields at all — it's a whole free-form sheet the analyst fills in
+  // directly, unlike a Calc Template's specific formula/output cells. The
+  // field-based restore/change-detection below only ever tracks named
+  // fields, so with zero of them nothing typed was ever detected as a change
+  // or persisted — confirmed bug (values visually entered, never saved, and
+  // any remount reloaded the untouched original sheet). Free-form mode
+  // instead persists/restores the ENTIRE workbook snapshot as one blob.
+  const isFreeForm = inputFields.length === 0 && outputFields.length === 0
 
   useEffect(() => {
     if (!containerRef.current || !resolved?.workbookData) return
@@ -94,7 +103,13 @@ export default function SpreadsheetFieldRuntime({ spreadsheet, value, onChange, 
     })
     univerRef.current = { univer, univerAPI }
 
-    const workbook = univerAPI.createWorkbook(resolved.workbookData as Partial<IWorkbookData>)
+    // Resume from a previously-saved full-sheet snapshot (free-form mode) if
+    // one exists — read via the ref (not the reactive `value` prop) since this
+    // effect intentionally only depends on `resolved?.workbookData` and must
+    // not remount Univer on every keystroke.
+    const savedSnapshot = isFreeForm ? (valueRef.current as Record<string, unknown> | undefined)?.__workbookSnapshot : undefined
+    const initialWorkbookData = savedSnapshot ?? resolved.workbookData
+    const workbook = univerAPI.createWorkbook(initialWorkbookData as Partial<IWorkbookData>)
 
     let disposed = false
     void (async () => {
@@ -116,17 +131,26 @@ export default function SpreadsheetFieldRuntime({ spreadsheet, value, onChange, 
       // (also never followed by setPoint) — so `isProtected()` is already
       // true on load, and every rule must still be walked to force Edit
       // false, not skipped as "already handled".
+      // Applied one range at a time, each independently caught — an xlsx import
+      // (unlike hand-authored Calc Template ranges) can produce dozens of tiny
+      // per-row locked ranges, and one Univer-side failure on any single range
+      // must not abort the rest of the loop (previously an uncaught rejection
+      // here silently left every later range in the list unprotected).
       const protectedRanges: ProtectedRangeMeta[] = resolved.protectedRanges ?? []
       for (const pr of protectedRanges) {
-        const sheet = workbook.getSheetBySheetId(pr.sheetId)
-        const range = sheet?.getRange(pr.range)
-        const rangePerm = range?.getRangePermission()
-        if (!rangePerm) continue
-        const rules = rangePerm.isProtected()
-          ? await rangePerm.listRules()
-          : [await rangePerm.protect({ name: pr.display, allowViewByOthers: true })]
-        for (const rule of rules) {
-          await rule.setPoint(univerAPI.Enum.RangePermissionPoint.Edit, false)
+        try {
+          const sheet = workbook.getSheetBySheetId(pr.sheetId)
+          const range = sheet?.getRange(pr.range)
+          const rangePerm = range?.getRangePermission()
+          if (!rangePerm) continue
+          const rules = rangePerm.isProtected()
+            ? await rangePerm.listRules()
+            : [await rangePerm.protect({ name: pr.display, allowViewByOthers: true })]
+          for (const rule of rules) {
+            await rule.setPoint(univerAPI.Enum.RangePermissionPoint.Edit, false)
+          }
+        } catch (err) {
+          console.error(`Failed to lock range ${pr.display} on sheet ${pr.sheetId}:`, err)
         }
       }
       if (disposed) return
@@ -176,6 +200,14 @@ export default function SpreadsheetFieldRuntime({ spreadsheet, value, onChange, 
       // (now-stale) snapshots rather than clobbering them.
       univerAPI.addEvent(univerAPI.Event.SheetValueChanged, () => {
         if (suppressListenerRef.current) return
+        if (isFreeForm) {
+          // No named fields to diff — every edit to a free-form sheet IS the
+          // change; re-serializing the whole workbook is idempotent so there's
+          // no multi-wave race to guard against here (unlike the field-keyed
+          // path below).
+          onChangeRef.current({ __workbookSnapshot: workbook.save() as unknown as Record<string, unknown> })
+          return
+        }
         let changed = false
         for (const f of inputFields) {
           const sheet = workbook.getSheetBySheetId(f.sheetId)
@@ -199,6 +231,88 @@ export default function SpreadsheetFieldRuntime({ spreadsheet, value, onChange, 
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [resolved?.workbookData])
+
+  // Univer positions a hidden contenteditable element (its keystroke-capture
+  // target for the canvas-rendered grid) far off-screen — confirmed live at
+  // (-909, -327) — instead of anchored near the selected cell. Focusing a
+  // cell moves DOM focus onto that element, and the browser's native
+  // "scroll the newly-focused element into view" then drags the whole page
+  // toward those negative coordinates, i.e. up and off — this is the
+  // reported "clicking a cell scrolls the page to the top" bug, confirmed
+  // reproducible only on this spreadsheet widget (not other page sections).
+  // Fix: capture every scrollable ancestor's (and window's) scroll offset
+  // right before the click, in the capture phase before Univer's own click
+  // handling runs, then snap it back immediately once focus lands — the
+  // cell itself still receives focus/keystrokes normally, only the page's
+  // own scroll position is protected from the side effect.
+  //
+  // A callback ref, not a plain useRef + a `useEffect(..., [])`: this
+  // component returns early with a placeholder <p>/<Spin> on several render
+  // paths above (loading, no workbookData yet) before the real wrapper
+  // <div> ever exists — an effect with an empty dependency array can run
+  // once against that first (wrapper-less) render and then never fire
+  // again once the real wrapper mounts later, permanently skipping
+  // attachment. A ref callback re-fires exactly when the DOM node itself
+  // actually appears or disappears, independent of render/effect ordering.
+  const detachScrollGuardRef = useRef<(() => void) | null>(null)
+  // useCallback with an empty dep array keeps this ref function's identity
+  // stable across re-renders — without it, React treats every render as "the
+  // ref changed" and detaches+reattaches on each one, which can race a
+  // pointerdown/focusin pair that lands right on top of one of those cycles
+  // (the freshly re-attached listener starts with `saved` reset to null,
+  // silently swallowing a focusin that arrives before this component's next
+  // pointerdown). A stable identity means React calls this exactly once on
+  // mount and once on unmount, matching a plain useEffect's semantics.
+  const attachScrollGuard = useCallback((wrapper: HTMLDivElement | null) => {
+    detachScrollGuardRef.current?.()
+    detachScrollGuardRef.current = null
+    if (!wrapper) return
+
+    const isScrollable = (el: Element) => {
+      const style = getComputedStyle(el)
+      return /(auto|scroll)/.test(style.overflowY) && el.scrollHeight > el.clientHeight
+    }
+    const scrollAncestors = (): Element[] => {
+      const els: Element[] = []
+      let node: Element | null = wrapper.parentElement
+      while (node && node !== document.body) {
+        if (isScrollable(node)) els.push(node)
+        node = node.parentElement
+      }
+      return els
+    }
+
+    let saved: { el: Element | Window; top: number }[] | null = null
+
+    const onPointerDown = () => {
+      saved = [{ el: window, top: window.scrollY }, ...scrollAncestors().map(el => ({ el, top: el.scrollTop }))]
+    }
+    const onFocusIn = () => {
+      if (!saved) return
+      const toRestore = saved
+      saved = null
+      // Let the browser finish its own focus-triggered scroll first, then
+      // snap back — restoring synchronously inside the same tick loses the
+      // race against that native behavior. A macrotask (setTimeout), not
+      // requestAnimationFrame: rAF only runs on the next compositor frame,
+      // which browsers skip entirely while the tab is backgrounded/hidden —
+      // confirmed live (document.hidden during automated testing silently
+      // starved rAF forever) — a plain timer has no such dependency.
+      setTimeout(() => {
+        for (const { el, top } of toRestore) {
+          if (el === window) window.scrollTo(window.scrollX, top)
+          else (el as Element).scrollTop = top
+        }
+      }, 0)
+    }
+
+    wrapper.addEventListener('pointerdown', onPointerDown, true)
+    wrapper.addEventListener('focusin', onFocusIn)
+    detachScrollGuardRef.current = () => {
+      wrapper.removeEventListener('pointerdown', onPointerDown, true)
+      wrapper.removeEventListener('focusin', onFocusIn)
+    }
+  }, [])
 
   // Reads EVERY declared field's (input and output) current cell value
   // straight from the live sheet and persists that full snapshot via
@@ -225,7 +339,7 @@ export default function SpreadsheetFieldRuntime({ spreadsheet, value, onChange, 
   }
 
   return (
-    <div className="flex border border-slate-200 rounded-lg overflow-hidden" style={{ height: 420 }}>
+    <div ref={attachScrollGuard} className="flex border border-slate-200 rounded-lg overflow-hidden" style={{ height: 420 }}>
       <div className="flex-1 min-w-0 relative">
         <div ref={containerRef} className="absolute inset-0" />
         {!ready && (

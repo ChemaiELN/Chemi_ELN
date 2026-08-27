@@ -112,12 +112,97 @@ function cellStyle(cell: ExcelJS.Cell): Record<string, unknown> {
   return s
 }
 
+// ── Cell protection ─────────────────────────────────────────────────────────
+// Excel's own default is every cell LOCKED once sheet protection is turned
+// on — the author only sets `protection.locked = false` on the specific
+// entry cells they colored and want the user to type into. So "locked" here
+// means "not explicitly unlocked", matching Excel's actual semantics, not
+// "explicitly marked locked".
+//
+// Fallback: several real STP templates color their entry cells (light
+// green) but never actually unchecked "Locked" in Format Cells before
+// turning on sheet protection — the file's own protection data says
+// everything is locked, contradicting the visual intent. A cell filled with
+// green is treated as unlocked even when its protection flag says otherwise.
+// Originally an exact-match against one hardcoded shade (EBF1DE, from the
+// first reference file this was built against) — confirmed too strict: a
+// second real upload marked its editable cells CCFF99, a visibly-different
+// green the exact match silently rejected, locking that file's entire sheet
+// (102 rows, every cell) with no way to tell from the UI why. Detecting
+// "green" by RGB channel dominance instead of one fixed hex handles any
+// shade of green uniformly. This workbook's own header bands are colored
+// too (orange/blue/red) and must stay locked — verified the channel check
+// rejects those: orange/red have R >= G, blue has B > G, so only genuinely
+// green-family fills (G clearly the highest channel) ever qualify.
+function hasEditableFillMarker(cell: ExcelJS.Cell): boolean {
+  const fill = cell.fill as any
+  if (fill?.type !== 'pattern' || fill.pattern !== 'solid') return false
+  const argb = fill.fgColor?.argb as string | undefined
+  const hex = argb?.slice(-6).toUpperCase()
+  if (!hex || hex.length !== 6) return false
+  const r = parseInt(hex.slice(0, 2), 16)
+  const g = parseInt(hex.slice(2, 4), 16)
+  const b = parseInt(hex.slice(4, 6), 16)
+  if ([r, g, b].some((n) => Number.isNaN(n))) return false
+  if (r === 255 && g === 255 && b === 255) return false // white/no-fill is never a marker
+  return g > r && g >= b && g - Math.min(r, b) >= 15
+}
+
+function colLetter(c0: number): string {
+  let n = c0 + 1
+  let s = ''
+  while (n > 0) {
+    const rem = (n - 1) % 26
+    s = String.fromCharCode(65 + rem) + s
+    n = Math.floor((n - 1) / 26)
+  }
+  return s
+}
+
+function rangeDisplay(r: { startRow: number; startColumn: number; endRow: number; endColumn: number }): string {
+  const a1 = `${colLetter(r.startColumn)}${r.startRow + 1}`
+  const a2 = `${colLetter(r.endColumn)}${r.endRow + 1}`
+  return a1 === a2 ? a1 : `${a1}:${a2}`
+}
+
+// Merges horizontally-contiguous locked cells per row into single ranges,
+// so a mostly-locked sheet doesn't produce one protection rule per cell.
+function computeLockedRanges(
+  ws: ExcelJS.Worksheet,
+  sheetId: string,
+  maxRow: number,
+  maxCol: number
+): { sheetId: string; range: { startRow: number; startColumn: number; endRow: number; endColumn: number }; display: string }[] {
+  if (!(ws as any).sheetProtection?.sheet) return []
+
+  const ranges: { sheetId: string; range: { startRow: number; startColumn: number; endRow: number; endColumn: number }; display: string }[] = []
+  for (let r = 0; r <= maxRow; r++) {
+    let runStart: number | null = null
+    for (let c = 0; c <= maxCol + 1; c++) {
+      let locked = false
+      if (c <= maxCol) {
+        const cell = ws.getCell(r + 1, c + 1)
+        const explicitlyUnlocked = (cell.style as any)?.protection?.locked === false
+        locked = !explicitlyUnlocked && !hasEditableFillMarker(cell)
+      }
+      if (locked) {
+        if (runStart === null) runStart = c
+      } else if (runStart !== null) {
+        const range = { startRow: r, startColumn: runStart, endRow: r, endColumn: c - 1 }
+        ranges.push({ sheetId, range, display: rangeDisplay(range) })
+        runStart = null
+      }
+    }
+  }
+  return ranges
+}
+
 // ── Sheet conversion ──────────────────────────────────────────────────────────
 function convertSheet(
   ws: ExcelJS.Worksheet,
   sheetId: string,
   styleTable: StyleTable
-): Record<string, unknown> {
+): { sheet: Record<string, unknown>; lockedRanges: ReturnType<typeof computeLockedRanges> } {
   const cellData: Record<string, Record<string, unknown>> = {}
   const mergeData: unknown[] = []
   const rowData: Record<string, { h: number }> = {}
@@ -132,6 +217,13 @@ function convertSheet(
       const c0 = colIdx - 1
       if (r0 > maxRow) maxRow = r0
       if (c0 > maxCol) maxCol = c0
+
+      // A merged cell's non-anchor members mirror the anchor's value via
+      // ExcelJS (cell.master !== cell), so without this guard every cell in
+      // a merge range — e.g. the A1:AZ1 title band — got the same text
+      // duplicated into it instead of being blank, which then rendered
+      // wrong/duplicated content once mergeData was applied on top.
+      if ((cell as any).isMerged && cell.master !== cell) return
 
       const raw = cell.value
       // ExcelJS represents a formula two ways: the master cell of a fill has
@@ -192,8 +284,10 @@ function convertSheet(
     if (rh) rowData[r0] = { h: Math.round(rh * 96 / 72) }
   })
 
-  // Merged cells
-  for (const [range] of Object.entries((ws as any).merges || {})) {
+  // Merged cells. ExcelJS exposes these as an array of range strings on
+  // ws.model.merges (e.g. 'A1:AZ1') — there is no `ws.merges` property, so
+  // reading that always silently produced zero merges regardless of the file.
+  for (const range of (ws.model as any)?.merges ?? []) {
     const [start, end] = (range as string).split(':')
     if (!start || !end) continue
     const toRC = (addr: string) => {
@@ -225,7 +319,9 @@ function convertSheet(
     freeze = { xSplit: fp.xSplit || 0, ySplit: fp.ySplit || 0, startRow: fp.ySplit || 0, startColumn: fp.xSplit || 0 }
   }
 
-  return {
+  const lockedRanges = computeLockedRanges(ws, sheetId, maxRow, maxCol)
+
+  return { sheet: {
     id: sheetId,
     name: ws.name,
     tabColor: null,
@@ -243,7 +339,7 @@ function convertSheet(
     rowHeader: { width: 46 },
     columnHeader: { height: 20 },
     rightToLeft: 0,
-  }
+  }, lockedRanges }
 }
 
 // ── Field suggestion ──────────────────────────────────────────────────────────
@@ -363,13 +459,16 @@ export async function convertXlsx(data: Buffer | ArrayBuffer, workbookName: stri
   const sheetOrder: string[] = []
   const sheets: Record<string, unknown> = {}
   const sheetIds: Record<string, string> = {}
+  let lockedRanges: ReturnType<typeof computeLockedRanges> = []
 
   wb.eachSheet((ws, id) => {
     const sheetId = `sheet-${String(sheetOrder.length + 1).padStart(2, '0')}`
     sheetOrder.push(sheetId)
     sheetIds[String(id)] = sheetId
     sheetIds[ws.name] = sheetId
-    sheets[sheetId] = convertSheet(ws, sheetId, styleTable)
+    const converted = convertSheet(ws, sheetId, styleTable)
+    sheets[sheetId] = converted.sheet
+    lockedRanges = lockedRanges.concat(converted.lockedRanges)
   })
 
   let formulaCount = 0
@@ -396,7 +495,7 @@ export async function convertXlsx(data: Buffer | ArrayBuffer, workbookName: stri
 
   return {
     workbook_data,
-    metadata: { fields: fieldSuggestion.fields, protectedRanges: fieldSuggestion.protectedRanges },
+    metadata: { fields: fieldSuggestion.fields, protectedRanges: lockedRanges },
     stats: {
       sheets: sheetOrder.length,
       formulas: formulaCount,

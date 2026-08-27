@@ -50,7 +50,10 @@ import { ESignatureModal } from '../../components/common/ESignatureModal'
 import { glassModalProps } from '../../utils/modalStyles'
 import RichEditor, { RichDisplay } from '../../components/RichEditor'
 import { ardUploadsApi } from '../../api/ard-uploads'
-import { Upload as UploadIcon } from 'lucide-react'
+import { ardProjectsApi } from '../../api/ard-projects'
+import { ardNotebooksApi } from '../../api/ard-notebooks'
+import { ardTemplateApi } from '../../api/ard'
+import { Upload as UploadIcon, BookOpen } from 'lucide-react'
 
 // One shared "Final Report" upload slot for the whole test (not per-parameter)
 // — reuses the generic ARD attachments backend with its own entity type so it
@@ -97,6 +100,230 @@ function FinalReportUpload({ testId, readOnly }: { testId: string; readOnly?: bo
         </Button>
       )}
     </>
+  )
+}
+
+// Links this test's "Notebook Reference" to real ELN data instead of a plain
+// text box no one could act on. Three modes, matching how a test actually
+// relates to notebook work: (1) a free-text note when there's nothing to
+// link yet, (2) point at an experiment that already exists, (3) spin up a
+// brand-new experiment (project + notebook + template) and link it in one
+// step. Existing/new both narrow Project/Notebook choices to ones the
+// current user can actually see, mirroring ArdNotebooksPage's own
+// accessibility filter so this picker can't offer something they'd 404 on.
+function NotebookReferencePicker({
+  testId, atrId, data, isEditable, onLinked,
+}: {
+  testId: string
+  atrId: string
+  data: TestDetail
+  isEditable: boolean
+  onLinked: () => void
+}) {
+  const user = useAppSelector(selectUser)
+  const [msgApi, ctx] = message.useMessage()
+  const [mode, setMode] = useState<'manual' | 'existing' | 'new'>(data.notebookRefLink ? 'existing' : 'manual')
+  const [manualText, setManualText] = useState(data.notebookRefLink ? '' : (data.notebookReference ?? ''))
+  const [projectId, setProjectId] = useState<string | undefined>()
+  const [notebookId, setNotebookId] = useState<string | undefined>()
+  // Deliberately NOT pre-filled from data.experimentId: the Experiment
+  // select's options only populate once a Notebook is chosen, so seeding a
+  // value with no matching option renders as a bare, meaningless UUID. The
+  // "Linked to experiment {code}" badge above already shows the current
+  // link — these selects are for picking a *new* one, not displaying the old.
+  const [experimentId, setExperimentId] = useState<string | undefined>()
+  const [newName, setNewName] = useState('')
+  const [newTemplateId, setNewTemplateId] = useState<string | undefined>()
+
+  const isUnscopedAdmin = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'QA', 'QC_MANAGER', 'TL', 'TEAM_LEAD'].includes(user?.role_code ?? '')
+
+  const { data: projectsData } = useQuery({
+    queryKey: ['ard-projects-list'],
+    queryFn: () => ardProjectsApi.list({ pageSize: 200 }),
+    enabled: mode !== 'manual',
+  })
+  const { data: notebooksData } = useQuery({
+    queryKey: ['ard-notebooks-list'],
+    queryFn: () => ardNotebooksApi.list({ pageSize: 200 }),
+    enabled: mode !== 'manual',
+  })
+  const { data: templatesData } = useQuery({
+    queryKey: ['ard-templates-published'],
+    queryFn: () => ardTemplateApi.published(),
+    enabled: mode === 'new',
+  })
+
+  // Same "am I on this project's team" check ArdNotebooksPage uses — keeps
+  // this picker's notion of "my projects" consistent with the rest of ARD.
+  const accessibleProjects = useMemo(() => {
+    const raw = projectsData?.items ?? []
+    if (isUnscopedAdmin || !user) return raw
+    return raw.filter((p) => {
+      const isOwner = p.ownerName === user.username || p.ownerId === user.id || p.createdById === user.id
+      const isTl = (p as any).assignedTl === user.username || (p as any).assignedTl === user.id
+      const isMember = ((p as any).team ?? p.teamMembers ?? []).some((m: any) =>
+        m.userName === user.username || m.username === user.username || m.userId === user.id || m.id === user.id
+      )
+      return isOwner || isTl || isMember
+    })
+  }, [projectsData?.items, isUnscopedAdmin, user])
+  const accessibleProjectIds = useMemo(() => new Set(accessibleProjects.map((p) => p.id)), [accessibleProjects])
+
+  const accessibleNotebooks = useMemo(() => {
+    const raw = notebooksData?.items ?? []
+    const scoped = isUnscopedAdmin || !user ? raw : raw.filter((nb) => {
+      const isCreator = nb.createdBy === user.username || nb.createdById === user.id
+      const isAssigned = ((nb as any).assignedUsers ?? []).some((u: any) => u.userId === user.id || u.userName === user.username)
+      const isProjectAssigned = nb.projectId ? accessibleProjectIds.has(nb.projectId) : false
+      return isCreator || isAssigned || isProjectAssigned
+    })
+    return projectId ? scoped.filter((nb) => nb.projectId === projectId) : scoped
+  }, [notebooksData?.items, accessibleProjectIds, isUnscopedAdmin, user, projectId])
+
+  const { data: experimentsData } = useQuery({
+    queryKey: ['ard-notebook-experiments', notebookId],
+    queryFn: () => ardNotebooksApi.experiments(notebookId!),
+    enabled: mode === 'existing' && !!notebookId,
+  })
+
+  const linkMut = useMutation({
+    mutationFn: (body: { experimentId?: string | null; notebookReference?: string | null }) =>
+      apiPost(`/api/ard/tests/${atrId}/${testId}/link-notebook`, body),
+    onSuccess: () => {
+      msgApi.success('Notebook reference updated.')
+      onLinked()
+    },
+    onError: (e: any) => msgApi.error(e?.detail || e?.message || 'Failed to update notebook reference.'),
+  })
+
+  const createAndLinkMut = useMutation({
+    mutationFn: async () => {
+      const exp = await apiPost<{ id: string }>('/api/ard/experiments', {
+        templateId: newTemplateId, notebookId, projectId, name: newName || undefined,
+      })
+      return apiPost(`/api/ard/tests/${atrId}/${testId}/link-notebook`, { experimentId: exp.id })
+    },
+    onSuccess: () => {
+      msgApi.success('Experiment created and linked.')
+      setNewName('')
+      setNewTemplateId(undefined)
+      onLinked()
+    },
+    onError: (e: any) => msgApi.error(e?.detail || e?.message || 'Failed to create experiment.'),
+  })
+
+  const busy = linkMut.isPending || createAndLinkMut.isPending
+
+  return (
+    <div className="sm:col-span-2">
+      {ctx}
+      <label className="text-xs text-slate-500 font-semibold uppercase tracking-wide block mb-1">
+        Notebook Reference
+      </label>
+
+      {data.notebookRefLink && data.experimentId && (
+        <div className="mb-2 flex items-center gap-1.5 text-xs text-indigo-700 bg-indigo-50 border border-indigo-100 rounded-md px-2 py-1 w-fit">
+          <BookOpen size={12} />
+          Linked to experiment <span className="font-mono font-semibold">{data.notebookReference}</span>
+        </div>
+      )}
+
+      {isEditable ? (
+        <div className="space-y-2">
+          <Segmented
+            size="small"
+            value={mode}
+            onChange={(v) => setMode(v as typeof mode)}
+            options={[
+              { label: 'Manual Note', value: 'manual' },
+              { label: 'Existing Experiment', value: 'existing' },
+              { label: 'New Experiment', value: 'new' },
+            ]}
+          />
+
+          {mode === 'manual' && (
+            <div className="flex gap-2">
+              <Input
+                value={manualText}
+                onChange={(e) => setManualText(e.target.value)}
+                placeholder="e.g. EXP-2024-001 — link to lab notebook experiment"
+              />
+              <Button size="small" loading={linkMut.isPending} disabled={busy}
+                onClick={() => linkMut.mutate({ notebookReference: manualText || null, experimentId: null })}>
+                Save
+              </Button>
+            </div>
+          )}
+
+          {mode === 'existing' && (
+            <div className="flex flex-wrap gap-2">
+              <Select
+                size="small" style={{ minWidth: 160 }} placeholder="Project"
+                allowClear showSearch optionFilterProp="label"
+                value={projectId}
+                onChange={(v) => { setProjectId(v); setNotebookId(undefined); setExperimentId(undefined) }}
+                options={accessibleProjects.map((p) => ({ value: p.id, label: `${p.code} — ${p.productName}` }))}
+              />
+              <Select
+                size="small" style={{ minWidth: 160 }} placeholder="Notebook"
+                allowClear showSearch optionFilterProp="label"
+                value={notebookId}
+                onChange={(v) => { setNotebookId(v); setExperimentId(undefined) }}
+                options={accessibleNotebooks.map((nb) => ({ value: nb.id, label: nb.name }))}
+              />
+              <Select
+                size="small" style={{ minWidth: 180 }} placeholder="Experiment"
+                showSearch optionFilterProp="label" disabled={!notebookId}
+                value={experimentId}
+                onChange={setExperimentId}
+                options={(experimentsData?.items ?? []).map((e) => ({ value: e.id, label: `${e.code}${e.templateName ? ` — ${e.templateName}` : ''}` }))}
+              />
+              <Button size="small" type="primary" loading={linkMut.isPending} disabled={busy || !experimentId}
+                onClick={() => linkMut.mutate({ experimentId })}>
+                Link
+              </Button>
+            </div>
+          )}
+
+          {mode === 'new' && (
+            <div className="flex flex-wrap gap-2">
+              <Select
+                size="small" style={{ minWidth: 160 }} placeholder="Project"
+                allowClear showSearch optionFilterProp="label"
+                value={projectId}
+                onChange={(v) => { setProjectId(v); setNotebookId(undefined) }}
+                options={accessibleProjects.map((p) => ({ value: p.id, label: `${p.code} — ${p.productName}` }))}
+              />
+              <Select
+                size="small" style={{ minWidth: 160 }} placeholder="Notebook"
+                allowClear showSearch optionFilterProp="label"
+                value={notebookId}
+                onChange={setNotebookId}
+                options={accessibleNotebooks.map((nb) => ({ value: nb.id, label: nb.name }))}
+              />
+              <Input
+                size="small" style={{ minWidth: 160, width: 200 }} placeholder="Experiment name"
+                value={newName} onChange={(e) => setNewName(e.target.value)}
+              />
+              <Select
+                size="small" style={{ minWidth: 180 }} placeholder="Template"
+                showSearch optionFilterProp="label"
+                value={newTemplateId}
+                onChange={setNewTemplateId}
+                options={(templatesData?.items ?? []).map((t) => ({ value: t.id, label: t.name }))}
+              />
+              <Button size="small" type="primary" loading={createAndLinkMut.isPending} disabled={busy || !notebookId || !newTemplateId}
+                onClick={() => createAndLinkMut.mutate()}>
+                Create &amp; Link
+              </Button>
+            </div>
+          )}
+        </div>
+      ) : (
+        <Input value={data.notebookReference ?? ''} disabled placeholder="No notebook reference set" />
+      )}
+      <p className="text-[10px] text-slate-400 mt-0.5">Link this test to a notebook experiment for traceability.</p>
+    </div>
   )
 }
 
@@ -197,6 +424,9 @@ interface TestDetail {
   testReassignRemarks?: string | null
   formCreatedById?: string | null
   priority?: string | null
+  experimentId?: string | null
+  notebookReference?: string | null
+  notebookRefLink?: boolean
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
@@ -629,12 +859,6 @@ export default function ArdTestExecutePage() {
     onError: (e: any) => message.error(e?.detail || e?.message || 'Failed to mark unsatisfactory.'),
   })
 
-  const generateArMut = useMutation({
-    mutationFn: () => apiPost(`/api/ard/tests/${atrId}/${testId}/generate-ar`, {}),
-    onSuccess: invalidate,
-    onError: (e: any) => message.error(e?.detail || e?.message || 'Failed to generate AR number.'),
-  })
-
   // ── Loading / error states ──────────────────────────────────────────────────
   if (isLoading) {
     return (
@@ -677,9 +901,16 @@ export default function ArdTestExecutePage() {
 
   const canPublishTentative = ['ANALYST', 'CHEM', 'TL'].includes(role)
   const canAcceptTest = ['HOD', 'QA', 'SUPER_ADMIN'].includes(role) || data.formCreatedById === user?.id
+  // Withdrawing a test is the requester's call, not the analyst executing
+  // it — pulling one's own assignment mid-test would drop work with no
+  // oversight, so this deliberately excludes isAssignedAnalyst.
+  const canWithdrawTest = data.formCreatedById === user?.id || canVerify
 
   const executingStatuses = ['ASSIGNED', 'IN_PROGRESS', 'VERIFICATION_REWORK', 'UNLOCKED']
   const isEditable = executingStatuses.includes(status) && canExecute && isAssignedAnalyst
+  // Notebook Reference is frozen until the test is actually started (AR
+  // number is generated on Start too — both happen together, not before).
+  const notebookRefEditable = isEditable && status !== 'ASSIGNED'
   const showEnhancementTab = (data.enhancementRequests?.length ?? 0) > 0 || ['ENHANCEMENT_REQUESTED', 'ENHANCEMENT_APPROVED'].includes(status)
 
 
@@ -790,7 +1021,7 @@ export default function ArdTestExecutePage() {
   const anyBusy = startMut.isPending || saveMut.isPending || submitMut.isPending
     || verifyMut.isPending || reworkMut.isPending
     || publishTentativeMut.isPending || acceptTestMut.isPending
-    || withdrawMut.isPending || unsatMut.isPending || generateArMut.isPending
+    || withdrawMut.isPending || unsatMut.isPending
 
   // ── Tab items definition ──────────────────────────────────────────────────
   const testTabItems = [
@@ -825,21 +1056,13 @@ export default function ArdTestExecutePage() {
 
           {/* Remarks + analysis fields */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 border-t border-slate-100 pt-4">
-            <div className="sm:col-span-2">
-              <label className="text-xs text-slate-500 font-semibold uppercase tracking-wide block mb-1">
-                Notebook Reference
-              </label>
-              <Input
-                value={(data as any).experimentId ?? ''}
-                disabled={!isEditable}
-                placeholder="e.g. EXP-2024-001 — link to lab notebook experiment"
-                onChange={e => {
-                  // stored via save-results payload; local state via results mutation's body
-                  void e // handled on Save Results through results payload
-                }}
-              />
-              <p className="text-[10px] text-slate-400 mt-0.5">Link this test to a notebook experiment for traceability.</p>
-            </div>
+            <NotebookReferencePicker
+              testId={testId}
+              atrId={atrId}
+              data={data}
+              isEditable={notebookRefEditable}
+              onLinked={invalidate}
+            />
             <div>
               <label className="text-xs text-slate-500 font-semibold uppercase tracking-wide block mb-1">
                 Analyzed By
@@ -1249,20 +1472,7 @@ export default function ArdTestExecutePage() {
             </Button>
           )}
 
-          {/* Generate AR Number (explicit step before Start) */}
-          {status === 'ASSIGNED' && canExecute && isAssignedAnalyst && !data.arNumber && (
-            <Button
-              icon={<FlaskConical size={14} className="text-violet-600" />}
-              loading={generateArMut.isPending}
-              disabled={anyBusy}
-              onClick={() => generateArMut.mutate()}
-              className="border-violet-500 text-violet-700 bg-violet-50 hover:bg-violet-100 font-semibold"
-            >
-              Generate AR No.
-            </Button>
-          )}
-
-          {/* Start Test */}
+          {/* Start Test — AR number is generated as part of this action, not before */}
           {status === 'ASSIGNED' && canExecute && isAssignedAnalyst && (
             <Button
               type="primary"
@@ -1344,7 +1554,7 @@ export default function ArdTestExecutePage() {
           )}
 
           {/* Withdraw Test */}
-          {['ASSIGNED', 'IN_PROGRESS', 'VERIFICATION_REWORK', 'UNASSIGNED'].includes(status) && (isAssignedAnalyst || canVerify) && (
+          {['ASSIGNED', 'IN_PROGRESS', 'VERIFICATION_REWORK', 'UNASSIGNED'].includes(status) && canWithdrawTest && (
             <Button
               icon={<RotateCcw size={14} />}
               loading={withdrawMut.isPending}

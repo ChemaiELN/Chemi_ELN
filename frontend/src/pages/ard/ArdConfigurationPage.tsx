@@ -3,9 +3,9 @@ import { useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Tabs, Table, Button, Modal, Form, Input, InputNumber, Select, Switch, Checkbox,
-  Tag, message, Card, Empty, DatePicker, Tooltip, Space, Alert, Segmented, Upload, Popconfirm,
+  Tag, message, Card, Empty, DatePicker, Tooltip, Space, Alert, Segmented, Upload, Popconfirm, Spin,
 } from 'antd'
-import { Plus, Edit3, Trash2, Search, Users as UsersIcon, Eye, FileText, AlertTriangle, LayoutList, Award, ShieldCheck, Download, Upload as UploadIcon, Settings, Check, X } from 'lucide-react'
+import { Plus, Edit3, Trash2, Search, Users as UsersIcon, Eye, FileText, AlertTriangle, LayoutList, Award, ShieldCheck, Download, Upload as UploadIcon, Settings, Check, X, RotateCcw } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
   ardApi, ardSectionApi, ardDataItemApi, ardTemplateApi,
@@ -18,6 +18,7 @@ import {
 import { adminApi, type UserOut } from '../../api/admin'
 import { ApiError, apiDownloadBlob, apiPost } from '../../api/client'
 import RichEditor from '../../components/RichEditor'
+import SpreadsheetFieldRuntime from '../admin/templateBuilder/SpreadsheetFieldRuntime'
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
@@ -1262,24 +1263,92 @@ const DATA_ITEM_TYPES: { value: ArdDataItemType; label: string }[] = [
   { value: 'DATE', label: 'Date' }, { value: 'LOV', label: 'LOV' },
 ]
 
+// Standalone Add/Edit Data Item modal — shared by DataItemsTab (its own
+// dedicated screen) and the Params section editor's "Add Item" button, so a
+// new Data Item can be created without leaving the section being authored.
+function AddDataItemModal({ open, onClose, onSaved, editing, lovLookupTypes }: {
+  open: boolean
+  onClose: () => void
+  onSaved: (item: ArdDataItem) => void
+  editing?: ArdDataItem | null
+  lovLookupTypes: string[]
+}) {
+  const qc = useQueryClient()
+  const [msg, ctx] = message.useMessage()
+  const [form] = Form.useForm()
+  const dataType = Form.useWatch('dataType', form)
+
+  useEffect(() => {
+    if (!open) return
+    form.resetFields()
+    form.setFieldsValue(editing ? { ...editing } : { name: '', dataType: 'INTEGER', description: '' })
+  }, [open, editing, form])
+
+  const save = useMutation({
+    mutationFn: (v: Record<string, unknown>) => (editing ? ardDataItemApi.save(editing.id, v) : ardDataItemApi.create(v)),
+    onSuccess: (saved) => {
+      qc.invalidateQueries({ queryKey: ['ard-master-data'] })
+      qc.invalidateQueries({ queryKey: ['ard-data-items-active'] })
+      msg.success(`"${saved.name}" ${editing ? 'updated' : 'added'}.`)
+      onSaved(saved)
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save data item.'),
+  })
+
+  return (
+    <>
+      {ctx}
+      <Modal
+        {...glassModalProps} destroyOnClose title={editing ? 'Edit Data Item' : 'Add Data Item'}
+        open={open} onCancel={onClose}
+        onOk={() => form.validateFields().then((v) => save.mutate({ ...v, active: editing ? editing.active : true }))}
+        confirmLoading={save.isPending}
+      >
+        <Form form={form} layout="vertical">
+          <Form.Item name="name" label="Dataitem Name" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="dataType" label="Data Type" rules={[{ required: true }]}><Select options={DATA_ITEM_TYPES} /></Form.Item>
+          {dataType === 'LOV' && (
+            <Form.Item name="lovLookupType" label="Select LOV Lookup Type" rules={[{ required: true, message: 'Select which Inventory lookup type supplies the selectable values' }]}>
+              <Select showSearch options={lovLookupTypes.map((t) => ({ value: t, label: t }))} placeholder="Select a lookup type..." />
+            </Form.Item>
+          )}
+          <Form.Item name="description" label="Description"><TextArea rows={2} /></Form.Item>
+        </Form>
+      </Modal>
+    </>
+  )
+}
+
+// One input control per Data Item type — used by the Params section editor's
+// live Preview so it shows exactly what the field will look like, without
+// needing the real (not yet built) experiment-runtime params renderer.
+function DataItemPreviewField({ item }: { item: { name: string; dataType: string } }) {
+  return (
+    <div className="border border-slate-200 rounded overflow-hidden flex flex-col sm:flex-row">
+      <div className="bg-slate-100 text-xs font-medium text-slate-700 px-2.5 py-2 sm:w-1/2 flex items-center">{item.name}</div>
+      <div className="p-1.5 sm:w-1/2">
+        {item.dataType === 'DATE' ? (
+          <DatePicker size="small" style={{ width: '100%' }} disabled />
+        ) : item.dataType === 'LOV' ? (
+          <Select size="small" style={{ width: '100%' }} placeholder="Select" disabled />
+        ) : (
+          <Input size="small" disabled type={item.dataType === 'INTEGER' ? 'number' : 'text'} />
+        )}
+      </div>
+    </div>
+  )
+}
+
 function DataItemsTab({ data }: { data: ArdMasterDataState }) {
   const qc = useQueryClient()
   const [msg, ctx] = message.useMessage()
   const [open, setOpen] = useState(false)
   const [editing, setEditing] = useState<ArdDataItem | null>(null)
   const [search, setSearch] = useState('')
-  const [form] = Form.useForm()
-  const dataType = Form.useWatch('dataType', form)
 
   const { data: lovLookupTypes } = useQuery({
     queryKey: ['ard-data-item-lov-lookup-types'],
     queryFn: ardDataItemApi.lovLookupTypes,
-  })
-
-  const save = useMutation({
-    mutationFn: (v: Record<string, unknown>) =>
-      editing ? ardDataItemApi.save(editing.id, v) : ardDataItemApi.create(v),
-    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save data item.'),
   })
 
   const toggleActive = (row: ArdDataItem, checked: boolean) => {
@@ -1293,21 +1362,6 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
     )
   }
 
-  const submitForm = (values: Record<string, unknown>) => {
-    const isEdit = !!editing
-    save.mutate({ ...values, active: editing ? editing.active : true }, {
-      onSuccess: () => {
-        // A newly created/edited data item must also show up immediately in the
-        // Sections tab's data-item picker (queryKey ['ard-data-items-active']) —
-        // without this, it stayed invisible there until a full page reload.
-        qc.invalidateQueries({ queryKey: ['ard-master-data'] })
-        qc.invalidateQueries({ queryKey: ['ard-data-items-active'] })
-        msg.success(`"${values.name}" ${isEdit ? 'updated' : 'added'}.`)
-        setOpen(false)
-      },
-    })
-  }
-
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase()
     if (!q) return data.dataItems
@@ -1316,8 +1370,6 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
 
   const openModal = (row?: ArdDataItem) => {
     setEditing(row ?? null)
-    form.resetFields()
-    form.setFieldsValue(row ? { ...row } : { name: '', dataType: 'INTEGER', description: '' })
     setOpen(true)
   }
 
@@ -1357,19 +1409,11 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
           },
         ]}
       />
-      <Modal {...glassModalProps} destroyOnClose title={editing ? 'Edit Data Item' : 'Add Data Item'} open={open} onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
-        <Form form={form} layout="vertical">
-          <Form.Item name="name" label="Dataitem Name" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="dataType" label="Data Type" rules={[{ required: true }]}><Select options={DATA_ITEM_TYPES} /></Form.Item>
-          {dataType === 'LOV' && (
-            <Form.Item name="lovLookupType" label="Select LOV Lookup Type" rules={[{ required: true, message: 'Select which Inventory lookup type supplies the selectable values' }]}>
-              <Select showSearch options={(lovLookupTypes?.items ?? []).map((t) => ({ value: t, label: t }))} placeholder="Select a lookup type..." />
-            </Form.Item>
-          )}
-          <Form.Item name="description" label="Description"><TextArea rows={2} /></Form.Item>
-        </Form>
-      </Modal>
+      <AddDataItemModal
+        open={open} onClose={() => setOpen(false)} editing={editing}
+        lovLookupTypes={lovLookupTypes?.items ?? []}
+        onSaved={() => setOpen(false)}
+      />
     </div>
   )
 }
@@ -1379,12 +1423,116 @@ function DataItemsTab({ data }: { data: ArdMasterDataState }) {
 // Template Builder — content authoring moved out of the builder into this tab.
 
 const RICHTEXT_SECTION_TYPES: SectionType[] = ['richtext', 'standard_preparation']
-const DATATABLE_SECTION_TYPES: SectionType[] = ['table', 'combined']
+const DATATABLE_SECTION_TYPES: SectionType[] = ['table', 'combined', 'weighing', 'ph', 'equipment', 'column', 'chemical', 'sample_details', 'quantitative_result', 'further_actions']
 const SINGLE_DATA_ITEM_SECTION_TYPES: SectionType[] = ['data_item', 'autocomplete_data_item']
 // 'combined' = Param block + Data Table block together, matching the legacy
 // "Combined" section screen (product owner review 2026-08-20).
 const MULTI_DATA_ITEM_SECTION_TYPES: SectionType[] = ['params', 'combined']
 const EMBEDDED_FILE_SECTION_TYPES: SectionType[] = ['preconfigured_excel']
+const CONTENT_BLOCK_SECTION_TYPES: SectionType[] = ['content_block']
+// Lab Component GxP blocks use old's fixed free-text key/title columns, not a
+// Master Data link — 'table'/'combined' stay on the governed dataItemId
+// editor. Kept in sync with ArdTemplateBuilderPage.tsx's LAB_FREE_TEXT_TYPES.
+const LAB_FREE_TEXT_SECTION_TYPES: SectionType[] = ['weighing', 'ph', 'equipment', 'column', 'chemical', 'sample_details', 'quantitative_result', 'further_actions']
+
+function defaultGxPColumnsFor(type: SectionType): { columnKey: string; columnLabel: string }[] {
+  if (type === 'sample_details') {
+    return [
+      { columnKey: 'atr_form_no', columnLabel: 'ATR Form No.' },
+      { columnKey: 'project_code', columnLabel: 'Project Code' },
+      { columnKey: 'sample_code', columnLabel: 'Sample Code' },
+      { columnKey: 'sample_type', columnLabel: 'Sample Type' },
+      { columnKey: 'test_subtype', columnLabel: 'Test Sub-type' },
+      { columnKey: 'batch_no', columnLabel: 'Batch No.' },
+      { columnKey: 'sample_condition', columnLabel: 'Sample Condition' },
+      { columnKey: 'qty', columnLabel: 'Quantity / UOM' },
+      { columnKey: 'ar_number', columnLabel: 'AR Number' },
+      { columnKey: 'status', columnLabel: 'Status' },
+    ]
+  }
+  if (type === 'weighing') {
+    return [
+      { columnKey: 'substance', columnLabel: 'Substance / Sample Name' },
+      { columnKey: 'tare_wt', columnLabel: 'Tare Weight (g)' },
+      { columnKey: 'gross_wt', columnLabel: 'Gross Weight (g)' },
+      { columnKey: 'net_wt', columnLabel: 'Net Weight (g)' },
+      { columnKey: 'balance_id', columnLabel: 'Balance ID' },
+    ]
+  }
+  if (type === 'ph') {
+    return [
+      { columnKey: 'solution_name', columnLabel: 'Solution Name' },
+      { columnKey: 'ph_val', columnLabel: 'Measured pH' },
+      { columnKey: 'temperature', columnLabel: 'Temperature (°C)' },
+      { columnKey: 'buffer_used', columnLabel: 'Buffer Standard' },
+      { columnKey: 'meter_id', columnLabel: 'pH Meter ID' },
+    ]
+  }
+  if (type === 'equipment') {
+    return [
+      { columnKey: 'equipment_name', columnLabel: 'Equipment Name' },
+      { columnKey: 'equipment_id', columnLabel: 'Equipment ID' },
+      { columnKey: 'cal_due_date', columnLabel: 'Calibration Due' },
+      { columnKey: 'operator', columnLabel: 'Operator' },
+    ]
+  }
+  if (type === 'column') {
+    return [
+      { columnKey: 'column_name', columnLabel: 'Column Name' },
+      { columnKey: 'serial_no', columnLabel: 'Serial No.' },
+      { columnKey: 'dimension', columnLabel: 'Dimensions (LxIDxP)' },
+      { columnKey: 'inj_count', columnLabel: 'Injections' },
+      { columnKey: 'theo_plates', columnLabel: 'Plates (N)' },
+      { columnKey: 'tailing_factor', columnLabel: 'Tailing (TF)' },
+    ]
+  }
+  if (type === 'chemical') {
+    return [
+      { columnKey: 'chemical_name', columnLabel: 'Reagent / Chemical' },
+      { columnKey: 'grade', columnLabel: 'Grade' },
+      { columnKey: 'batch_no', columnLabel: 'Batch / Lot No.' },
+      { columnKey: 'exp_date', columnLabel: 'Expiry Date' },
+      { columnKey: 'manufacturer', columnLabel: 'Manufacturer' },
+    ]
+  }
+  if (type === 'quantitative_result') {
+    return [
+      { columnKey: 'param_code', columnLabel: 'Param Code' },
+      { columnKey: 'param_name', columnLabel: 'Parameter Name' },
+      { columnKey: 'specification', columnLabel: 'Specification Limit' },
+      { columnKey: 'result', columnLabel: 'Observed Result' },
+      { columnKey: 'uom', columnLabel: 'UOM' },
+      { columnKey: 'compliance', columnLabel: 'Compliance' },
+    ]
+  }
+  if (type === 'further_actions') {
+    return [
+      { columnKey: 'action_required', columnLabel: 'Action Required' },
+      { columnKey: 'assigned_to', columnLabel: 'Assigned To' },
+      { columnKey: 'target_date', columnLabel: 'Target Date' },
+      { columnKey: 'status', columnLabel: 'Status' },
+    ]
+  }
+  return []
+}
+
+// A non-developer author only ever needs to name a column ("Observed PH")
+// — the internal storage key (observed_ph) is dev-flavored and meaningless
+// to them, so it's derived automatically and hidden by default (see
+// columnsAdvanced below). Only exposed for the rare case someone needs to
+// match an existing key exactly.
+function slugifyColumnKey(label: string): string {
+  const base = label.toLowerCase().trim().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '')
+  return base || 'field'
+}
+function uniqueColumnKey(label: string, existing: { columnKey?: string | null }[], skipIndex: number): string {
+  const base = slugifyColumnKey(label)
+  const taken = new Set(existing.filter((_, i) => i !== skipIndex).map((c) => c.columnKey))
+  if (!taken.has(base)) return base
+  let i = 2
+  while (taken.has(`${base}_${i}`)) i++
+  return `${base}_${i}`
+}
 
 function SectionsTab() {
   const qc = useQueryClient()
@@ -1394,10 +1542,33 @@ function SectionsTab() {
   const [search, setSearch] = useState('')
   const [form] = Form.useForm()
   const sectionType: SectionType | undefined = Form.useWatch('sectionType', form)
-  const [columns, setColumns] = useState<{ dataItemId: string; relativeWidth: number; isMandatory: boolean }[]>([])
+  const editorHeight: number | undefined = Form.useWatch('editorHeight', form)
+  const [columns, setColumns] = useState<{ dataItemId?: string | null; columnKey?: string | null; columnLabel?: string | null; relativeWidth: number; isMandatory: boolean }[]>([])
+  // Key column hidden by default (auto-derived from Label as the author
+  // types) — "Advanced" reveals it for manual editing.
+  const [columnsAdvanced, setColumnsAdvanced] = useState(false)
   const [dataItemLinks, setDataItemLinks] = useState<{ dataItemId: string; isMandatory: boolean }[]>([])
   const [singleDataItemId, setSingleDataItemId] = useState<string | undefined>()
-  const [uploadFile, setUploadFile] = useState<File | null>(null)
+  const [contentBlockId, setContentBlockId] = useState<string | undefined>()
+  // Embedded spreadsheet — parsed client-side-triggered (server does the real
+  // xlsx→Univer conversion) the instant a file is picked, so the preview shows
+  // up immediately without requiring the section to be saved first. `pendingSheetFile`
+  // is only set when the user picked a NEW file this session — that's what
+  // actually gets persisted (re-uploaded for real) once Save succeeds.
+  const [pendingSheetFile, setPendingSheetFile] = useState<File | null>(null)
+  const [parsedSheet, setParsedSheet] = useState<{ fileName: string; workbookData: Record<string, unknown>; metadata: Record<string, unknown> } | null>(null)
+  const [parsingSheet, setParsingSheet] = useState(false)
+  const [richContent, setRichContent] = useState('')
+  // Params editor — "Add Item" opens the real Add Data Item modal inline so a
+  // brand-new data item can be created without leaving the section, and the
+  // Preview toggle renders one input per linked item so the author can see
+  // what the section will actually look like.
+  const [addItemOpen, setAddItemOpen] = useState(false)
+  const [showParamsPreview, setShowParamsPreview] = useState(false)
+  // Data Table's own name/description — a separate ArdSectionDatatable.name/description
+  // pair, distinct from the section's own Name field above.
+  const [datatableName, setDatatableName] = useState('')
+  const [datatableDescription, setDatatableDescription] = useState('')
 
   const { data, isLoading } = useQuery({
     queryKey: ['ard-sections'],
@@ -1407,6 +1578,14 @@ function SectionsTab() {
   const { data: dataItems } = useQuery({
     queryKey: ['ard-data-items-active'],
     queryFn: () => ardDataItemApi.list({ is_active: 'true', pageSize: 500 }),
+  })
+  const { data: lovLookupTypes } = useQuery({
+    queryKey: ['ard-data-item-lov-lookup-types'],
+    queryFn: ardDataItemApi.lovLookupTypes,
+  })
+  const { data: contentBlocksData } = useQuery({
+    queryKey: ['ard-content-blocks'],
+    queryFn: () => ardApi.listContentBlocks(),
   })
 
   const invalidate = () => {
@@ -1436,24 +1615,55 @@ function SectionsTab() {
     return items.filter((s) => s.name.toLowerCase().includes(q) || s.sectionType.toLowerCase().includes(q))
   }, [data, search])
 
+  const [modalLoading, setModalLoading] = useState(false)
+
+  const populateModal = (row: ArdMasterSection) => {
+    setEditing(row)
+    form.setFieldsValue({
+      name: row.name, description: row.description, uniqueIdentifier: row.uniqueIdentifier,
+      sectionType: row.sectionType,
+      editorHeight: row.richtext?.editorHeight ?? 200,
+    })
+    setRichContent(row.richtext?.defaultContent ?? '')
+    setColumns((row.datatable?.columns ?? []).map((c) => ({ dataItemId: c.dataItemId, columnKey: c.columnKey, columnLabel: c.columnLabel, relativeWidth: c.relativeWidth, isMandatory: c.isMandatory })))
+    setDatatableName(row.datatable?.name ?? '')
+    setDatatableDescription(row.datatable?.description ?? '')
+    setDataItemLinks((row.dataItemLinks ?? []).map((l) => ({ dataItemId: l.dataItemId, isMandatory: l.isMandatory })))
+    setSingleDataItemId(row.dataItemLinks?.[0]?.dataItemId)
+    setContentBlockId(row.contentBlockId ?? undefined)
+    setPendingSheetFile(null)
+    setParsedSheet(row.embeddedFile?.workbookData
+      ? { fileName: row.embeddedFile.fileName ?? 'spreadsheet.xlsx', workbookData: row.embeddedFile.workbookData, metadata: row.embeddedFile.metadata ?? {} }
+      : null)
+  }
+
   const openModal = (row?: ArdMasterSection) => {
-    setEditing(row ?? null)
     form.resetFields()
     if (row) {
-      form.setFieldsValue({
-        name: row.name, description: row.description, uniqueIdentifier: row.uniqueIdentifier,
-        sectionType: row.sectionType, defaultContent: row.richtext?.defaultContent ?? '',
-      })
-      setColumns((row.datatable?.columns ?? []).map((c) => ({ dataItemId: c.dataItemId, relativeWidth: c.relativeWidth, isMandatory: c.isMandatory })))
-      setDataItemLinks((row.dataItemLinks ?? []).map((l) => ({ dataItemId: l.dataItemId, isMandatory: l.isMandatory })))
-      setSingleDataItemId(row.dataItemLinks?.[0]?.dataItemId)
-    } else {
-      form.setFieldsValue({ name: '', description: '', uniqueIdentifier: '', sectionType: 'richtext', defaultContent: '' })
-      setColumns([])
-      setDataItemLinks([])
-      setSingleDataItemId(undefined)
+      // The list row is a lightweight summary (no richtext/datatable/embeddedFile/
+      // dataItemLinks — see sectionSummaryOut on the backend) — populating the edit
+      // form straight from it would show blank content for an existing section and
+      // risk overwriting real data with that blank on save. Fetch the full record.
+      setEditing(row)
+      setModalLoading(true)
+      setOpen(true)
+      ardSectionApi.get(row.id).then(
+        (full) => { populateModal(full); setModalLoading(false) },
+        (e) => { setModalLoading(false); setOpen(false); msg.error(e instanceof ApiError ? e.detail : 'Failed to load section.') },
+      )
+      return
     }
-    setUploadFile(null)
+    setEditing(null)
+    form.setFieldsValue({ name: '', description: '', uniqueIdentifier: '', sectionType: 'richtext', editorHeight: 200 })
+    setRichContent('')
+    setColumns([])
+    setDataItemLinks([])
+    setSingleDataItemId(undefined)
+    setContentBlockId(undefined)
+    setPendingSheetFile(null)
+    setParsedSheet(null)
+    setDatatableName('')
+    setDatatableDescription('')
     setOpen(true)
   }
 
@@ -1465,10 +1675,10 @@ function SectionsTab() {
       sectionType: stype, active: editing ? editing.active : true,
     }
     if (RICHTEXT_SECTION_TYPES.includes(stype)) {
-      body.richtext = { defaultContent: values.defaultContent ?? null }
+      body.richtext = { defaultContent: richContent || null, editorHeight: values.editorHeight ?? null, editorWidth: 100 }
     }
     if (DATATABLE_SECTION_TYPES.includes(stype)) {
-      body.datatable = { typicalRowCount: 3, columns: columns.map((c, i) => ({ ...c, sequenceNumber: i })) }
+      body.datatable = { name: datatableName || null, description: datatableDescription || null, typicalRowCount: 3, columns: columns.map((c, i) => ({ ...c, sequenceNumber: i })) }
     }
     if (SINGLE_DATA_ITEM_SECTION_TYPES.includes(stype)) {
       if (!singleDataItemId) { msg.error('Select a linked data item.'); return }
@@ -1477,18 +1687,26 @@ function SectionsTab() {
     if (MULTI_DATA_ITEM_SECTION_TYPES.includes(stype)) {
       body.dataItemLinks = dataItemLinks.map((l, i) => ({ ...l, sequenceNumber: i }))
     }
+    if (CONTENT_BLOCK_SECTION_TYPES.includes(stype)) {
+      if (!contentBlockId) { msg.error('Select a content block.'); return }
+      body.contentBlockId = contentBlockId
+    }
 
     save.mutate(body, {
       onSuccess: (saved) => {
         invalidate()
-        msg.success(`"${values.name}" ${isEdit ? 'updated' : 'added'}.`)
-        setOpen(false)
-        if (!isEdit && EMBEDDED_FILE_SECTION_TYPES.includes(stype) && uploadFile) {
-          ardSectionApi.uploadEmbeddedFile(saved.id, uploadFile).then(
-            () => { invalidate(); msg.success('Spreadsheet uploaded.') },
-            (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to upload spreadsheet.'),
+        // The spreadsheet itself was only parsed for preview so far (parse-embedded-file
+        // doesn't persist anything) — now that the section has a real id, re-upload the
+        // same file for real so it's actually saved.
+        if (pendingSheetFile) {
+          ardSectionApi.uploadEmbeddedFile(saved.id, pendingSheetFile).then(
+            () => { invalidate(); msg.success(`"${values.name}" ${isEdit ? 'updated' : 'added'}.`) },
+            (e) => msg.error(e instanceof ApiError ? e.detail : 'Section saved, but the spreadsheet failed to upload — try replacing it from Edit.'),
           )
+        } else {
+          msg.success(`"${values.name}" ${isEdit ? 'updated' : 'added'}.`)
         }
+        setOpen(false)
       },
     })
   }
@@ -1512,7 +1730,6 @@ function SectionsTab() {
         columns={[
           { title: 'Name', dataIndex: 'name' },
           { title: 'Type', dataIndex: 'sectionType', render: (v) => sectionTypes?.find((t) => t.type === v)?.label ?? v },
-          { title: 'Identifier', dataIndex: 'uniqueIdentifier', render: (v) => v ?? '—' },
           { title: 'Created By / On', key: 'created', render: renderCreatedByOn },
           { title: 'Updated By / On', key: 'updated', render: renderUpdatedByOn },
           {
@@ -1535,17 +1752,16 @@ function SectionsTab() {
         style={{ top: 24 }}
         styles={{ ...glassModalStyles, body: { ...glassModalStyles.body, maxHeight: '78vh', overflowY: 'auto' } }}
         title={editing ? 'Edit Section' : 'Add Section'} open={open} onCancel={() => setOpen(false)}
-        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
+        onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending || modalLoading}>
+        <Spin spinning={modalLoading}>
         <Form form={form} layout="vertical">
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-x-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
             <Form.Item name="name" label="Name" rules={[{ required: true }]}><Input /></Form.Item>
-            <Form.Item name="uniqueIdentifier" label="Unique Identifier" extra="Optional — combined with Name must be unique."><Input className="font-mono text-xs" /></Form.Item>
             <Form.Item name="sectionType" label="Section Type" rules={[{ required: true }]}>
               <Select options={(sectionTypes ?? []).map((t) => ({ value: t.type, label: t.label }))} disabled={!!editing} />
             </Form.Item>
           </div>
           {editing && <p className="text-[11px] text-slate-400 -mt-2 mb-3">Section type cannot be changed after creation.</p>}
-          <Form.Item name="description" label="Description"><TextArea rows={2} /></Form.Item>
 
           {sectionType === 'combined' && (
             <p className="text-[11px] text-slate-500 bg-indigo-50/60 border border-indigo-100 rounded px-2.5 py-1.5 -mt-1 mb-3">
@@ -1554,99 +1770,306 @@ function SectionsTab() {
           )}
 
           {sectionType && RICHTEXT_SECTION_TYPES.includes(sectionType) && (
-            <Form.Item name="defaultContent" label="Default Content">
-              <TextArea rows={4} placeholder="Rich text body shown when this section is attached..." />
-            </Form.Item>
-          )}
-
-          {sectionType && SINGLE_DATA_ITEM_SECTION_TYPES.includes(sectionType) && (
-            <Form.Item label="Linked Data Item" required>
-              <Select showSearch optionFilterProp="label" placeholder="Select a data item..." value={singleDataItemId} onChange={setSingleDataItemId} options={dataItemOptions} />
-            </Form.Item>
-          )}
-
-          {sectionType && MULTI_DATA_ITEM_SECTION_TYPES.includes(sectionType) && (
-            <div className="space-y-2 border-t border-slate-100 pt-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold tracking-wide text-slate-700 uppercase">Param</label>
-                <Select
-                  size="small" showSearch optionFilterProp="label" placeholder="Add a data item..." style={{ width: 220 }}
-                  value={null}
-                  onChange={(v: string) => { if (!dataItemLinks.some((l) => l.dataItemId === v)) setDataItemLinks([...dataItemLinks, { dataItemId: v, isMandatory: false }]) }}
-                  options={dataItemOptions.filter((o) => !dataItemLinks.some((l) => l.dataItemId === o.value))}
-                />
-              </div>
-              {dataItemLinks.map((l, i) => {
-                const item = (dataItems?.items ?? []).find((d) => d.id === l.dataItemId)
-                return (
-                  <div key={l.dataItemId} className="flex items-center gap-2 bg-slate-50/70 p-2 rounded border border-slate-200">
-                    <span className="text-xs flex-1 truncate">{item?.name ?? l.dataItemId}</span>
-                    <Checkbox checked={l.isMandatory} onChange={(e) => setDataItemLinks(dataItemLinks.map((x, xi) => xi === i ? { ...x, isMandatory: e.target.checked } : x))}>
-                      <span className="text-xs">Mandatory</span>
-                    </Checkbox>
-                    <Button type="text" danger size="small" icon={<Trash2 size={13} />} onClick={() => setDataItemLinks(dataItemLinks.filter((_, xi) => xi !== i))} />
-                  </div>
-                )
-              })}
+            <div className="border border-slate-200 rounded-lg p-3 mb-4">
+              <Form.Item name="editorHeight" label="Height" extra="How tall this rich-text box renders wherever the section is used — content beyond this scrolls inside the box." rules={[{ required: true, message: 'Height is required' }]}>
+                <InputNumber min={60} step={20} style={{ width: 160 }} placeholder="e.g. 200" addonAfter="px" />
+              </Form.Item>
+              <Form.Item label="Default Content" className="mb-0">
+                <RichEditor value={richContent} onChange={setRichContent} height={editorHeight || 200} />
+              </Form.Item>
             </div>
           )}
 
-          {sectionType && DATATABLE_SECTION_TYPES.includes(sectionType) && (
-            <div className="space-y-2 border-t border-slate-100 pt-3">
-              <div className="flex items-center justify-between">
-                <label className="text-xs font-bold tracking-wide text-slate-700 uppercase">Data Table</label>
-                <span className={`text-[11px] ${columnWidthSum > 100 ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>Width total: {columnWidthSum}/100</span>
+          {sectionType && SINGLE_DATA_ITEM_SECTION_TYPES.includes(sectionType) && (
+            <div className="border border-slate-200 rounded-lg p-3 mb-4">
+              <Form.Item label="Linked Data Item" required className="mb-0">
+                <Select showSearch optionFilterProp="label" placeholder="Select a data item..." value={singleDataItemId} onChange={setSingleDataItemId} options={dataItemOptions} />
+              </Form.Item>
+            </div>
+          )}
+
+          {sectionType && MULTI_DATA_ITEM_SECTION_TYPES.includes(sectionType) && (
+            <div className="space-y-2 border border-slate-200 rounded-lg p-3 mb-4">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label className="text-xs font-bold tracking-wide text-slate-700 uppercase">Param</label>
+                <div className="flex items-center gap-2">
+                  <Select
+                    showSearch optionFilterProp="label" placeholder="Add existing..." style={{ width: 240 }}
+                    value={null}
+                    onChange={(v: string) => { if (!dataItemLinks.some((l) => l.dataItemId === v)) setDataItemLinks([...dataItemLinks, { dataItemId: v, isMandatory: false }]) }}
+                    options={dataItemOptions.filter((o) => !dataItemLinks.some((l) => l.dataItemId === o.value))}
+                  />
+                  <Button icon={<Plus size={14} />} onClick={() => setAddItemOpen(true)}>Add Item</Button>
+                </div>
               </div>
-              {columns.map((c, i) => {
-                const item = (dataItems?.items ?? []).find((d) => d.id === c.dataItemId)
-                return (
-                  <div key={`${c.dataItemId}-${i}`} className="flex items-center gap-2 bg-slate-50/70 p-2 rounded border border-slate-200">
-                    <span className="text-xs flex-1 truncate">{item?.name ?? c.dataItemId}</span>
-                    <InputNumber size="small" min={1} max={100} value={c.relativeWidth} onChange={(v) => setColumns(columns.map((x, xi) => xi === i ? { ...x, relativeWidth: Number(v) || 0 } : x))} style={{ width: 70 }} />
-                    <Checkbox checked={c.isMandatory} onChange={(e) => setColumns(columns.map((x, xi) => xi === i ? { ...x, isMandatory: e.target.checked } : x))}>
-                      <span className="text-xs">Mandatory</span>
-                    </Checkbox>
-                    <Button type="text" danger size="small" icon={<Trash2 size={13} />} onClick={() => setColumns(columns.filter((_, xi) => xi !== i))} />
+
+              {dataItemLinks.length > 0 && (
+                <Table
+                  size="small"
+                  bordered
+                  pagination={false}
+                  rowKey="dataItemId"
+                  dataSource={dataItemLinks}
+                  columns={[
+                    {
+                      title: 'Name', dataIndex: 'dataItemId',
+                      render: (id: string) => (dataItems?.items ?? []).find((d) => d.id === id)?.name ?? id,
+                    },
+                    {
+                      title: 'Description', dataIndex: 'dataItemId',
+                      render: (id: string) => (dataItems?.items ?? []).find((d) => d.id === id)?.description || <span className="text-slate-300">—</span>,
+                    },
+                    {
+                      title: 'Data Type', dataIndex: 'dataItemId', width: 110,
+                      render: (id: string) => {
+                        const t = (dataItems?.items ?? []).find((d) => d.id === id)?.dataType
+                        return DATA_ITEM_TYPES.find((x) => x.value === t)?.label ?? t ?? '—'
+                      },
+                    },
+                    {
+                      title: 'Length', dataIndex: 'dataItemId', width: 90,
+                      render: (id: string) => (dataItems?.items ?? []).find((d) => d.id === id)?.lengthCategory ?? '—',
+                    },
+                    {
+                      title: 'Mandatory', width: 90, align: 'center',
+                      render: (_: unknown, l, i) => (
+                        <Checkbox checked={l.isMandatory} onChange={(e) => setDataItemLinks(dataItemLinks.map((x, xi) => xi === i ? { ...x, isMandatory: e.target.checked } : x))} />
+                      ),
+                    },
+                    {
+                      title: '', width: 40,
+                      render: (_: unknown, _l, i) => (
+                        <Button type="text" danger size="small" icon={<Trash2 size={13} />} onClick={() => setDataItemLinks(dataItemLinks.filter((_, xi) => xi !== i))} />
+                      ),
+                    },
+                  ]}
+                />
+              )}
+
+              <div className="flex items-center justify-end">
+                <Button size="small" onClick={() => setShowParamsPreview((v) => !v)}>
+                  {showParamsPreview ? 'Hide Preview' : 'Preview'}
+                </Button>
+              </div>
+
+              {showParamsPreview && (
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <div className="bg-teal-700 text-white text-sm font-semibold px-3 py-1.5">Section Preview</div>
+                  <div className="p-3 grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    {dataItemLinks.length === 0 ? (
+                      <p className="text-xs text-slate-400 col-span-full">No parameters added yet.</p>
+                    ) : dataItemLinks.map((l) => {
+                      const item = (dataItems?.items ?? []).find((d) => d.id === l.dataItemId)
+                      return item ? <DataItemPreviewField key={l.dataItemId} item={item} /> : null
+                    })}
                   </div>
-                )
-              })}
-              <Select
-                size="small" showSearch optionFilterProp="label" placeholder="Add a column (data item)..." style={{ width: '100%' }}
-                value={null}
-                onChange={(v: string) => { if (!columns.some((c) => c.dataItemId === v)) setColumns([...columns, { dataItemId: v, relativeWidth: 20, isMandatory: false }]) }}
-                options={dataItemOptions.filter((o) => !columns.some((c) => c.dataItemId === o.value))}
-              />
+                </div>
+              )}
+            </div>
+          )}
+
+          {sectionType && CONTENT_BLOCK_SECTION_TYPES.includes(sectionType) && (
+            <div className="border border-slate-200 rounded-lg p-3 mb-4">
+              <Form.Item label="Content Library Block" required extra="Manage the block's own content under the Template Section tab." className="mb-0">
+                <Select
+                  showSearch optionFilterProp="label" placeholder="Select a content block..."
+                  value={contentBlockId} onChange={setContentBlockId}
+                  options={(contentBlocksData?.items ?? []).filter((b) => b.active).map((b) => ({ value: b.id, label: `${b.name} (${b.contentType})` }))}
+                />
+              </Form.Item>
+            </div>
+          )}
+
+          {sectionType && DATATABLE_SECTION_TYPES.includes(sectionType) && LAB_FREE_TEXT_SECTION_TYPES.includes(sectionType) && (
+            <div className="space-y-2 border border-slate-200 rounded-lg p-3 mb-4">
+              <div className="flex items-center justify-between">
+                <label className="text-xs font-bold tracking-wide text-slate-700 uppercase">Table Columns</label>
+                <div className="flex items-center gap-1">
+                  <Button size="small" type="text" className="text-slate-500 hover:text-slate-700 text-xs px-1 h-6"
+                    onClick={() => setColumnsAdvanced((v) => !v)}>
+                    {columnsAdvanced ? 'Hide key' : 'Advanced'}
+                  </Button>
+                  <Button
+                    size="small" type="text" className="text-indigo-600 hover:text-indigo-700 text-xs px-1 h-6 flex items-center gap-1"
+                    icon={<RotateCcw size={12} />}
+                    onClick={() => { setColumns(defaultGxPColumnsFor(sectionType).map((c) => ({ ...c, relativeWidth: 20, isMandatory: false }))); msg.info('Reset columns to standard GxP schema.') }}
+                  >
+                    Reset to GxP schema
+                  </Button>
+                </div>
+              </div>
+              {columns.map((c, i) => (
+                <div key={`${c.columnKey}-${i}`} className="flex items-center gap-2 bg-slate-50/70 p-2 rounded border border-slate-200">
+                  {columnsAdvanced && (
+                    <Input size="small" className="font-mono text-xs" placeholder="Key" value={c.columnKey ?? ''} onChange={(e) => setColumns(columns.map((x, xi) => xi === i ? { ...x, columnKey: e.target.value } : x))} />
+                  )}
+                  <Input size="small" placeholder="Column name" value={c.columnLabel ?? ''} onChange={(e) => {
+                    const label = e.target.value
+                    setColumns(columns.map((x, xi) => xi === i
+                      ? { ...x, columnLabel: label, ...(columnsAdvanced ? {} : { columnKey: uniqueColumnKey(label, columns, i) }) }
+                      : x))
+                  }} />
+                  <Button type="text" danger size="small" icon={<Trash2 size={13} />} onClick={() => setColumns(columns.filter((_, xi) => xi !== i))} />
+                </div>
+              ))}
+              <Button block type="dashed" size="small" icon={<Plus size={13} />}
+                onClick={() => {
+                  const label = `New Column ${columns.length + 1}`
+                  setColumns([...columns, { columnKey: uniqueColumnKey(label, columns, -1), columnLabel: label, relativeWidth: 20, isMandatory: false }])
+                }}>
+                Add Column
+              </Button>
+            </div>
+          )}
+
+          {sectionType && DATATABLE_SECTION_TYPES.includes(sectionType) && !LAB_FREE_TEXT_SECTION_TYPES.includes(sectionType) && (
+            <div className="space-y-2 border border-slate-200 rounded-lg p-3 mb-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
+                <Form.Item label="Datatable Name" className="mb-2">
+                  <Input value={datatableName} onChange={(e) => setDatatableName(e.target.value)} placeholder="e.g. Purity" />
+                </Form.Item>
+                <Form.Item label="Datatable Description" className="mb-2">
+                  <Input value={datatableDescription} onChange={(e) => setDatatableDescription(e.target.value)} />
+                </Form.Item>
+              </div>
+
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <label className="text-xs font-bold tracking-wide text-slate-700 uppercase">Data Table</label>
+                <div className="flex items-center gap-2">
+                  <span className={`text-[11px] ${columnWidthSum > 100 ? 'text-red-500 font-semibold' : 'text-slate-400'}`}>Width total: {columnWidthSum}/100</span>
+                  <Select
+                    showSearch optionFilterProp="label" placeholder="Add existing..." style={{ width: 220 }}
+                    value={null}
+                    onChange={(v: string) => { if (!columns.some((c) => c.dataItemId === v)) setColumns([...columns, { dataItemId: v, relativeWidth: 20, isMandatory: false }]) }}
+                    options={dataItemOptions.filter((o) => !columns.some((c) => c.dataItemId === o.value))}
+                  />
+                  <Button icon={<Plus size={14} />} onClick={() => setAddItemOpen(true)}>Add Item</Button>
+                </div>
+              </div>
+
+              {columns.length > 0 && (
+                <Table
+                  size="small"
+                  bordered
+                  pagination={false}
+                  rowKey={(c) => c.dataItemId ?? ''}
+                  dataSource={columns}
+                  columns={[
+                    {
+                      title: 'Name', dataIndex: 'dataItemId',
+                      render: (id: string) => (dataItems?.items ?? []).find((d) => d.id === id)?.name ?? id,
+                    },
+                    {
+                      title: 'Description', dataIndex: 'dataItemId',
+                      render: (id: string) => (dataItems?.items ?? []).find((d) => d.id === id)?.description || <span className="text-slate-300">—</span>,
+                    },
+                    {
+                      title: 'Data Type', dataIndex: 'dataItemId', width: 110,
+                      render: (id: string) => {
+                        const t = (dataItems?.items ?? []).find((d) => d.id === id)?.dataType
+                        return DATA_ITEM_TYPES.find((x) => x.value === t)?.label ?? t ?? '—'
+                      },
+                    },
+                    {
+                      title: 'Relative Width', width: 130,
+                      render: (_: unknown, c, i) => (
+                        <InputNumber size="small" min={1} max={100} value={c.relativeWidth} onChange={(v) => setColumns(columns.map((x, xi) => xi === i ? { ...x, relativeWidth: Number(v) || 0 } : x))} style={{ width: 70 }} />
+                      ),
+                    },
+                    {
+                      title: 'Is Mandatory', width: 90, align: 'center',
+                      render: (_: unknown, c, i) => (
+                        <Checkbox checked={c.isMandatory} onChange={(e) => setColumns(columns.map((x, xi) => xi === i ? { ...x, isMandatory: e.target.checked } : x))} />
+                      ),
+                    },
+                    {
+                      title: '', width: 40,
+                      render: (_: unknown, _c, i) => (
+                        <Button type="text" danger size="small" icon={<Trash2 size={13} />} onClick={() => setColumns(columns.filter((_, xi) => xi !== i))} />
+                      ),
+                    },
+                  ]}
+                />
+              )}
               <p className="text-[11px] text-slate-400">At most 10 columns; widths must sum to 100 or less.</p>
+
+              <div className="flex items-center justify-end">
+                <Button size="small" onClick={() => setShowParamsPreview((v) => !v)}>
+                  {showParamsPreview ? 'Hide Preview' : 'Preview'}
+                </Button>
+              </div>
+
+              {showParamsPreview && (
+                <div className="rounded-lg border border-slate-200 overflow-hidden">
+                  <div className="bg-teal-700 text-white text-sm font-semibold px-3 py-1.5">Section Preview</div>
+                  <Table
+                    size="small"
+                    bordered
+                    pagination={false}
+                    dataSource={[]}
+                    locale={{ emptyText: 'No records found.' }}
+                    columns={[
+                      { title: 'Select', width: 60, render: () => <Checkbox disabled /> },
+                      { title: 'Sl.No.', width: 70 },
+                      ...columns.map((c, i) => ({
+                        title: (dataItems?.items ?? []).find((d) => d.id === c.dataItemId)?.name ?? `Column ${i + 1}`,
+                        key: c.dataItemId ?? i,
+                      })),
+                    ]}
+                  />
+                </div>
+              )}
             </div>
           )}
 
           {sectionType && EMBEDDED_FILE_SECTION_TYPES.includes(sectionType) && (
-            <div className="space-y-2 border-t border-slate-100 pt-3">
+            <div className="space-y-2 border border-slate-200 rounded-lg p-3 mb-4">
               <label className="text-xs font-semibold text-slate-700">Preconfigured Spreadsheet (.xlsx / .xls)</label>
-              {editing ? (
-                <div className="space-y-2">
-                  <p className="text-[11px] text-slate-500">
-                    Current file: <span className="font-mono">{editing.embeddedFile?.fileName ?? 'none uploaded'}</span>
-                  </p>
-                  <Upload beforeUpload={(f) => {
-                    ardSectionApi.uploadEmbeddedFile(editing.id, f).then(
-                      () => { invalidate(); msg.success('Spreadsheet uploaded.') },
-                      (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to upload spreadsheet.'),
-                    )
-                    return false
-                  }}>
-                    <Button icon={<UploadIcon size={14} />} size="small">Upload / Replace</Button>
-                  </Upload>
-                </div>
-              ) : (
-                <Upload beforeUpload={(f) => { setUploadFile(f); return false }} onRemove={() => setUploadFile(null)} maxCount={1}>
-                  <Button icon={<UploadIcon size={14} />} size="small">Choose File</Button>
+              <div className="space-y-2">
+                <Upload disabled={parsingSheet} beforeUpload={(f) => {
+                  setParsingSheet(true)
+                  ardSectionApi.parseEmbeddedFile(f).then(
+                    (result) => { setPendingSheetFile(f); setParsedSheet(result) },
+                    (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to read spreadsheet.'),
+                  ).finally(() => setParsingSheet(false))
+                  return false
+                }}>
+                  <Button icon={<UploadIcon size={14} />} size="small" loading={parsingSheet}>
+                    {parsedSheet ? 'Replace' : 'Add Excel'}
+                  </Button>
                 </Upload>
-              )}
+                {parsingSheet && <p className="text-[11px] text-slate-400">Reading spreadsheet…</p>}
+                {parsedSheet ? (
+                  <div className="rounded-lg border border-slate-200 overflow-hidden">
+                    <div className="bg-teal-700 text-white text-sm font-semibold px-3 py-1.5">{parsedSheet.fileName}</div>
+                    <SpreadsheetFieldRuntime
+                      spreadsheet={{ workbookData: parsedSheet.workbookData, protectedRanges: (parsedSheet.metadata as any)?.protectedRanges } as any}
+                      value={{}} onChange={() => {}} disabled
+                    />
+                  </div>
+                ) : !parsingSheet && (
+                  <p className="text-[11px] text-slate-400">No spreadsheet uploaded yet.</p>
+                )}
+              </div>
             </div>
           )}
         </Form>
+        </Spin>
       </Modal>
+      <AddDataItemModal
+        open={addItemOpen} onClose={() => setAddItemOpen(false)}
+        lovLookupTypes={lovLookupTypes?.items ?? []}
+        onSaved={(item) => {
+          // Both Params (dataItemLinks) and Data Table (columns) reuse this same
+          // "Add Item" button — route the new item to whichever list applies.
+          if (sectionType && MULTI_DATA_ITEM_SECTION_TYPES.includes(sectionType)) {
+            setDataItemLinks((links) => links.some((l) => l.dataItemId === item.id) ? links : [...links, { dataItemId: item.id, isMandatory: false }])
+          } else {
+            setColumns((cols) => cols.some((c) => c.dataItemId === item.id) ? cols : [...cols, { dataItemId: item.id, relativeWidth: 20, isMandatory: false }])
+          }
+          setAddItemOpen(false)
+        }}
+      />
     </div>
   )
 }
@@ -2451,7 +2874,7 @@ export default function ArdConfigurationPage() {
   const initialTab = (location.state as { tab?: string } | null)?.tab
   const [activeKey, setActiveKey] = useState(initialTab ?? 'techniques')
 
-  const isAllowed = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'QA', 'QC_MANAGER'].includes(user?.role_code ?? '')
+  const isAllowed = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'TL', 'TEAM_LEAD', 'QA', 'QC_MANAGER'].includes(user?.role_code ?? '')
 
   if (!isAllowed) {
     return (

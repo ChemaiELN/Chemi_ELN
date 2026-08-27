@@ -34,6 +34,63 @@ async function auditLog(entityId: string, action: string, userId: string | null)
   await ArdAuditLog.create({ entityType: 'NOTEBOOK', entityId, action, userId } as any)
 }
 
+// The "Notebook Events" tab reads nb.auditTrail (a JSONB column on the
+// notebook itself), NOT the ArdAuditLog table auditLog() above writes to —
+// those are two entirely separate logs. Previously only Close/Deactivate
+// pushed an entry here (via a frontend-supplied `auditEntry`), so every
+// other change — name/description/type edits, members added/removed,
+// result parameters, max experiments, verification flow, create, reopen —
+// never showed up in Notebook Events at all. This computes what actually
+// changed server-side so nothing depends on a call site remembering to
+// pass auditEntry, and so DETAIL (not just a bare "Updated") is recorded.
+function pushTrail(nb: ArdNotebook, action: string, actorName: string, detail?: string) {
+  const existing = (nb.auditTrail as any[]) || [];
+  return [...existing, { action, actorName, detail: detail || '', createdAt: new Date().toISOString() }];
+}
+
+function diffNotebookUpdate(nb: ArdNotebook, updates: any): { action: string; detail: string } | null {
+  const parts: string[] = [];
+
+  if (updates.name !== undefined && updates.name !== nb.name) {
+    parts.push(`Name: "${nb.name}" → "${updates.name}"`);
+  }
+  if (updates.description !== undefined && (updates.description || null) !== (nb.description || null)) {
+    parts.push('Description updated');
+  }
+  if (updates.notebookType !== undefined && updates.notebookType !== nb.notebookType) {
+    parts.push(`Type: "${nb.notebookType || '—'}" → "${updates.notebookType || '—'}"`);
+  }
+  if (updates.includeVerificationFlow !== undefined && updates.includeVerificationFlow !== (nb as any).includeVerificationFlow) {
+    parts.push(`Verification flow ${updates.includeVerificationFlow ? 'enabled' : 'disabled'}`);
+  }
+  if (updates.maxExperiments !== undefined && updates.maxExperiments !== (nb as any).maxExperiments) {
+    parts.push(`Max experiments: ${(nb as any).maxExperiments ?? '—'} → ${updates.maxExperiments ?? '—'}`);
+  }
+
+  let membershipChanged = false;
+  if (updates.assignedUsers !== undefined) {
+    const before = (nb.assignedUsers as any[]) || [];
+    const after = (updates.assignedUsers as any[]) || [];
+    const beforeIds = new Set(before.map((u: any) => u.userId));
+    const afterIds = new Set(after.map((u: any) => u.userId));
+    const added = after.filter((u: any) => !beforeIds.has(u.userId)).map((u: any) => u.userName);
+    const removed = before.filter((u: any) => !afterIds.has(u.userId)).map((u: any) => u.userName);
+    if (added.length) { parts.push(`Members added: ${added.join(', ')}`); membershipChanged = true; }
+    if (removed.length) { parts.push(`Members removed: ${removed.join(', ')}`); membershipChanged = true; }
+  }
+
+  if (updates.resultParameters !== undefined) {
+    const before = (nb.resultParameters as any[]) || [];
+    const after = (updates.resultParameters as any[]) || [];
+    if (JSON.stringify(before) !== JSON.stringify(after)) {
+      parts.push(`Result parameters updated (${after.length})`);
+    }
+  }
+
+  if (parts.length === 0) return null;
+  return { action: membershipChanged ? 'Members changed' : 'Updated', detail: parts.join('; ') };
+}
+
 async function nextCode(): Promise<string> {
   const year = new Date().getFullYear()
   const [{ count }] = await sequelize.query<{ count: string }>(
@@ -57,10 +114,15 @@ router.get('/', authenticate, async (req: Request, res: Response, next: NextFunc
     if (status) where.status = status
 
     if (!isAdmin(rc)) {
+      // Correlated subquery: the unqualified `project_id` resolves to the outer
+      // notebook row regardless of the alias Sequelize gives the outer table
+      // (it uses "ArdNotebook" in COUNT queries but "ard_notebooks" in SELECTs —
+      // qualifying with the literal table name broke the COUNT variant with
+      // "invalid reference to FROM-clause entry for table ard_notebooks").
       where[Op.or] = [
         { createdById: user.id },
         sequelize.literal(`assigned_users::text LIKE '%${user.id}%'`),
-        sequelize.literal(`EXISTS (SELECT 1 FROM ard_projects WHERE ard_projects.id = ard_notebooks.project_id AND ard_projects.team::text LIKE '%${user.id}%')`),
+        sequelize.literal(`EXISTS (SELECT 1 FROM ard_projects WHERE ard_projects.id = project_id AND ard_projects.team::text LIKE '%${user.id}%')`),
       ]
     }
 
@@ -112,6 +174,15 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
       }
     }
 
+    // Notebook names are unique, case-insensitively — "Trail-3" and
+    // "trail-3" count as the same name, matching how a user would actually
+    // read a duplicate.
+    const trimmedName = name.trim();
+    const dupe = await ArdNotebook.findOne({
+      where: sequelize.where(sequelize.fn('lower', sequelize.col('name')), trimmedName.toLowerCase()),
+    });
+    if (dupe) throw new BadRequestError(`A notebook named "${trimmedName}" already exists.`, 'VALIDATION_ERROR');
+
     const code = await nextCode()
     const nb = await ArdNotebook.create({
       code, name,
@@ -121,9 +192,9 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
       // Creator is automatically an assigned user when no explicit list is given.
       assignedUsers: (assignedUsers && assignedUsers.length > 0) ? assignedUsers : [{ userId: user.id, userName: user.username, role: rc }],
       resultParameters: resultParameters || [],
-      auditTrail: [],
+      auditTrail: [{ action: 'Created', actorName: user.username, detail: '', createdAt: new Date().toISOString() }],
       equipmentIds: [],
-      status: 'OPEN',
+      status: 'ACTIVE',
       createdBy: user.username,
       createdById: user.id,
     } as any)
@@ -147,6 +218,9 @@ router.patch('/:notebookId', authenticate, async (req: Request, res: Response, n
     if (body.status !== undefined) {
       if (!isAdmin(rc)) throw new ForbiddenError('Only HOD/Admin can change notebook status')
       const newStatus = body.status
+      if (!['CLOSED', 'DEACTIVE'].includes(newStatus)) {
+        throw new BadRequestError('Invalid status transition', 'VALIDATION_ERROR')
+      }
       if (newStatus === 'CLOSED') {
         if (!body.remarks && !body.reason) throw new BadRequestError('Remarks required to close notebook', 'VALIDATION_ERROR')
         const inProgress = await ArdExperiment.count({
@@ -157,20 +231,59 @@ router.patch('/:notebookId', authenticate, async (req: Request, res: Response, n
       updates.status = newStatus
     }
 
-    // Status transitions (e.g. Close → Archive) have their own validation above;
-    // this OPEN-gate only applies to editing other fields on a non-open notebook.
-    if (body.status === undefined && nb.status !== 'OPEN') {
-      throw new BadRequestError('Notebook must be OPEN to edit', 'INVALID_STATE')
+    // Status transitions (Close / Deactivate) have their own validation above;
+    // this ACTIVE-gate only applies to editing other fields on a non-active notebook.
+    if (body.status === undefined && nb.status !== 'ACTIVE') {
+      throw new BadRequestError('Notebook must be Active to edit', 'INVALID_STATE')
     }
 
     if (!canEdit(nb, user, rc)) throw new ForbiddenError('Access denied')
 
+    // canEdit above lets ANY assigned member patch the notebook (name,
+    // description, etc.) — membership changes need their own, narrower
+    // check: only HOD/TL manage who's on a notebook (matches the project
+    // team's own rule), and nobody — HOD/TL included — can remove
+    // themself. The notebook creator/owner is deliberately NOT exempt from
+    // removal here; only the acting user's own row is protected.
+    if (body.assignedUsers !== undefined) {
+      if (!['HOD', 'TL', 'TEAM_LEAD', 'SUPER_ADMIN'].includes(rc)) {
+        throw new ForbiddenError('Only HOD or TL can add or remove notebook members');
+      }
+      const before = (nb.assignedUsers as any[]) || [];
+      const wasAssigned = before.some((u: any) => u.userId === user.id);
+      const stillAssigned = (body.assignedUsers as any[]).some((u: any) => u.userId === user.id);
+      if (wasAssigned && !stillAssigned) {
+        throw new BadRequestError('You cannot remove yourself from the notebook', 'VALIDATION_ERROR');
+      }
+    }
+
+    if (body.name !== undefined && body.name.trim().toLowerCase() !== (nb.name || '').trim().toLowerCase()) {
+      const trimmedName = body.name.trim();
+      const dupe = await ArdNotebook.findOne({
+        where: {
+          [Op.and]: [
+            { id: { [Op.ne]: nb.id } },
+            sequelize.where(sequelize.fn('lower', sequelize.col('name')), trimmedName.toLowerCase()),
+          ],
+        } as any,
+      });
+      if (dupe) throw new BadRequestError(`A notebook named "${trimmedName}" already exists.`, 'VALIDATION_ERROR');
+    }
+
     const editableFields = ['name', 'description', 'notebookType', 'includeVerificationFlow', 'assignedUsers', 'resultParameters', 'maxExperiments']
     editableFields.forEach(k => { if (body[k] !== undefined) updates[k] = body[k] })
 
-    if (body.auditEntry) {
-      const existing = (nb.auditTrail as any[]) || []
-      updates.auditTrail = [...existing, { ...body.auditEntry, createdAt: new Date().toISOString() }]
+    if (updates.status !== undefined) {
+      // Status transitions are always logged, taking priority over any
+      // other field changed in the same request (Close/Deactivate calls
+      // don't also change other fields in practice, but this keeps the
+      // status transition itself as the headline event if they ever do).
+      const action = updates.status === 'CLOSED' ? 'Closed' : 'Deactivated';
+      const reason = body.remarks || body.reason || '';
+      updates.auditTrail = pushTrail(nb, action, user.username, reason);
+    } else {
+      const change = diffNotebookUpdate(nb, updates);
+      if (change) updates.auditTrail = pushTrail(nb, change.action, user.username, change.detail);
     }
 
     await nb.update(updates)
@@ -210,7 +323,7 @@ router.post('/:notebookId/reopen', authenticate, async (req: Request, res: Respo
     const remarks = req.body.remarks || req.body.reason
     if (!remarks) throw new BadRequestError('Remarks required', 'VALIDATION_ERROR')
 
-    await nb.update({ status: 'OPEN', updatedAt: new Date() })
+    await nb.update({ status: 'ACTIVE', updatedAt: new Date(), auditTrail: pushTrail(nb, 'Reopened', user.username, remarks) })
     await auditLog(nb.id, 'Reopened', user.id)
     res.json(successResponse('Notebook reopened', nbOut(nb)))
   } catch (err) { next(err) }

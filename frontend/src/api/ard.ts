@@ -489,6 +489,7 @@ export interface ArdTemplateDoc {
   includeResults?: boolean
   includeConclusion?: boolean
   includeCdsReport?: boolean
+  includeExperimentParameters?: boolean
 }
 
 const TEMPLATE_BASE = '/api/ard/templates'
@@ -503,6 +504,7 @@ export interface ArdTemplateSectionAttachment {
   updateSampleWeights?: boolean
   updateResultSample?: boolean
   includeReadWeighingExcel?: boolean
+  isMandatory?: boolean
 }
 
 export interface ArdTemplateSectionAttachmentRow extends ArdTemplateSectionAttachment {
@@ -516,14 +518,16 @@ export interface ArdTemplatePreviewSection {
   name: string | null
   sectionType: SectionType | null
   sequenceNumber: number
+  isMandatory?: boolean
   richtext?: { editorHeight: number | null; editorWidth: number | null; defaultContent: string | null }
-  datatable?: { name: string | null; description: string | null; typicalRowCount: number; columns: { dataItemId: string; sequenceNumber: number; relativeWidth: number; isMandatory: boolean }[] }
-  embeddedFile?: { fileName: string | null; mappingFileName: string | null; hasFile: boolean }
+  datatable?: { name: string | null; description: string | null; typicalRowCount: number; columns: { dataItemId: string | null; columnKey?: string | null; columnLabel?: string | null; sequenceNumber: number; relativeWidth: number; isMandatory: boolean }[] }
+  embeddedFile?: { fileName: string | null; mappingFileName: string | null; hasFile: boolean; workbookData?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null }
   dataItemLinks?: { dataItemId: string; name: string; dataType: string; lengthCategory: string | null; isMandatory: boolean }[]
+  contentBlock?: { id: string; name: string; contentType: string; body: string | null; active: boolean } | null
 }
 
 export const ardTemplateApi = {
-  sectionTypes: () => apiGet<{ type: SectionType; label: string; configurable: string }[]>(`${TEMPLATE_BASE}/section-types`),
+  sectionTypes: () => apiGet<{ type: SectionType; label: string; configurable: string; fixed: boolean }[]>(`${TEMPLATE_BASE}/section-types`),
   list: (params?: { status?: string; q?: string; page?: number; pageSize?: number }) =>
     apiGet<{ items: ArdTemplateDoc[]; total: number; page: number; pageSize: number }>(TEMPLATE_BASE, params),
   published: () => apiGet<{ items: ArdTemplateDoc[] }>(`${TEMPLATE_BASE}/published`),
@@ -543,8 +547,12 @@ export const ardTemplateApi = {
 
 export interface ArdSectionColumn {
   id?: string
-  dataItemId: string
+  dataItemId?: string | null
   dataItemName?: string
+  // Old's fixed free-text GxP preset (Lab Component sections use this instead
+  // of a Master Data link) — see migration 20260825000003.
+  columnKey?: string | null
+  columnLabel?: string | null
   sequenceNumber: number
   relativeWidth: number
   isMandatory: boolean
@@ -568,13 +576,17 @@ export interface ArdMasterSection {
   deptId: string | null
   active: boolean
   createdById: string | null
+  createdBy?: string | null
   createdAt: string | null
   lastUpdatedById: string | null
+  updatedBy?: string | null
   updatedAt: string | null
   richtext?: { editorHeight: number | null; editorWidth: number | null; defaultContent: string | null } | null
   datatable?: { id: string; name: string | null; description: string | null; typicalRowCount: number; columns: ArdSectionColumn[] } | null
-  embeddedFile?: { fileName: string | null; mappingFileName: string | null; hasFile: boolean; hasMappingFile: boolean } | null
+  embeddedFile?: { fileName: string | null; mappingFileName: string | null; hasFile: boolean; hasMappingFile: boolean; workbookData?: Record<string, unknown> | null; metadata?: Record<string, unknown> | null } | null
   dataItemLinks?: ArdSectionDataItemLink[]
+  contentBlockId?: string | null
+  contentBlock?: { id: string; name: string; contentType: string; body: string | null; active: boolean } | null
 }
 
 const SECTION_BASE = '/api/ard/sections'
@@ -592,6 +604,14 @@ export const ardSectionApi = {
     form.append('file', file)
     if (mappingFile) form.append('mappingFile', mappingFile)
     return apiUpload<{ fileName: string; mappingFileName: string | null; hasFile: boolean; hasMappingFile: boolean }>(`${SECTION_BASE}/${id}/embedded-file`, form)
+  },
+  // Preview-only conversion — no section id, nothing persisted. Lets the Add
+  // Section form render the live spreadsheet the moment a file is picked,
+  // before the section itself has been saved.
+  parseEmbeddedFile: (file: File) => {
+    const form = new FormData()
+    form.append('file', file)
+    return apiUpload<{ fileName: string; workbookData: Record<string, unknown>; metadata: Record<string, unknown> }>(`${SECTION_BASE}/parse-embedded-file`, form)
   },
 }
 
@@ -675,6 +695,8 @@ export interface ArdExperimentDoc {
   reviewerName: string | null
   aimAchieved: boolean | null
   aimRemarks: string | null
+  aim: string | null
+  conclusion: string | null
   contributors: { userId: string; userName: string; at: string }[]
   resultParameters?: Record<string, unknown>[] | null
   createdById: string | null
@@ -1025,6 +1047,8 @@ export interface ArdProjectSpecification {
   description?: string | null
   status: 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'REJECTED'
   testParameters: ArdSpecTestParam[]
+  submitRemarks?: string | null
+  approveRemarks?: string | null
   createdBy: string
   createdById?: string | null
   approvedBy?: string | null
@@ -1046,10 +1070,10 @@ export const ardProjectSpecsApi = {
     apiPost<ArdProjectSpecification>(`/api/ard/projects/${projectId}/specifications`, body),
   update: (projectId: string, specId: string, body: Partial<ArdProjectSpecification>) =>
     apiPut<ArdProjectSpecification>(`/api/ard/projects/${projectId}/specifications/${specId}`, body),
-  submit: (projectId: string, specId: string) =>
-    apiPost<ArdProjectSpecification>(`/api/ard/projects/${projectId}/specifications/${specId}/submit`),
-  approve: (projectId: string, specId: string, body?: { password?: string }) =>
-    apiPost<ArdProjectSpecification>(`/api/ard/projects/${projectId}/specifications/${specId}/approve`, body || {}),
+  submit: (projectId: string, specId: string, body: { remarks?: string; password: string }) =>
+    apiPost<ArdProjectSpecification>(`/api/ard/projects/${projectId}/specifications/${specId}/submit`, body),
+  approve: (projectId: string, specId: string, body: { remarks?: string; password: string }) =>
+    apiPost<ArdProjectSpecification>(`/api/ard/projects/${projectId}/specifications/${specId}/approve`, body),
   remove: (projectId: string, specId: string) =>
     apiDelete<void>(`/api/ard/projects/${projectId}/specifications/${specId}`),
 }

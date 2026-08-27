@@ -10,12 +10,13 @@ import { NotFoundError, BadRequestError, ConflictError } from '../../utils/error
 import { sequelize } from '../../database/connection';
 import {
   ArdSection, ArdSectionRichtext, ArdSectionDatatable, ArdSectionEmbeddedFile,
-  ArdSectionDataItem, ArdDatatableColumn, ArdDataItem, ArdTemplateSection, ArdAuditLog,
+  ArdSectionDataItem, ArdDatatableColumn, ArdDataItem, ArdTemplateSection, ArdAuditLog, ArdContentBlock, User,
 } from '../../models/index';
 import {
   SECTION_TYPES, normalizeSectionType, RICHTEXT_TYPES, DATATABLE_TYPES, EMBEDDED_FILE_TYPES,
-  SINGLE_DATA_ITEM_TYPES, MULTI_DATA_ITEM_TYPES,
+  SINGLE_DATA_ITEM_TYPES, MULTI_DATA_ITEM_TYPES, CONTENT_BLOCK_TYPES,
 } from '../../constants/ardSectionTypes';
+import { convertXlsx } from '../../utils/xlsxImport';
 
 // New master Sections router (rearchitecture prompt §3.1). Sections are reusable
 // master data — a section created here is selectable/attachable from more than one
@@ -30,12 +31,16 @@ async function auditLog(entityId: string, action: string, userId: string | null,
 const MAX_DATATABLE_COLUMNS = 10;
 const MAX_COLUMN_WIDTH_SUM = 100;
 
+// Either dataItemId (governed Master Data column) or columnKey (old's
+// free-text GxP preset, used by Lab Component section types) must be set.
 const columnSchema = z.object({
-  dataItemId: z.string().uuid(),
+  dataItemId: z.string().uuid().optional().nullable(),
+  columnKey: z.string().min(1).optional().nullable(),
+  columnLabel: z.string().min(1).optional().nullable(),
   sequenceNumber: z.number().int().min(0).optional(),
-  relativeWidth: z.number().positive(),
+  relativeWidth: z.number().positive().optional(),
   isMandatory: z.boolean().optional(),
-});
+}).refine((c) => !!c.dataItemId || !!c.columnKey, { message: 'Each column needs either a linked data item or a key.' });
 
 const dataItemLinkSchema = z.object({
   dataItemId: z.string().uuid(),
@@ -63,14 +68,20 @@ const saveSectionSchema = z.object({
   }).optional(),
   dataItemLink: dataItemLinkSchema.optional(),
   dataItemLinks: z.array(dataItemLinkSchema).optional(),
+  contentBlockId: z.string().uuid().optional().nullable(),
 });
 
-function validateDatatableColumns(columns: { relativeWidth: number }[] | undefined) {
+// The 100%-width budget only applies to Master-Data-linked columns (rendered
+// as a real percentage-width table); old's free-text GxP columns (columnKey
+// set, no dataItemId) never had a width concept at all, so they're excluded.
+function validateDatatableColumns(columns: { dataItemId?: string | null; relativeWidth?: number }[] | undefined) {
   if (!columns || !columns.length) return;
   if (columns.length > MAX_DATATABLE_COLUMNS) {
     throw new BadRequestError(`A data table can have at most ${MAX_DATATABLE_COLUMNS} active columns.`);
   }
-  const sum = columns.reduce((acc, c) => acc + Number(c.relativeWidth || 0), 0);
+  const widthed = columns.filter((c) => !!c.dataItemId);
+  if (!widthed.length) return;
+  const sum = widthed.reduce((acc, c) => acc + Number(c.relativeWidth ?? 20), 0);
   if (sum > MAX_COLUMN_WIDTH_SUM) {
     throw new BadRequestError(`Column widths must sum to at most ${MAX_COLUMN_WIDTH_SUM} (currently ${sum}).`);
   }
@@ -88,16 +99,28 @@ async function assertNoDuplicate(name: string, uniqueIdentifier: string | null, 
   }
 }
 
+const SECTION_AUDIT_INCLUDE = [
+  { model: User, as: 'creator', attributes: ['username'] },
+  { model: User, as: 'updater', attributes: ['username'] },
+];
+
 function sectionSummaryOut(s: any) {
   return {
     id: s.id, name: s.name, description: s.description, uniqueIdentifier: s.uniqueIdentifier,
     sectionType: s.sectionType, deptId: s.deptId, active: s.isActive,
-    createdById: s.createdById, createdAt: s.createdAt,
-    lastUpdatedById: s.lastUpdatedById, updatedAt: s.updatedAt,
+    createdById: s.createdById, createdAt: s.createdAt, createdBy: s.creator?.username ?? null,
+    lastUpdatedById: s.lastUpdatedById, updatedAt: s.updatedAt, updatedBy: s.updater?.username ?? null,
   };
 }
 
-async function loadDetail(section: any) {
+async function contentBlockDetail(contentBlockId: string | null) {
+  if (!contentBlockId) return null;
+  const block = await (ArdContentBlock as any).findByPk(contentBlockId);
+  if (!block) return null;
+  return { id: block.id, name: block.name, contentType: block.contentType, body: block.body, active: block.isActive };
+}
+
+export async function loadDetail(section: any) {
   const stype = normalizeSectionType(section.sectionType);
   const out: any = sectionSummaryOut(section);
 
@@ -110,13 +133,14 @@ async function loadDetail(section: any) {
     if (dt) {
       const columns = await (ArdDatatableColumn as any).findAll({
         where: { datatableId: dt.id, isActive: true },
-        include: [{ model: ArdDataItem, as: 'dataItem' }],
+        include: [{ model: ArdDataItem, as: 'dataItem', required: false }],
         order: [['sequenceNumber', 'ASC']],
       });
       out.datatable = {
         id: dt.id, name: dt.name, description: dt.description, typicalRowCount: dt.typicalRowCount,
         columns: columns.map((c: any) => ({
           id: c.id, dataItemId: c.dataItemId, dataItemName: c.dataItem?.name,
+          columnKey: c.columnKey, columnLabel: c.columnLabel,
           sequenceNumber: c.sequenceNumber, relativeWidth: Number(c.relativeWidth), isMandatory: c.isMandatory,
         })),
       };
@@ -128,6 +152,8 @@ async function loadDetail(section: any) {
     const ef = await (ArdSectionEmbeddedFile as any).findByPk(section.id);
     out.embeddedFile = ef ? {
       fileName: ef.fileName, mappingFileName: ef.mappingFileName, hasFile: !!ef.fileData, hasMappingFile: !!ef.mappingFileData,
+      workbookData: ef.workbookData ?? null,
+      metadata: ef.metadata ?? null,
     } : null;
   }
   if (SINGLE_DATA_ITEM_TYPES.has(stype) || MULTI_DATA_ITEM_TYPES.has(stype)) {
@@ -140,6 +166,10 @@ async function loadDetail(section: any) {
       id: l.id, dataItemId: l.dataItemId, dataItemName: l.dataItem?.name, dataItemType: l.dataItem?.dataType,
       sequenceNumber: l.sequenceNumber, isMandatory: l.isMandatory,
     }));
+  }
+  if (CONTENT_BLOCK_TYPES.has(stype)) {
+    out.contentBlockId = section.contentBlockId ?? null;
+    out.contentBlock = await contentBlockDetail(section.contentBlockId);
   }
   return out;
 }
@@ -156,7 +186,7 @@ ardSectionRouter.get('/', async (req: Request, res: Response, next: NextFunction
 
     const { page, limit, offset } = parsePagination(req.query as Record<string, unknown>, 200);
     const { count, rows } = await (ArdSection as any).findAndCountAll({
-      where, order: [['name', 'ASC']], offset, limit,
+      where, order: [['name', 'ASC']], offset, limit, include: SECTION_AUDIT_INCLUDE,
     });
     res.json(listResponse('Sections', rows.map(sectionSummaryOut), buildPagination(page, limit, count)));
   } catch (err) { next(err); }
@@ -170,7 +200,7 @@ ardSectionRouter.get('/section-types', (_req: Request, res: Response) => {
 // GET /:id — full section incl. type-specific detail
 ardSectionRouter.get('/:id', async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const section = await (ArdSection as any).findByPk(req.params.id);
+    const section = await (ArdSection as any).findByPk(req.params.id, { include: SECTION_AUDIT_INCLUDE });
     if (!section) throw new NotFoundError('Section not found');
     assertSameDept(section.deptId, (req as any).user);
     res.json(successResponse('Section', await loadDetail(section)));
@@ -216,14 +246,17 @@ async function upsertDetail(section: any, body: z.infer<typeof saveSectionSchema
     const keepIds = new Set<string>();
     for (let i = 0; i < incomingColumns.length; i++) {
       const c = incomingColumns[i];
-      const match = existing.find((e: any) => e.dataItemId === c.dataItemId);
+      const width = c.relativeWidth ?? 20;
+      const match = c.dataItemId
+        ? existing.find((e: any) => e.dataItemId === c.dataItemId)
+        : existing.find((e: any) => !e.dataItemId && e.columnKey === c.columnKey);
       if (match) {
-        await match.update({ sequenceNumber: i, relativeWidth: c.relativeWidth, isMandatory: c.isMandatory ?? false, isActive: true }, { transaction: t });
+        await match.update({ sequenceNumber: i, relativeWidth: width, isMandatory: c.isMandatory ?? false, columnKey: c.columnKey ?? null, columnLabel: c.columnLabel ?? null, isActive: true }, { transaction: t });
         keepIds.add(match.id);
       } else {
         const created = await (ArdDatatableColumn as any).create({
-          datatableId: dt.id, dataItemId: c.dataItemId, sequenceNumber: i,
-          relativeWidth: c.relativeWidth, isMandatory: c.isMandatory ?? false, isActive: true,
+          datatableId: dt.id, dataItemId: c.dataItemId ?? null, columnKey: c.columnKey ?? null, columnLabel: c.columnLabel ?? null,
+          sequenceNumber: i, relativeWidth: width, isMandatory: c.isMandatory ?? false, isActive: true,
         }, { transaction: t });
         keepIds.add(created.id);
       }
@@ -294,6 +327,7 @@ ardSectionRouter.post('/', async (req: Request, res: Response, next: NextFunctio
       uniqueIdentifier: body.uniqueIdentifier ?? null,
       sectionType: stype,
       deptId: body.deptId ?? null,
+      contentBlockId: CONTENT_BLOCK_TYPES.has(stype) ? (body.contentBlockId ?? null) : null,
       isActive: body.active ?? true,
       createdById: userId,
     }, { transaction: t });
@@ -302,7 +336,7 @@ ardSectionRouter.post('/', async (req: Request, res: Response, next: NextFunctio
     await auditLog(section.id, 'Created', userId, section.name);
     await t.commit();
 
-    const fresh = await (ArdSection as any).findByPk(section.id);
+    const fresh = await (ArdSection as any).findByPk(section.id, { include: SECTION_AUDIT_INCLUDE });
     res.status(201).json(successResponse('Section created', await loadDetail(fresh)));
   } catch (err) {
     await t.rollback();
@@ -332,6 +366,7 @@ ardSectionRouter.put('/:id', async (req: Request, res: Response, next: NextFunct
       uniqueIdentifier: body.uniqueIdentifier ?? null,
       sectionType: stype,
       deptId: body.deptId ?? null,
+      contentBlockId: CONTENT_BLOCK_TYPES.has(stype) ? (body.contentBlockId ?? null) : null,
       isActive: body.active ?? section.isActive,
       lastUpdatedById: userId,
       updatedAt: new Date(),
@@ -341,7 +376,7 @@ ardSectionRouter.put('/:id', async (req: Request, res: Response, next: NextFunct
     await auditLog(section.id, 'Updated', userId, section.name);
     await t.commit();
 
-    const fresh = await (ArdSection as any).findByPk(section.id);
+    const fresh = await (ArdSection as any).findByPk(section.id, { include: SECTION_AUDIT_INCLUDE });
     res.json(successResponse('Section updated', await loadDetail(fresh)));
   } catch (err) {
     await t.rollback();
@@ -407,6 +442,36 @@ const embeddedFileUploader = multer({
   limits: { fileSize: MAX_EMBEDDED_FILE_BYTES },
 });
 
+// POST /parse-embedded-file — preview-only conversion, no section id and nothing
+// persisted. Lets the Add Section form show the live spreadsheet (exact colors,
+// merges, locked ranges) the moment a file is picked, before the section itself
+// has been saved — the real save still re-uploads to POST /:id/embedded-file
+// below, which is the one that actually writes to the database.
+ardSectionRouter.post(
+  '/parse-embedded-file',
+  authenticate,
+  embeddedFileUploader.fields([{ name: 'file', maxCount: 1 }]),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const files = req.files as { file?: Express.Multer.File[] } | undefined;
+      const file = files?.file?.[0];
+      if (!file) throw new BadRequestError('No file uploaded.');
+      validateSpreadsheetUpload(file, 'Spreadsheet');
+
+      const ext = path.extname(file.originalname).toLowerCase();
+      if (ext !== '.xlsx') {
+        throw new BadRequestError('Only .xlsx can be previewed before saving — .xls will still upload fine after Save.', 'PREVIEW_UNSUPPORTED');
+      }
+      const converted = await convertXlsx(file.buffer, file.originalname.replace(/\.[^.]+$/, ''));
+      res.json(successResponse('Spreadsheet parsed', {
+        fileName: file.originalname,
+        workbookData: converted.workbook_data,
+        metadata: converted.metadata,
+      }));
+    } catch (err) { next(err); }
+  },
+);
+
 // POST /:id/embedded-file — upload the preconfigured spreadsheet (and optional CDS
 // mapping file) for a `preconfigured_excel` section. Bytes are stored in the DB
 // (ard_section_embedded_file), matching §1.4 — not on disk like ArdAttachment.
@@ -432,12 +497,40 @@ ardSectionRouter.post(
       validateSpreadsheetUpload(mappingFile, 'Mapping file');
 
       const userId = (req as any).user?.id ?? null;
+      // Also convert to Univer's renderable workbook JSON (same converter
+      // POST /api/calc-templates/import-xlsx uses) so Preview Mode and the
+      // real experiment page can actually render the sheet, not just show
+      // its filename as text. Best-effort — a conversion failure (e.g. a
+      // format the converter can't parse) must not block the raw upload,
+      // since the file is still downloadable/usable even without a preview.
+      let workbookData: object | null = null;
+      // Field/protection metadata alongside workbookData — in particular
+      // protectedRanges, derived from which cells the author actually left
+      // locked under Excel's own sheet protection. Without persisting this,
+      // the runtime has no way to know which cells should stay locked vs.
+      // the ones the author explicitly unlocked (and usually color-coded)
+      // for data entry, so everything rendered editable regardless of the
+      // source file's protection.
+      let metadata: object | null = null;
+      try {
+        const ext = file.originalname.split('.').pop()?.toLowerCase();
+        if (ext === 'xlsx' || ext === 'xlsm') {
+          const converted = await convertXlsx(file.buffer, file.originalname.replace(/\.[^.]+$/, ''));
+          workbookData = converted.workbook_data as object;
+          metadata = converted.metadata as object;
+        }
+      } catch (err) {
+        console.error('Embedded file spreadsheet conversion failed:', err);
+      }
+
       const [ef] = await (ArdSectionEmbeddedFile as any).findOrCreate({
         where: { sectionId: section.id }, defaults: { sectionId: section.id },
       });
       await ef.update({
         fileName: file.originalname,
         fileData: file.buffer,
+        workbookData,
+        metadata,
         ...(mappingFile ? { mappingFileName: mappingFile.originalname, mappingFileData: mappingFile.buffer } : {}),
       });
       await auditLog(section.id, 'Embedded file uploaded', userId, `${file.originalname}${mappingFile ? ` + ${mappingFile.originalname}` : ''}`);

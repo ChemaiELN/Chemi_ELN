@@ -9,15 +9,17 @@ import { ArrowLeft, BookOpen, Plus, Trash2, LayoutList, FileText, Star } from 'l
 import dayjs from 'dayjs'
 import { ardNotebooksApi, type Notebook, type ResultParameter, type AssignedUser, type ExperimentSummary } from '../../api/ard-notebooks'
 import { ardProjectsApi, type ProjectStp } from '../../api/ard-projects'
-import { ardTemplateApi, ardExperimentApi } from '../../api/ard'
+import { ardTemplateApi, ardExperimentApi, ardApi } from '../../api/ard'
 import { apiGet, ApiError } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
+import { useBreadcrumbLabel, useBreadcrumbPrefix } from '../../components/layout/ArdShell'
+import RichEditor from '../../components/RichEditor'
 
 const { TextArea } = Input
 
-const STATUS_COLOR: Record<string, string> = { OPEN: 'green', CLOSED: 'default', ARCHIVED: 'volcano' }
+const STATUS_COLOR: Record<string, string> = { ACTIVE: 'green', CLOSED: 'default', DEACTIVE: 'volcano' }
 const EXP_STATUS_COLOR: Record<string, string> = {
   IN_PROGRESS: 'blue', SUBMITTED: 'purple', APPROVED: 'green', REWORK: 'red',
   VERIFICATION_REQUESTED: 'gold', VERIFIED: 'cyan', UNLOCKED: 'geekblue', DEACTIVATED: 'default',
@@ -62,7 +64,7 @@ function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Part
           <Input
             value={name}
             onChange={e => setName(e.target.value)}
-            disabled={nb.status !== 'OPEN'}
+            disabled={nb.status !== 'ACTIVE'}
             className="rounded-lg"
             placeholder="Notebook name"
           />
@@ -77,7 +79,7 @@ function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Part
             allowClear
             placeholder="Select type"
             className="w-full rounded-lg"
-            disabled={nb.status !== 'OPEN'}
+            disabled={nb.status !== 'ACTIVE'}
           />
         </div>
 
@@ -87,7 +89,7 @@ function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Part
             rows={4}
             value={description}
             onChange={e => setDescription(e.target.value)}
-            disabled={nb.status !== 'OPEN'}
+            disabled={nb.status !== 'ACTIVE'}
             className="rounded-lg"
             placeholder="Enter notebook description..."
           />
@@ -108,7 +110,7 @@ function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Part
         </div>
       </div>
 
-      {dirty && nb.status === 'OPEN' && (
+      {dirty && nb.status === 'ACTIVE' && (
         <div className="pt-2 flex justify-end">
           <Button type="primary" loading={saving} onClick={() => onSave({ name, description, notebookType: notebookType || undefined })}>
             Save Changes
@@ -233,6 +235,12 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
     form.resetFields()
   }
 
+  // Only HOD/TL (or SUPER_ADMIN) manage notebook membership — matches the
+  // project team's own rule. The notebook's own creator/owner is NOT exempt
+  // from removal (they can be removed by an HOD/TL like anyone else); the
+  // only person who can never remove someone is themself, regardless of role.
+  const canManageUsers = ['HOD', 'TL', 'TEAM_LEAD', 'SUPER_ADMIN'].includes((currentUser?.role_code ?? '').toUpperCase())
+
   const remove = (userId: string) => {
     if (userId === currentUser?.id) {
       msgApi.warning('You cannot remove yourself from the notebook.')
@@ -270,32 +278,42 @@ function UsersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partia
             size="small"
             checked={r.canEdit !== false}
             onChange={(checked) => toggleCanEdit(r.userId, checked)}
-            disabled={nb.status !== 'OPEN'}
+            disabled={nb.status !== 'ACTIVE'}
             checkedChildren="Edit"
             unCheckedChildren="View"
           />
         )
       ),
     },
-    {
+    ...(canManageUsers ? [{
       title: '', key: 'del', width: 60,
-      render: (_, r) => (
-        r.role?.includes('Creator') ? null : (
-          <Popconfirm title="Remove user?" onConfirm={() => remove(r.userId)} disabled={nb.status !== 'OPEN'}>
-            <Button type="text" danger icon={<Trash2 size={14} />} disabled={nb.status !== 'OPEN'} />
+      render: (_: unknown, r: AssignedUser) => {
+        const isSelf = r.userId === currentUser?.id
+        if (isSelf) {
+          return (
+            <Tooltip title="You cannot remove yourself from the notebook.">
+              <Button type="text" danger icon={<Trash2 size={14} />} disabled />
+            </Tooltip>
+          )
+        }
+        return (
+          <Popconfirm title="Remove user?" onConfirm={() => remove(r.userId)} disabled={nb.status !== 'ACTIVE'}>
+            <Button type="text" danger icon={<Trash2 size={14} />} disabled={nb.status !== 'ACTIVE'} />
           </Popconfirm>
         )
-      ),
-    },
+      },
+    }] : []),
   ]
 
   return (
     <div className="space-y-3">
       {msgCtx}
       <div className="flex justify-end">
-        <Button icon={<Plus size={14} />} onClick={() => setOpen(true)} disabled={nb.status !== 'OPEN'}>
-          Add Users
-        </Button>
+        <Tooltip title={canManageUsers ? undefined : 'Only HOD or TL can add users to a notebook.'}>
+          <Button icon={<Plus size={14} />} onClick={() => setOpen(true)} disabled={nb.status !== 'ACTIVE' || !canManageUsers}>
+            Add Users
+          </Button>
+        </Tooltip>
       </div>
       <Table rowKey="userId" columns={cols} dataSource={effectiveUsers} pagination={false}
         locale={{ emptyText: 'No users assigned.' }} size="small" />
@@ -324,6 +342,9 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
   const [form] = Form.useForm()
   const [creationMode, setCreationMode] = useState<'template' | 'stp'>('template')
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>(notebookProjectId ?? undefined)
+  const [selectedStp, setSelectedStp] = useState<ProjectStp | null>(null)
+  const [selectedTemplateType, setSelectedTemplateType] = useState<string | undefined>(undefined)
+  const [selectedTestType, setSelectedTestType] = useState<string | undefined>(undefined)
 
   const { data, isLoading } = useQuery({
     queryKey: ['notebook-experiments', notebookId],
@@ -348,6 +369,10 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
     queryFn: () => ardProjectsApi.get(selectedProjectId!),
     enabled: creationMode === 'stp' && !!selectedProjectId,
   })
+  const { data: masterData } = useQuery({
+    queryKey: ['ard-master-data'],
+    queryFn: ardApi.getMasterData,
+  })
 
   const templateOptions = useMemo(() => {
     const pub = published?.items ?? []
@@ -356,8 +381,39 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
       value: t.id,
       label: `${t.name} (v${t.version}${t.status ? ` - ${t.status}` : ''})`,
       name: t.name,
+      templateType: t.templateType ?? null,
     }))
   }, [published, allTemplates])
+
+  const templateTypeOptions = useMemo(() => {
+    const fromLookup = (masterData?.lookups ?? [])
+      .filter((l) => l.category === 'Template Type' && l.active)
+      .map((l) => ({ value: l.code, label: l.label }))
+    return fromLookup.length > 0
+      ? fromLookup
+      : [
+          { value: 'EXPERIMENT', label: 'Experiment' },
+          { value: 'ANALYTICAL', label: 'Analytical' },
+          { value: 'STP', label: 'STP Document' },
+          { value: 'STABILITY', label: 'Stability Study' },
+        ]
+  }, [masterData?.lookups])
+
+  const filteredTemplateOptions = useMemo(
+    () => selectedTemplateType ? templateOptions.filter(t => t.templateType === selectedTemplateType) : templateOptions,
+    [templateOptions, selectedTemplateType],
+  )
+
+  const testTypeOptions = useMemo(() => {
+    const types = Array.from(new Set((masterData?.testConfigs ?? []).filter(c => c.active).map(c => c.testType).filter(Boolean)))
+    return types.map(t => ({ value: t, label: t }))
+  }, [masterData?.testConfigs])
+
+  const testSubtypeOptionsFor = (testType?: string) => {
+    const configs = (masterData?.testConfigs ?? []).filter(c => c.active && (!testType || c.testType === testType))
+    const subtypes = Array.from(new Set(configs.map(c => c.testSubtype).filter(Boolean)))
+    return subtypes.map(s => ({ value: s as string, label: s as string }))
+  }
 
   const projectOptions = useMemo(() =>
     (projectsData?.items ?? []).filter(p => p.status === 'OPEN').map(p => ({
@@ -371,7 +427,11 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
     return docs
       .filter(s => s.status === 'APPROVED')
       .map(s => ({
-        value: s.documentNo,
+        // Must be the STP's id, not its documentNo — the backend looks up
+        // the STP on the project by `s.id === projectStpId` (see POST
+        // /api/ard/experiments), so sending documentNo here always 404s
+        // with "STP document not found on this project".
+        value: s.id,
         label: `${s.documentNo} v${s.version} — ${s.title}${s.testType ? ` (${s.testType})` : ''}`,
         stp: s,
       }))
@@ -411,6 +471,9 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
     form.resetFields()
     setCreationMode('template')
     setSelectedProjectId(notebookProjectId ?? undefined)
+    setSelectedStp(null)
+    setSelectedTemplateType(undefined)
+    setSelectedTestType(undefined)
     setOpen(true)
   }
 
@@ -445,8 +508,8 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <Tooltip title={notebookStatus !== 'OPEN' ? 'Notebook must be OPEN to add experiments' : ''}>
-          <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen} disabled={notebookStatus !== 'OPEN'}>
+        <Tooltip title={notebookStatus !== 'ACTIVE' ? 'Notebook must be Active to add experiments' : ''}>
+          <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen} disabled={notebookStatus !== 'ACTIVE'}>
             New Experiment
           </Button>
         </Tooltip>
@@ -474,7 +537,13 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
           <Form.Item label="Creation Mode" style={{ marginBottom: 16 }}>
             <Radio.Group
               value={creationMode}
-              onChange={e => { setCreationMode(e.target.value); form.resetFields(['templateId', 'projectStpId']) }}
+              onChange={e => {
+                setCreationMode(e.target.value)
+                form.resetFields(['templateId', 'projectStpId', 'aimObjective', 'testType', 'testSubType'])
+                setSelectedStp(null)
+                setSelectedTemplateType(undefined)
+                setSelectedTestType(undefined)
+              }}
               optionType="button"
               buttonStyle="solid"
               options={[
@@ -483,22 +552,82 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
               ]}
             />
           </Form.Item>
-          <Form.Item name="name" label="Experiment Name" rules={[{ required: true, message: 'Please enter an experiment name' }]}>
-            <Input placeholder="e.g. Assay & Related Substances Test" />
-          </Form.Item>
+          {creationMode === 'template' && (
+            <>
+              <div className="grid grid-cols-2 gap-x-4">
+                <Form.Item label="Select Template Type">
+                  <Select
+                    allowClear
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select Template Type"
+                    options={templateTypeOptions}
+                    value={selectedTemplateType}
+                    onChange={(v) => { setSelectedTemplateType(v); form.resetFields(['templateId']) }}
+                  />
+                </Form.Item>
+                <Form.Item name="templateId" label="Select Template" rules={[{ required: true, message: 'Please select a template' }]}>
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select Template"
+                    options={filteredTemplateOptions}
+                    onChange={(val, opt: any) => {
+                      if (opt?.name && !form.getFieldValue('name')) {
+                        form.setFieldsValue({ name: opt.name })
+                      }
+                    }}
+                  />
+                </Form.Item>
+              </div>
+              <div className="grid grid-cols-2 gap-x-4">
+                <Form.Item name="testType" label="Select Test Type" rules={[{ required: true, message: 'Please select a test type' }]}>
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select Test Type"
+                    options={testTypeOptions}
+                    onChange={(v) => { setSelectedTestType(v); form.resetFields(['testSubType']) }}
+                  />
+                </Form.Item>
+                <Form.Item name="testSubType" label="Select Sub Type" rules={[{ required: true, message: 'Please select a sub type' }]}>
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="--Select Sub Type--"
+                    options={testSubtypeOptionsFor(selectedTestType)}
+                    disabled={!selectedTestType}
+                  />
+                </Form.Item>
+              </div>
+              <Form.Item
+                name="aimObjective"
+                label="Aim/Objective"
+                rules={[{ required: true, message: 'Please enter the aim/objective' }]}
+              >
+                <RichEditor placeholder="Describe the aim/objective of this experiment..." minHeight={140} />
+              </Form.Item>
+            </>
+          )}
           {creationMode === 'stp' && (
             <>
-              <Form.Item label="Project" style={{ marginBottom: 12 }}>
-                <Select
-                  showSearch
-                  optionFilterProp="label"
-                  placeholder="Select project..."
-                  options={projectOptions}
-                  value={selectedProjectId}
-                  onChange={v => { setSelectedProjectId(v); form.resetFields(['projectStpId']) }}
-                  allowClear
-                />
-              </Form.Item>
+              {/* Project isn't shown when the notebook already belongs to one
+                  (matches the legacy form, which has no Project field at all)
+                  — only surfaced as a fallback for a notebook with no fixed
+                  project, since Select Stp otherwise has nothing to search. */}
+              {!notebookProjectId && (
+                <Form.Item label="Project" style={{ marginBottom: 12 }}>
+                  <Select
+                    showSearch
+                    optionFilterProp="label"
+                    placeholder="Select project..."
+                    options={projectOptions}
+                    value={selectedProjectId}
+                    onChange={v => { setSelectedProjectId(v); form.resetFields(['projectStpId']); setSelectedStp(null) }}
+                    allowClear
+                  />
+                </Form.Item>
+              )}
               <Form.Item
                 name="projectStpId"
                 label="Project STP Worksheet"
@@ -512,27 +641,35 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
                   disabled={!selectedProjectId || stpOptions.length === 0}
                   onChange={(val) => {
                     const found = stpOptions.find(o => o.value === val)
+                    setSelectedStp(found?.stp ?? null)
                     if (found?.stp?.title && !form.getFieldValue('name')) {
                       form.setFieldsValue({ name: found.stp.title })
                     }
                   }}
                 />
               </Form.Item>
+              {/* Read-only, derived from the selected STP — mirrors the legacy
+                  Angular "Add Experiment" form's Test Type/Sub-Type boxes,
+                  which were never independently editable there either. */}
+              <div className="flex gap-3 mb-3">
+                <div className="flex-1">
+                  <div className="text-xs text-slate-500 mb-1">Test Type</div>
+                  <Input value={selectedStp?.testType || '—'} disabled />
+                </div>
+                <div className="flex-1">
+                  <div className="text-xs text-slate-500 mb-1">Test Sub-Type</div>
+                  <Input value={selectedStp?.testSubtype || '—'} disabled />
+                </div>
+              </div>
+              <Form.Item
+                name="aimObjective"
+                label="Aim/Objective"
+                rules={[{ required: true, message: 'Please enter the aim/objective' }]}
+              >
+                <TextArea rows={3} placeholder="Describe the aim/objective of this experiment..." />
+              </Form.Item>
             </>
           )}
-          <Form.Item name="templateId" label="Template (section structure)" rules={[{ required: true, message: 'Please select a template' }]}>
-            <Select
-              showSearch
-              optionFilterProp="label"
-              placeholder="Select template..."
-              options={templateOptions}
-              onChange={(val, opt: any) => {
-                if (opt?.name && !form.getFieldValue('name')) {
-                  form.setFieldsValue({ name: opt.name })
-                }
-              }}
-            />
-          </Form.Item>
         </Form>
       </Modal>
     </div>
@@ -572,7 +709,7 @@ function ResultParametersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (pa
       title: '', key: 'del', width: 60,
       render: (_, r) => (
         <Popconfirm title="Remove parameter?" onConfirm={() => remove(r.id)}>
-          <Button type="text" danger icon={<Trash2 size={14} />} disabled={nb.status !== 'OPEN'} />
+          <Button type="text" danger icon={<Trash2 size={14} />} disabled={nb.status !== 'ACTIVE'} />
         </Popconfirm>
       ),
     },
@@ -581,7 +718,7 @@ function ResultParametersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (pa
   return (
     <div className="space-y-3">
       <div className="flex justify-end">
-        <Button icon={<Plus size={14} />} onClick={() => setOpen(true)} disabled={nb.status !== 'OPEN'}>
+        <Button icon={<Plus size={14} />} onClick={() => setOpen(true)} disabled={nb.status !== 'ACTIVE'}>
           Add Parameter
         </Button>
       </div>
@@ -821,13 +958,33 @@ export default function ArdNotebookWorkspacePage() {
     refetchOnWindowFocus: false,
   })
 
+  useBreadcrumbLabel(notebookId, nb?.name ?? null)
+
+  // The notebook route is flat (/ard/notebooks/:id, not nested under its
+  // project), so without this the breadcrumb would only ever show
+  // "ARD > Notebooks > NotebookName" — losing the project the user actually
+  // navigated in from. Injects "Projects > ProjectName" right after "ARD".
+  const { data: parentProject } = useQuery({
+    queryKey: ['ard-project', nb?.projectId],
+    queryFn: () => ardProjectsApi.get(nb!.projectId!),
+    enabled: !!nb?.projectId,
+  })
+  useBreadcrumbPrefix(
+    nb?.projectId
+      ? [
+          { label: 'Projects', href: '/ard/projects' },
+          { label: parentProject?.productName || parentProject?.code || '…', href: `/ard/projects/${nb.projectId}` },
+        ]
+      : null,
+  )
+
   const patch = useMutation({
     mutationFn: (body: Partial<Notebook>) => ardNotebooksApi.patch(notebookId, body),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] })
       qc.invalidateQueries({ queryKey: ['ard-notebooks'] })
     },
-    onError: () => msgApi.error('Save failed'),
+    onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Save failed'),
   })
 
   const [viewMode, setViewMode] = useState<'tabbed' | 'single'>('tabbed')
@@ -841,15 +998,18 @@ export default function ArdNotebookWorkspacePage() {
   const [reopenRemarks, setReopenRemarks] = useState('')
 
   const closeNotebook = useMutation({
-    mutationFn: () => ardNotebooksApi.patch(notebookId, { status: 'CLOSED', remarks: closeRemarks, auditEntry: { action: 'Status → CLOSED', detail: closeRemarks } } as any),
+    // The Notebook Events entry for this is now computed server-side from
+    // status + remarks (see ardNotebooks.routes.ts PATCH handler) — no need
+    // to build an auditEntry client-side.
+    mutationFn: () => ardNotebooksApi.patch(notebookId, { status: 'CLOSED', remarks: closeRemarks } as any),
     onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] }); qc.invalidateQueries({ queryKey: ['ard-notebooks'] }); setCloseOpen(false); setCloseRemarks(''); msgApi.success('Notebook closed.') },
     onError: (e: any) => msgApi.error(e?.detail ?? 'Failed to close notebook.'),
   })
 
   const archiveNotebook = useMutation({
-    mutationFn: () => ardNotebooksApi.patch(notebookId, { status: 'ARCHIVED', auditEntry: { action: 'Status → ARCHIVED', detail: archiveRemarks } } as any),
-    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] }); setArchiveOpen(false); setArchiveRemarks(''); msgApi.success('Notebook archived.') },
-    onError: (e: any) => msgApi.error(e?.detail ?? 'Failed to archive notebook.'),
+    mutationFn: () => ardNotebooksApi.patch(notebookId, { status: 'DEACTIVE', remarks: archiveRemarks } as any),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-notebook', notebookId] }); setArchiveOpen(false); setArchiveRemarks(''); msgApi.success('Notebook deactivated.') },
+    onError: (e: any) => msgApi.error(e?.detail ?? 'Failed to deactivate notebook.'),
   })
 
   const reopenNotebook = useMutation({
@@ -887,7 +1047,7 @@ export default function ArdNotebookWorkspacePage() {
     {
       key: 'equipment',
       label: 'Equipment',
-      children: <EquipmentTab notebookId={notebookId} isOpen={nb.status === 'OPEN'} />,
+      children: <EquipmentTab notebookId={notebookId} isOpen={nb.status === 'ACTIVE'} />,
     },
     {
       key: 'audit',
@@ -944,13 +1104,13 @@ export default function ArdNotebookWorkspacePage() {
           >
             Export PDF
           </Button>
-          {isHodOrAdmin && nb.status === 'OPEN' && (
+          {isHodOrAdmin && nb.status === 'ACTIVE' && (
             <Button onClick={() => setCloseOpen(true)}>Close Notebook</Button>
           )}
-          {isHodOrAdmin && (nb.status === 'OPEN' || nb.status === 'CLOSED') && (
-            <Button danger onClick={() => setArchiveOpen(true)}>Archive</Button>
+          {isHodOrAdmin && (nb.status === 'ACTIVE' || nb.status === 'CLOSED') && (
+            <Button danger onClick={() => setArchiveOpen(true)}>Deactivate</Button>
           )}
-          {isHodOrAdmin && (nb.status === 'CLOSED' || nb.status === 'ARCHIVED') && (
+          {isHodOrAdmin && nb.status === 'CLOSED' && (
             <Button type="primary" onClick={() => setReopenOpen(true)}>Reopen</Button>
           )}
         </div>
@@ -958,7 +1118,7 @@ export default function ArdNotebookWorkspacePage() {
         {/* Tabs vs Single Page Cards */}
         {viewMode === 'tabbed' ? (
           <div className="glass-card rounded-lg p-4">
-            <Tabs items={tabItems} />
+            <Tabs key={notebookId} items={tabItems} defaultActiveKey="experiments" />
           </div>
         ) : (
           <div className="space-y-6">
@@ -985,13 +1145,13 @@ export default function ArdNotebookWorkspacePage() {
         </div>
       </Modal>
 
-      {/* Archive Notebook Modal */}
-      <Modal {...glassModalProps} title="Archive Notebook" open={archiveOpen} onCancel={() => { setArchiveOpen(false); setArchiveRemarks('') }}
+      {/* Deactivate Notebook Modal */}
+      <Modal {...glassModalProps} title="Deactivate Notebook" open={archiveOpen} onCancel={() => { setArchiveOpen(false); setArchiveRemarks('') }}
         onOk={() => { if (!archiveRemarks.trim()) { msgApi.error('Remarks are required.'); return } archiveNotebook.mutate() }}
-        confirmLoading={archiveNotebook.isPending} okText="Archive" okButtonProps={{ danger: true }} destroyOnClose>
+        confirmLoading={archiveNotebook.isPending} okText="Deactivate" okButtonProps={{ danger: true }} destroyOnClose>
         <div className="space-y-3 pt-2">
-          <p className="text-sm text-slate-500">Archiving deactivates this notebook permanently. Provide a business justification.</p>
-          <Input.TextArea rows={3} value={archiveRemarks} onChange={e => setArchiveRemarks(e.target.value)} placeholder="Reason for archiving this notebook..." />
+          <p className="text-sm text-slate-500">Deactivating this notebook cannot be undone from here — only Closed notebooks can be reopened. Provide a business justification.</p>
+          <Input.TextArea rows={3} value={archiveRemarks} onChange={e => setArchiveRemarks(e.target.value)} placeholder="Reason for deactivating this notebook..." />
         </div>
       </Modal>
 

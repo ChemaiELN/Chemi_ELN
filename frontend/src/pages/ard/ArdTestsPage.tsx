@@ -364,7 +364,7 @@ export default function ArdTestsPage() {
     if (activeTab === 'pending_verify') return row.status === 'VERIFICATION_REQUESTED'
     if (activeTab === 'rework') return row.status === 'VERIFICATION_REWORK'
     if (activeTab === 'delegated') return row.status === 'DELEGATED'
-    if (activeTab === 'in_progress') return row.status === 'IN_PROGRESS' || row.status === 'ASSIGNED'
+    if (activeTab === 'in_progress') return row.status === 'IN_PROGRESS'
     if (activeTab === 'unassigned') return row.status === 'UNASSIGNED' || (!row.assignedToName && row.status !== 'CANCELLED' && row.status !== 'WITHDRAWN')
     if (activeTab === 'verified') return row.status === 'VERIFIED'
     if (activeTab === 'unlocked') return row.status === 'UNLOCKED'
@@ -385,7 +385,7 @@ export default function ArdTestsPage() {
   const countPendingVerify = items.filter(r => r.status === 'VERIFICATION_REQUESTED').length
   const countRework = items.filter(r => r.status === 'VERIFICATION_REWORK').length
   const countDelegated = items.filter(r => r.status === 'DELEGATED').length
-  const countInProgress = items.filter(r => r.status === 'IN_PROGRESS' || r.status === 'ASSIGNED').length
+  const countInProgress = items.filter(r => r.status === 'IN_PROGRESS').length
   const countUnassigned = items.filter(r => r.status === 'UNASSIGNED' || (!r.assignedToName && r.status !== 'CANCELLED' && r.status !== 'WITHDRAWN')).length
   const countVerified = items.filter(r => r.status === 'VERIFIED').length
   const countUnlocked = items.filter(r => r.status === 'UNLOCKED').length
@@ -593,8 +593,13 @@ export default function ArdTestsPage() {
     setBulkAcceptLoading(true)
     try {
       const rows = selectedRowKeys.map((id) => filteredItems.find((r) => r.id === id)).filter(Boolean) as TestRow[]
+      // This "Accept" only ever fires from the Unassigned tab — it means
+      // "claim this test for myself", not QA's final results acceptance
+      // (that's the separate /accept-test flow gated to HOD/QA). /claim has
+      // no role restriction, matching the fact any analyst can pick up an
+      // unassigned test from their team queue.
       await Promise.all(rows.map((row) =>
-        apiPost(`/api/ard/tests/${row.atrId}/${row.id}/accept-test`, { remarks: bulkAcceptRemarks || undefined })
+        apiPost(`/api/ard/tests/${row.atrId}/${row.id}/claim`, { remarks: bulkAcceptRemarks || undefined })
       ))
       qc.invalidateQueries({ queryKey: ['ard-tests'] })
       msgApi.success(`Accepted ${rows.length} test${rows.length !== 1 ? 's' : ''}.`)

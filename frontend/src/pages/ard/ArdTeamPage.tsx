@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Table, Tag, Tabs, Button, Modal, Form, Input, Select, Switch, message, Space, Tooltip, Popconfirm, Empty } from 'antd'
 import { Plus, Edit3, Search, Users, UserPlus, X } from 'lucide-react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -85,6 +85,19 @@ function DirectoryTab({
     setTeamMembers([...teamMembers, ...toAdd])
     setPendingUserIds([])
   }
+
+  // The HOD and Team Leader picked above are already part of the team by
+  // definition — listing them again in Team Members is a duplicate, not a
+  // separate membership. Watching the form fields (rather than only
+  // filtering at add-time) also cleans up a member that was added BEFORE
+  // being picked as HOD/TL, matching what the modal shows on open when
+  // editing an existing team.
+  const watchedHodId = Form.useWatch('hodId', form)
+  const watchedMainTlId = Form.useWatch('mainTlId', form)
+  useEffect(() => {
+    setTeamMembers((prev) => prev.filter((m) => m.id !== watchedHodId && m.id !== watchedMainTlId))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedHodId, watchedMainTlId])
 
   const { data, isLoading } = useQuery({ queryKey: ['ard-team-directory'], queryFn: ardOpsApi.teamDirectory })
   const items = data?.items ?? []
@@ -463,6 +476,9 @@ function DirectoryTab({
             <span className="text-[13px] font-medium text-slate-700">Team Members</span>
             <span className="text-xs text-slate-400 font-normal">Optional</span>
           </div>
+          <p className="text-[11px] text-slate-400 mb-2">
+            The HOD and Team Leader above are part of the team automatically — add analysts, QA, or additional TLs here.
+          </p>
           <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 mb-4">
             <div className="flex flex-col sm:flex-row gap-2">
               <Select
@@ -483,7 +499,7 @@ function DirectoryTab({
                 onChange={setPendingUserIds}
                 filterOption={(i, o) => (o?.label ?? '').toString().toLowerCase().includes(i.toLowerCase())}
                 options={(pendingRole ? memberOptionsByRole[pendingRole] : []).filter(
-                  (o) => !teamMembers.some((m) => m.id === o.value)
+                  (o) => !teamMembers.some((m) => m.id === o.value) && o.value !== watchedHodId && o.value !== watchedMainTlId
                 )}
               />
               <Button type="primary" ghost onClick={addPendingMembers} disabled={!pendingRole || pendingUserIds.length === 0}>
@@ -495,11 +511,12 @@ function DirectoryTab({
                 {teamMembers.map((m) => (
                   <Tag
                     key={m.id}
+                    color={ROLE_COLOR[m.role] ?? 'default'}
                     closable
                     onClose={() => setTeamMembers(teamMembers.filter((x) => x.id !== m.id))}
-                    className="m-0 py-0.5 px-2"
+                    className="m-0 py-0.5 px-2 font-medium"
                   >
-                    {m.name} <span className="text-slate-400">· {MEMBER_ROLE_OPTIONS.find((r) => r.value === m.role)?.label || m.role}</span>
+                    {m.name} <span className="opacity-70">· {MEMBER_ROLE_OPTIONS.find((r) => r.value === m.role)?.label || m.role}</span>
                   </Tag>
                 ))}
               </div>
@@ -724,7 +741,7 @@ export default function ArdTeamPage() {
 
   const hodOptions = combinedUsers
     .filter((u) => HOD_ROLES.has(userRole(u)) && ARD_DEPTS.has(userDept(u)))
-    .map((u) => ({ value: u.id, label: u.id === user?.id ? `${u.username} (me)` : u.username }))
+    .map((u) => ({ value: u.id, label: u.username }))
 
   const tlOptions = combinedUsers
     .filter((u) => TL_ROLES.has(userRole(u)) && ARD_DEPTS.has(userDept(u)))

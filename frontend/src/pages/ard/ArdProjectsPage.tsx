@@ -63,19 +63,20 @@ export default function ArdProjectsPage() {
         { name: 'Method Validation Notebook', type: 'METHOD_VALIDATION' },
         { name: 'Routine Analysis Notebook', type: 'ROUTINE_ANALYSIS' },
       ]
-      let firstNbId = ''
       for (const item of defaultNotebooks) {
-        const nb = await ardNotebooksApi.create({
+        await ardNotebooksApi.create({
           name: item.name,
           projectId: createdProjectId,
           notebookType: item.type,
         })
-        if (!firstNbId) firstNbId = nb.id
       }
       qc.invalidateQueries({ queryKey: ['ard-notebooks-list'] })
       msgApi.success('Created 4 default notebooks successfully.')
       setNotebookConfirmOpen(false)
-      if (firstNbId) navigate(`/ard/notebooks/${firstNbId}`)
+      // Land on the project's own page, not straight into a notebook — the
+      // user should see the project they just created, with its new
+      // notebooks listed, rather than being dropped into one of them.
+      navigate(`/ard/projects/${createdProjectId}`)
     } catch {
       msgApi.error('Failed to create default notebooks.')
     } finally {
@@ -196,14 +197,17 @@ export default function ArdProjectsPage() {
         okText="Create"
       >
         <Form form={form} layout="vertical" className="pt-2">
-          <Form.Item name="code" label="Project Code" rules={[{ required: true, message: 'Required' }]}>
-            <Input placeholder="e.g. PRJ-2025-001" />
-          </Form.Item>
           <Form.Item name="productName" label="Product Name" rules={[{ required: true, message: 'Required' }]}>
             <Input placeholder="e.g. Metformin HCl 500mg" />
           </Form.Item>
-          <Form.Item name="customer" label="Customer / Sponsor">
+          <Form.Item name="code" label="Project Code" rules={[{ required: true, message: 'Required' }]}>
+            <Input placeholder="e.g. PRJ-2025-001" />
+          </Form.Item>
+          <Form.Item name="customer" label="Customer / Market">
             <Input placeholder="Optional" />
+          </Form.Item>
+          <Form.Item name="projectType" label="Project Type" rules={[{ required: true, message: 'Required' }]}>
+            <Input placeholder="e.g. Analysis, Development, Stability..." />
           </Form.Item>
           <Form.Item name="description" label="Description">
             <Input.TextArea rows={2} placeholder="Project scope, objectives..." />

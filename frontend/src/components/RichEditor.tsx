@@ -1,6 +1,44 @@
 import { useEffect, useRef } from 'react'
 import Quill from 'quill'
+import QuillTableBetter from 'quill-table-better'
 import 'quill/dist/quill.snow.css'
+import 'quill-table-better/dist/quill-table-better.css'
+
+// Registers the table-* blots globally so pasted/loaded <table> markup (e.g. from
+// Word/Excel) round-trips through Quill's HTML parser instead of being flattened.
+Quill.register({ 'modules/table-better': QuillTableBetter }, true)
+
+// Line-height isn't a built-in Quill format — registered as a block style
+// attributor so it shows up as a normal toolbar dropdown (like Header/Font).
+const Parchment = Quill.import('parchment') as any
+const LineHeightStyle = new Parchment.StyleAttributor('lineheight', 'line-height', {
+  scope: Parchment.Scope.BLOCK,
+  whitelist: ['1', '1.15', '1.5', '2', '2.5', '3'],
+})
+Quill.register(LineHeightStyle, true)
+
+// Quill's built-in Font/Size formats are whitelist-only (a handful of named
+// presets) — pasting from Word/another doc with an arbitrary font-family or
+// exact px size (verified live: Georgia 18px, Courier New 22px) got silently
+// stripped down to the editor's own default font/size, not replicated.
+// Registered without a whitelist (unlike line-height above, which only ever
+// needs a few discrete steps) so ANY pasted value survives, matching what
+// was actually asked: paste should keep the source's exact formatting.
+const FontFamilyStyle = new Parchment.StyleAttributor('font', 'font-family', { scope: Parchment.Scope.INLINE })
+const FontSizeStyle = new Parchment.StyleAttributor('size', 'font-size', { scope: Parchment.Scope.INLINE })
+const LetterSpacingStyle = new Parchment.StyleAttributor('letterspacing', 'letter-spacing', { scope: Parchment.Scope.INLINE })
+Quill.register(FontFamilyStyle, true)
+Quill.register(FontSizeStyle, true)
+Quill.register(LetterSpacingStyle, true)
+
+// undo/redo/fullscreen/special-char have no built-in Quill icon — provide our own.
+const icons = Quill.import('ui/icons') as Record<string, string>
+icons['undo'] = '<svg viewBox="0 0 18 18"><polyline class="ql-stroke" points="4 9 9 4 14 9"/><path class="ql-stroke" d="M9,4V12a4,4,0,0,1-4,4H4"/></svg>'
+icons['redo'] = '<svg viewBox="0 0 18 18"><polyline class="ql-stroke" points="14 9 9 4 4 9"/><path class="ql-stroke" d="M9,4V12a4,4,0,0,1,4,4h1"/></svg>'
+icons['fullscreen'] = '<svg viewBox="0 0 18 18"><path class="ql-stroke" d="M3,7V3H7 M15,7V3H11 M3,11v4H7 M15,11v4H11"/></svg>'
+icons['special-char'] = '<svg viewBox="0 0 18 18"><text x="2" y="14" style="font-size:13px;font-family:serif;fill:none;stroke:currentColor;stroke-width:0.6">&#937;</text></svg>'
+
+const SPECIAL_CHARS = ['°', '±', '×', '÷', '≤', '≥', '≈', '≠', '→', 'µ', 'α', 'β', 'γ', 'Δ', 'Ω', 'π', '²', '³', '½', '™', '®']
 
 interface Props {
   value?: string
@@ -12,11 +50,20 @@ interface Props {
 }
 
 const TOOLBAR = [
+  ['undo', 'redo'],
   [{ header: [2, 3, false] }],
   ['bold', 'italic', 'underline', 'strike'],
+  [{ script: 'sub' }, { script: 'super' }],
+  [{ align: [] }],
+  [{ lineheight: ['1', '1.15', '1.5', '2', '2.5', '3'] }],
+  [{ indent: '-1' }, { indent: '+1' }],
   [{ list: 'ordered' }, { list: 'bullet' }],
   ['blockquote'],
+  ['table-better'],
+  ['link', 'image'],
+  ['special-char'],
   ['clean'],
+  ['fullscreen'],
 ]
 
 export default function RichEditor({
@@ -48,7 +95,30 @@ export default function RichEditor({
       theme: 'snow',
       placeholder,
       readOnly,
-      modules: { toolbar: readOnly ? false : TOOLBAR },
+      modules: {
+        table: false,
+        toolbar: readOnly ? false : {
+          container: TOOLBAR,
+          handlers: {
+            undo: function (this: { quill: Quill }) { this.quill.history.undo() },
+            redo: function (this: { quill: Quill }) { this.quill.history.redo() },
+            fullscreen: function (this: { quill: Quill }) {
+              wrapRef.current?.classList.toggle('rich-editor-fullscreen')
+            },
+            'special-char': function (this: { quill: Quill }) {
+              togglePicker(this.quill)
+            },
+          },
+        },
+        ...(readOnly ? {} : {
+          'table-better': {
+            language: 'en_US',
+            menus: ['column', 'row', 'merge', 'table', 'cell', 'wrap', 'delete'],
+            toolbarTable: true,
+          },
+          keyboard: { bindings: QuillTableBetter.keyboardBindings },
+        }),
+      },
     })
 
     quillRef.current = quill
@@ -60,6 +130,30 @@ export default function RichEditor({
       const html = quill.root.innerHTML
       onChangeRef.current?.(html === '<p><br></p>' ? '' : html)
     })
+
+    // Lightweight special-character picker — plain DOM (this toolbar lives
+    // outside React's tree), toggled by the Ω button, inserts at the cursor.
+    let picker: HTMLDivElement | null = null
+    function togglePicker(quill: Quill) {
+      if (picker) { picker.remove(); picker = null; return }
+      const btn = wrapRef.current?.querySelector('.ql-special-char') as HTMLElement | null
+      if (!btn) return
+      picker = document.createElement('div')
+      picker.className = 'rich-editor-char-picker'
+      for (const ch of SPECIAL_CHARS) {
+        const span = document.createElement('span')
+        span.textContent = ch
+        span.onclick = () => {
+          const sel = quill.getSelection(true)
+          quill.insertText(sel.index, ch, 'user')
+          quill.setSelection(sel.index + ch.length, 0)
+          picker?.remove()
+          picker = null
+        }
+        picker.appendChild(span)
+      }
+      btn.appendChild(picker)
+    }
 
     // No DOM cleanup needed: when the component truly unmounts,
     // the entire wrapRef subtree is removed from the DOM by React.
@@ -104,6 +198,58 @@ export default function RichEditor({
           color: #bfbfbf;
           font-style: normal;
         }
+        .rich-editor-wrap .ql-editor table {
+          border-collapse: collapse;
+        }
+        .rich-editor-wrap .ql-editor td,
+        .rich-editor-wrap .ql-editor th {
+          border: 1px solid #d1d5db;
+          padding: 4px 8px;
+        }
+        .rich-editor-wrap .ql-special-char {
+          position: relative;
+        }
+        .rich-editor-char-picker {
+          position: absolute;
+          top: 100%;
+          left: 0;
+          z-index: 20;
+          display: grid;
+          grid-template-columns: repeat(7, 1fr);
+          gap: 2px;
+          background: #fff;
+          border: 1px solid #d1d5db;
+          border-radius: 6px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.12);
+          padding: 6px;
+          width: 210px;
+        }
+        .rich-editor-char-picker span {
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 26px;
+          height: 26px;
+          font-size: 14px;
+          border-radius: 4px;
+          cursor: pointer;
+        }
+        .rich-editor-char-picker span:hover {
+          background: #f0f0f0;
+        }
+        .rich-editor-wrap.rich-editor-fullscreen {
+          position: fixed;
+          inset: 0;
+          z-index: 1000;
+          background: #fff;
+          padding: 16px;
+          display: flex;
+          flex-direction: column;
+        }
+        .rich-editor-wrap.rich-editor-fullscreen .ql-container {
+          flex: 1;
+          height: auto !important;
+        }
       `}</style>
     </div>
   )
@@ -116,7 +262,7 @@ export function RichDisplay({ html }: { html: string | null | undefined }) {
   }
   return (
     <div
-      className="prose prose-sm max-w-none text-slate-700 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_blockquote]:border-l-2 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:text-slate-500"
+      className="prose prose-sm max-w-none text-slate-700 [&_ul]:list-disc [&_ul]:pl-4 [&_ol]:list-decimal [&_ol]:pl-4 [&_blockquote]:border-l-2 [&_blockquote]:border-slate-300 [&_blockquote]:pl-3 [&_blockquote]:text-slate-500 [&_table]:border-collapse [&_td]:border [&_td]:border-slate-300 [&_td]:p-1.5 [&_th]:border [&_th]:border-slate-300 [&_th]:p-1.5 [&_th]:bg-slate-50"
       dangerouslySetInnerHTML={{ __html: html }}
     />
   )

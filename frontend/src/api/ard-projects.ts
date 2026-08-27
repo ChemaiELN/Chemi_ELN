@@ -1,4 +1,5 @@
 import { apiGet, apiPost, apiPut, apiDelete } from './client'
+import type { TemplateField } from '../pages/admin/templateBuilder/types'
 
 export type ProjectStatus = 'OPEN' | 'CLOSED'
 export type StpStatus = 'DRAFT' | 'SUBMITTED' | 'APPROVED' | 'RETURNED' | 'SUPERSEDED'
@@ -16,6 +17,18 @@ export interface ProjectStp {
   phDetails?: boolean
   columnDetails?: boolean
   chromatogramReport?: boolean
+  // All three uploads are embedded, fillable spreadsheets (same Univer-backed
+  // field used by the admin Template Builder / CGT), not plain file
+  // attachments — each is what the STP Worksheet preview (and, for
+  // Procedure, an experiment created from this STP) actually renders and
+  // persists into. Same import pipeline (calcTemplateApi.importXlsx) for
+  // all three — see handleSpreadsheetFilePicked.
+  procedureSpreadsheet?: TemplateField['spreadsheet']
+  sampleMappingSpreadsheet?: TemplateField['spreadsheet']
+  stpCalculationSpreadsheet?: TemplateField['spreadsheet']
+  // Legacy filename-only fields — a prior version of this form stored just
+  // the picked file's name with no real upload behind it. Kept optional so
+  // any already-saved STP still displays what it has; no longer written to.
   sampleMappingFile?: string
   stpProcedureFile?: string
   stpCalculationFile?: string
@@ -27,6 +40,7 @@ export interface ProjectStp {
   submittedBy?: string
   submittedAt?: string
   submitDescription?: string
+  submitRemarks?: string | null
   approverUsername?: string
   approverName?: string
   approvedBy?: string
@@ -139,11 +153,11 @@ export const ardProjectsApi = {
     return apiDelete(`${BASE}/${id}`)
   },
 
-  submitStp(projectId: string, stpId: string, body?: { approverUsername?: string; description?: string }) {
-    return apiPost<Project>(`${BASE}/${projectId}/stps/${stpId}/submit`, body || {})
+  submitStp(projectId: string, stpId: string, body: { remarks?: string; password: string }) {
+    return apiPost<Project>(`${BASE}/${projectId}/stps/${stpId}/submit`, body)
   },
-  approveStp(projectId: string, stpId: string, body?: { remarks?: string; password?: string }) {
-    return apiPost<Project>(`${BASE}/${projectId}/stps/${stpId}/approve`, body || {})
+  approveStp(projectId: string, stpId: string, body: { remarks?: string; password: string }) {
+    return apiPost<Project>(`${BASE}/${projectId}/stps/${stpId}/approve`, body)
   },
   returnStp(projectId: string, stpId: string, body?: { reason?: string }) {
     return apiPost<Project>(`${BASE}/${projectId}/stps/${stpId}/return`, body || {})

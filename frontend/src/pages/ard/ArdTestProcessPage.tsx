@@ -373,12 +373,6 @@ export default function ArdTestProcessPage() {
     onError: () => msgApi.error('Delegation failed.'),
   })
 
-  const generateArMut = useMutation({
-    mutationFn: () => apiPost(`/api/ard/tests/${atrId}/${testId}/generate-ar`, {}),
-    onSuccess: () => { invalidate(); msgApi.success('AR Number generated.') },
-    onError: () => msgApi.error('Failed to generate AR number.'),
-  })
-
   const acceptTestMut = useMutation({
     mutationFn: () => apiPost(`/api/ard/tests/${atrId}/${testId}/accept-test`, {}),
     onSuccess: () => { invalidate(); msgApi.success('Test accepted.') },
@@ -577,17 +571,7 @@ export default function ArdTestProcessPage() {
             <Descriptions.Item label="AR Number">
               {test.arNumber
                 ? <span className="font-mono text-sm font-semibold text-violet-700">{test.arNumber}</span>
-                : (
-                  <div className="flex items-center gap-2">
-                    <span className="text-slate-400 text-xs">Not generated yet</span>
-                    {(isLead || isAssignedAnalyst) && (
-                      <Button size="small" type="link" className="p-0 h-auto text-xs"
-                        loading={generateArMut.isPending} onClick={() => generateArMut.mutate()}>
-                        Generate AR
-                      </Button>
-                    )}
-                  </div>
-                )}
+                : <span className="text-slate-400 text-xs">Generated when the test is started</span>}
             </Descriptions.Item>
             <Descriptions.Item label="Instrument / Equipment Code">
               {canExec ? (

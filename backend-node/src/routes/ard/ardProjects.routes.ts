@@ -7,11 +7,17 @@ import { successResponse, listResponse, parsePagination, buildPagination } from 
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../utils/errors'
 import { sequelize } from '../../database/connection'
 import { ArdProject, ArdProjectSpecification, ArdNotebook, ArdExperiment, ArdAuditLog } from '../../models/index'
+import { verifyPassword } from '../../utils/auth.utils'
 
 const router = Router()
 
 function isAdmin(rc: string) { return ['HOD', 'ADMIN', 'SUPER_ADMIN'].includes(rc) }
-function isExternal(rc: string) { return ['ADC_PD', 'CGT', 'EXTERNAL'].includes(rc) }
+// Project visibility: only ADMIN/SUPER_ADMIN see every project regardless of
+// team. Everyone else — including HOD and TL, who get elevated rights
+// elsewhere (approving specs, editing project details) — sees only projects
+// they created/own or are an explicit team member of. A project is only
+// visible to whoever was actually added to it.
+function seesAllProjects(rc: string) { return ['ADMIN', 'SUPER_ADMIN'].includes(rc) }
 
 function projectOut(p: ArdProject) {
   return {
@@ -29,7 +35,7 @@ function specOut(s: ArdProjectSpecification) {
   return {
     id: s.id, projectId: s.projectId, specCode: s.specCode, version: s.version,
     title: s.title, shortName: s.shortName, specType: s.specType, description: s.description,
-    status: s.status, testParameters: s.testParameters,
+    status: s.status, testParameters: s.testParameters, submitRemarks: s.submitRemarks, approveRemarks: s.approveRemarks,
     createdBy: s.createdBy, createdById: s.createdById,
     approvedBy: s.approvedBy, approvedAt: s.approvedAt,
     updatedBy: s.updatedBy,
@@ -64,11 +70,16 @@ router.get('/', authenticate, async (req: Request, res: Response, next: NextFunc
       ]
     }
 
-    if (isExternal(rc)) {
-      where[Op.or] = [
-        ...(where[Op.or] || []),
-        { createdById: user.id },
-        sequelize.literal(`team::text LIKE '%${user.id}%'`),
+    if (!seesAllProjects(rc)) {
+      where[Op.and] = [
+        ...(where[Op.and] || []),
+        {
+          [Op.or]: [
+            { createdById: user.id },
+            { ownerId: user.id },
+            sequelize.literal(`team::text LIKE '%${user.id}%'`),
+          ],
+        },
       ]
     }
 
@@ -90,7 +101,7 @@ router.get('/:projectId', authenticate, async (req: Request, res: Response, next
     }
     if (!p) throw new NotFoundError('Project')
 
-    if (isExternal(rc)) {
+    if (!seesAllProjects(rc)) {
       const team = (p.team as any[]) || []
       const isMember = team.some((m: any) => m.userId === user.id)
       if (p.createdById !== user.id && p.ownerId !== user.id && !isMember) {
@@ -113,17 +124,28 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
       productCode: z.string().optional(),
       description: z.string().optional(),
       customer: z.string().optional(),
-      projectType: z.string().optional(),
+      projectType: z.string().min(1, 'Project Type is required'),
       analysisType: z.string().optional(),
       priority: z.string().optional(),
       targetDate: z.string().optional(),
       ownerName: z.string().optional(),
     }).parse(req.body)
 
-    const existing = await ArdProject.findOne({
-      where: { [Op.or]: [{ code: body.code }, { productName: body.productName }] },
-    })
-    if (existing) throw new BadRequestError('A project with this code or product name already exists', 'CONFLICT')
+    // Checked separately (not combined via Op.or) so the message can name
+    // which field actually collided and, for a duplicate product name,
+    // who created the existing project — otherwise the author has no way
+    // to tell whose project they're bumping into.
+    const existingByCode = await ArdProject.findOne({ where: { code: body.code } })
+    if (existingByCode) {
+      throw new BadRequestError(`Project code "${body.code}" is already in use.`, 'CONFLICT')
+    }
+    const existingByProductName = await ArdProject.findOne({ where: { productName: body.productName } })
+    if (existingByProductName) {
+      throw new BadRequestError(
+        `Product name "${body.productName}" is already used by project ${existingByProductName.code}, created by ${existingByProductName.createdBy || 'another user'}.`,
+        'CONFLICT',
+      )
+    }
 
     const auditTrail = [{ id: uuidv4(), action: 'CREATED', actorName: user.username, detail: null, createdAt: new Date().toISOString() }]
     const rc: string = (user?.role as any)?.code || ''
@@ -155,6 +177,49 @@ router.put('/:projectId', authenticate, async (req: Request, res: Response, next
     if (req.body.code !== undefined && req.body.code !== p.code) {
       const dupe = await ArdProject.findOne({ where: { code: req.body.code, id: { [Op.ne]: p.id } } })
       if (dupe) throw new BadRequestError(`Project code "${req.body.code}" is already in use.`, 'VALIDATION_ERROR')
+    }
+
+    // Team membership changes get their own check — this endpoint otherwise
+    // has no role gate at all (the frontend's HOD/TL/SUPER_ADMIN-only "canEdit"
+    // is convention only, trivially bypassable via a direct API call), so
+    // without this any authenticated user could add/remove team members.
+    // Nobody, including HOD/TL, can remove themself.
+    if (req.body.team !== undefined) {
+      const rc: string = (user?.role as any)?.code || '';
+      if (!['HOD', 'TL', 'TEAM_LEAD', 'SUPER_ADMIN'].includes(rc)) {
+        throw new ForbiddenError('Only HOD or TL can add or remove project team members');
+      }
+      const before = (p.team as any[]) || [];
+      const wasOnTeam = before.some((m: any) => m.userId === user.id || m.userName === user.username);
+      const stillOnTeam = (req.body.team as any[]).some((m: any) => m.userId === user.id || m.userName === user.username);
+      if (wasOnTeam && !stillOnTeam) {
+        throw new BadRequestError('You cannot remove yourself from the project team', 'VALIDATION_ERROR');
+      }
+    }
+
+    // Attribute name uniqueness and Number-type value validity — mirrors the
+    // frontend's own check (ArdProjectWorkspacePage.tsx saveAttributes), but
+    // this endpoint has no other validation on the attributes array at all,
+    // so a direct API call could otherwise save duplicates or a non-numeric
+    // value on a Number-typed attribute.
+    if (req.body.attributes !== undefined) {
+      const attrs = (req.body.attributes as any[]) || [];
+      const seenKeys = new Set<string>();
+      for (const a of attrs) {
+        const key = String(a.key ?? '').trim();
+        const value = String(a.value ?? '').trim();
+        if (!key || !value) {
+          throw new BadRequestError('Every attribute needs both a name and a value.', 'VALIDATION_ERROR');
+        }
+        const normalized = key.toLowerCase();
+        if (seenKeys.has(normalized)) {
+          throw new BadRequestError(`Attribute name "${key}" is already used — attribute names must be unique.`, 'VALIDATION_ERROR');
+        }
+        seenKeys.add(normalized);
+        if (a.type === 'Number' && !Number.isFinite(Number(value))) {
+          throw new BadRequestError('Invalid format. Please enter Integer.', 'VALIDATION_ERROR');
+        }
+      }
     }
 
     const updates: any = { updatedAt: new Date(), updatedBy: user.username }
@@ -202,7 +267,7 @@ router.post('/:projectId/close', authenticate, async (req: Request, res: Respons
 
     await p.update({ status: 'CLOSED', auditTrail: addAuditTrail(p, 'CLOSED', user.username, reason), updatedAt: new Date() })
     // Close linked notebooks
-    await ArdNotebook.update({ status: 'CLOSED', updatedAt: new Date() } as any, { where: { projectId: p.id, status: 'OPEN' } as any })
+    await ArdNotebook.update({ status: 'CLOSED', updatedAt: new Date() } as any, { where: { projectId: p.id, status: 'ACTIVE' } as any })
     await auditLog(p.id, 'Closed', user.id)
     res.json(successResponse('Project closed', projectOut(p)))
   } catch (err) { next(err) }
@@ -240,8 +305,8 @@ router.post('/:projectId/reopen', authenticate, async (req: Request, res: Respon
     const reason = req.body.reason || req.body.remarks
     await p.update({ status: 'OPEN', auditTrail: addAuditTrail(p, 'REOPENED', user.username, reason || null), updatedAt: new Date() })
 
-    // Reopen linked notebooks and experiments
-    await ArdNotebook.update({ status: 'OPEN', updatedAt: new Date() } as any, { where: { projectId: p.id, status: { [Op.in]: ['CLOSED', 'ARCHIVED'] } } as any })
+    // Reopen linked notebooks (only ones that were CLOSED — deactivated notebooks stay deactivated) and their experiments
+    await ArdNotebook.update({ status: 'ACTIVE', updatedAt: new Date() } as any, { where: { projectId: p.id, status: 'CLOSED' } as any })
     const notebooks = await ArdNotebook.findAll({ where: { projectId: p.id }, attributes: ['id'] })
     const nbIds = notebooks.map((n: any) => n.id)
     if (nbIds.length > 0) {
@@ -301,10 +366,13 @@ router.post('/:projectId/specifications', authenticate, async (req: Request, res
       testParameters: z.array(z.any()).optional(),
     }).parse(req.body)
 
-    const code = specCode || `SPEC-${p.code}-${uuidv4().replace(/-/g, '').slice(0, 4).toUpperCase()}`
+    // Spec numbers are a formal, GxP identifier — assigned only once a spec
+    // is actually approved (see /approve below), not the moment a draft is
+    // created. A caller-supplied specCode is still honored (e.g. a manual
+    // override), just not auto-generated here.
     const s = await ArdProjectSpecification.create({
       projectId,
-      specCode: code,
+      specCode: specCode || null,
       title,
       version: version || '1.0',
       shortName: shortName || null,
@@ -345,6 +413,7 @@ router.put('/:projectId/specifications/:specId', authenticate, async (req: Reque
 router.post('/:projectId/specifications/:specId/submit', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user
+    const body = z.object({ remarks: z.string().optional(), password: z.string() }).parse(req.body)
     const s = await ArdProjectSpecification.findOne({
       where: { id: req.params.specId as string, projectId: req.params.projectId as string },
     })
@@ -356,7 +425,13 @@ router.post('/:projectId/specifications/:specId/submit', authenticate, async (re
     const params = (s.testParameters as any[]) || []
     if (params.length === 0) throw new BadRequestError('At least one test parameter is required', 'VALIDATION_ERROR')
 
-    await s.update({ status: 'SUBMITTED', updatedAt: new Date() })
+    // Submitting a specification for review is a GxP-significant action —
+    // requires the submitter to re-authenticate (electronic signature),
+    // same as experiment/test submit flows.
+    const passwordValid = await verifyPassword(body.password, user.passwordHash)
+    if (!passwordValid) throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED')
+
+    await s.update({ status: 'SUBMITTED', submitRemarks: body.remarks ?? null, updatedAt: new Date() })
     res.json(successResponse('Specification submitted', specOut(s)))
   } catch (err) { next(err) }
 })
@@ -366,7 +441,9 @@ router.post('/:projectId/specifications/:specId/approve', authenticate, async (r
   try {
     const user = (req as any).user
     const rc: string = (user?.role as any)?.code || ''
-    if (!isAdmin(rc)) throw new ForbiddenError('Only HOD/Admin can approve specifications')
+    if (!isAdmin(rc) && !['TL', 'TEAM_LEAD'].includes(rc)) throw new ForbiddenError('Only TL/HOD/Admin can approve specifications')
+
+    const body = z.object({ remarks: z.string().optional(), password: z.string() }).parse(req.body)
 
     const s = await ArdProjectSpecification.findOne({
       where: { id: req.params.specId as string, projectId: req.params.projectId as string },
@@ -374,7 +451,22 @@ router.post('/:projectId/specifications/:specId/approve', authenticate, async (r
     if (!s) throw new NotFoundError('Specification')
     if (s.createdById === user.id) throw new ForbiddenError('Creator cannot approve their own specification')
 
-    await s.update({ status: 'APPROVED', approvedBy: user.username, approvedAt: new Date(), updatedAt: new Date() })
+    const passwordValid = await verifyPassword(body.password, user.passwordHash)
+    if (!passwordValid) throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED')
+
+    // The formal spec number is assigned here, on approval — not at draft
+    // creation — so abandoned drafts never consume one.
+    const project = await ArdProject.findByPk(req.params.projectId as string, { attributes: ['id', 'code'] })
+    const finalCode = s.specCode || `SPEC-${project?.code ?? 'GEN'}-${uuidv4().replace(/-/g, '').slice(0, 4).toUpperCase()}`
+
+    await s.update({
+      status: 'APPROVED',
+      specCode: finalCode,
+      approvedBy: user.username,
+      approvedAt: new Date(),
+      approveRemarks: body.remarks ?? null,
+      updatedAt: new Date(),
+    })
     res.json(successResponse('Specification approved', specOut(s)))
   } catch (err) { next(err) }
 })
@@ -400,11 +492,20 @@ router.delete('/:projectId/specifications/:specId', authenticate, async (req: Re
 async function updateStp(projectId: string, stpId: string, patch: Partial<Record<string, any>>) {
   const p = await ArdProject.findByPk(projectId)
   if (!p) throw new NotFoundError('Project')
-  const stps = (p.stpDocuments as any[]) || []
+  // Build a brand-new array/objects rather than mutating (p.stpDocuments as
+  // any[]) in place — Sequelize's JSONB dirty-checking compares the new
+  // value against its own previously-tracked value, and an in-place mutation
+  // of the SAME reference makes that comparison see "no change", silently
+  // skipping the column in the UPDATE statement. The response still looked
+  // right (it's the mutated in-memory object), but nothing was persisted.
+  const stps = ((p.stpDocuments as any[]) || []).map((s) => ({ ...s }))
   const idx = stps.findIndex((s: any) => s.id === stpId)
   if (idx === -1) throw new NotFoundError('STP document')
   stps[idx] = { ...stps[idx], ...patch, updatedAt: new Date().toISOString() }
-  await p.update({ stpDocuments: stps, updatedAt: new Date() })
+  p.set('stpDocuments', stps)
+  p.changed('stpDocuments', true)
+  p.set('updatedAt', new Date())
+  await p.save()
   return p
 }
 
@@ -412,6 +513,7 @@ async function updateStp(projectId: string, stpId: string, patch: Partial<Record
 router.post('/:projectId/stps/:stpId/submit', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user
+    const body = z.object({ remarks: z.string().optional(), password: z.string() }).parse(req.body)
     const p = await ArdProject.findByPk(req.params.projectId as string)
     if (!p) throw new NotFoundError('Project')
     const stps = (p.stpDocuments as any[]) || []
@@ -419,10 +521,18 @@ router.post('/:projectId/stps/:stpId/submit', authenticate, async (req: Request,
     if (!stp) throw new NotFoundError('STP document')
     if (!['DRAFT', 'RETURNED'].includes(stp.status)) throw new BadRequestError(`Cannot submit from ${stp.status}`, 'INVALID_STATE')
 
+    // Submitting for approval is a GxP-significant action — requires
+    // re-authentication (electronic signature), same as spec submission.
+    // No approver is pre-selected here: any TL/HOD on the project (other
+    // than whoever submits it) can pick it up and approve — see /approve.
+    const passwordValid = await verifyPassword(body.password, user.passwordHash)
+    if (!passwordValid) throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED')
+
     const updated = await updateStp(p.id, req.params.stpId as string, {
       status: 'SUBMITTED',
       submittedBy: user.username,
       submittedAt: new Date().toISOString(),
+      submitRemarks: body.remarks || null,
     })
     res.json(successResponse('STP submitted', projectOut(updated)))
   } catch (err) { next(err) }
@@ -433,7 +543,9 @@ router.post('/:projectId/stps/:stpId/approve', authenticate, async (req: Request
   try {
     const user = (req as any).user
     const rc: string = (user?.role as any)?.code || ''
-    if (!isAdmin(rc)) throw new ForbiddenError('Only HOD/Admin can approve STPs')
+    if (!isAdmin(rc) && !['TL', 'TEAM_LEAD'].includes(rc)) throw new ForbiddenError('Only TL/HOD/Admin can approve STPs')
+
+    const body = z.object({ remarks: z.string().optional(), password: z.string(), effectiveDate: z.string().optional() }).parse(req.body)
 
     const p = await ArdProject.findByPk(req.params.projectId as string)
     if (!p) throw new NotFoundError('Project')
@@ -442,6 +554,9 @@ router.post('/:projectId/stps/:stpId/approve', authenticate, async (req: Request
     if (!stp) throw new NotFoundError('STP document')
     if (stp.status !== 'SUBMITTED') throw new BadRequestError('STP must be SUBMITTED to approve', 'INVALID_STATE')
     if (stp.submittedBy === user.username) throw new ForbiddenError('Submitter cannot approve their own STP')
+
+    const passwordValid = await verifyPassword(body.password, user.passwordHash)
+    if (!passwordValid) throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED')
 
     // Supersede any other approved STP with same documentNo
     const updatedStps = stps.map((s: any) => {

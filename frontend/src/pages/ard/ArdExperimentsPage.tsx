@@ -175,7 +175,11 @@ export default function ArdExperimentsPage() {
     return docs
       .filter(s => s.status === 'APPROVED')
       .map(s => ({
-        value: s.documentNo,
+        // Must be the STP's id, not its documentNo — the backend looks up
+        // the STP on the project by `s.id === projectStpId` (see POST
+        // /api/ard/experiments), so sending documentNo here always 404s
+        // with "STP document not found on this project".
+        value: s.id,
         label: `${s.documentNo} v${s.version} — ${s.title}${s.testType ? ` (${s.testType})` : ''}`,
         stp: s,
       }))

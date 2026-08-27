@@ -29,7 +29,7 @@ import { apiGet } from '../../api/client'
 import logo from '../../assets/logo.svg'
 import smallLogo from '../../assets/small-logo.png'
 
-const CONFIG_MANAGE_ROLES = ['HOD', 'SUPER_ADMIN', 'ADMIN']
+const CONFIG_MANAGE_ROLES = ['HOD', 'SUPER_ADMIN', 'ADMIN', 'TL', 'TEAM_LEAD']
 
 // Hoisted so it's available to both makeArdItems and the API helpers below.
 type MenuItem = Required<MenuProps>['items'][number]

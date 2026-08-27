@@ -118,10 +118,11 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 // even render for a restricted role; nav-hiding alone isn't enough).
 const CGT_ASSIGNMENT_RESTRICTED_ROLES = ['CHEM', 'ANALYST']
 
-// ARD Configuration and Audit pages are restricted to HOD and SUPER_ADMIN,
-// matching the server-side master-data/audit policy.
+// ARD Configuration and Audit pages are restricted to HOD, TL, and SUPER_ADMIN,
+// matching the backend's role-filtered /api/ard/menu (ADMIN_ROLE_CODES in
+// ardDashboard.routes.ts) which is what actually decides who sees the link.
 // Sidebar link-hiding alone is insufficient — direct URL navigation must also be blocked.
-const ARD_ADMIN_ROLES = ['HOD', 'SUPER_ADMIN']
+const ARD_ADMIN_ROLES = ['HOD', 'SUPER_ADMIN', 'ADMIN', 'TL', 'TEAM_LEAD']
 
 function ArdAdminRoute({ children }: { children: React.ReactNode }) {
   const user = useAppSelector(selectUser)

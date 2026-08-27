@@ -3,9 +3,9 @@ import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Tag, Button, Card, Space, Popconfirm, message, Empty, Spin, Alert, Divider,
-  Drawer, Timeline, Select, Table, Input, Form, Modal, Tooltip, Tabs, Segmented, Dropdown, Upload,
+  Drawer, Timeline, Select, Table, Input, Form, Modal, Tooltip, Segmented, Dropdown, Upload,
 } from 'antd'
-import { ArrowLeft, FlaskConical, Save, Download, History, Link, Eye, Trash2, Search, LayoutList, FileText, RotateCcw, Copy, Activity, Database } from 'lucide-react'
+import { ArrowLeft, FlaskConical, Save, Download, History, Link, Eye, Trash2, Search, FileText, RotateCcw, Copy, Activity, Database } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
   ardExperimentApi, ardApi, type ExperimentStatus, type ArdExperimentDoc,
@@ -17,6 +17,8 @@ import { ApiError } from '../../api/client'
 import ExperimentSectionRenderer from '../../components/ard/ExperimentSectionRenderer'
 import type { SectionDef } from '../../components/ard/ExperimentSectionRenderer'
 import { ESignatureModal } from '../../components/common/ESignatureModal'
+import ArdAttachmentsPanel from '../../components/ard/ArdAttachmentsPanel'
+import RichEditor from '../../components/RichEditor'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import { ErrorBoundary } from '../../components/ErrorBoundary'
@@ -25,6 +27,7 @@ import { userApi } from '../../api/adc'
 import { glassModalProps } from '../../utils/modalStyles'
 import { ardProjectsApi } from '../../api/ard-projects'
 import { ardNotebooksApi } from '../../api/ard-notebooks'
+import { useBreadcrumbLabel, useBreadcrumbPrefix } from '../../components/layout/ArdShell'
 
 const STATUS_COLOR: Record<string, string> = {
   IN_PROGRESS: 'blue', SUBMITTED: 'purple', VERIFICATION_REQUESTED: 'gold',
@@ -810,6 +813,42 @@ function ExperimentEventsContent({ eventsData }: { eventsData?: { items: { id: s
   )
 }
 
+const TEST_STATUS_COLOR: Record<string, string> = {
+  UNASSIGNED: 'default', ASSIGNED: 'blue', IN_PROGRESS: 'processing',
+  VERIFICATION_REQUESTED: 'gold', VERIFICATION_REWORK: 'volcano', VERIFIED: 'green',
+  ACCEPTED: 'green', WITHDRAWN: 'default', UNSATISFACTORY: 'red',
+}
+
+function LinkedAtrTestsPanel({ experimentId }: { experimentId: string }) {
+  const navigate = useNavigate()
+  const { data, isLoading } = useQuery({
+    queryKey: ['ard-experiment-linked-tests', experimentId],
+    queryFn: () => import('../../api/client').then((m) => m.apiGet<{ items: any[] }>('/api/ard/tests', { experimentId, pageSize: 50 })),
+    enabled: !!experimentId,
+  })
+  const items = data?.items ?? []
+  if (!isLoading && items.length === 0) return null
+  return (
+    <Card size="small" title="Linked ATR Tests" className="rounded-lg overflow-hidden glass-card">
+      <Table
+        rowKey="id"
+        size="small"
+        loading={isLoading}
+        dataSource={items}
+        pagination={false}
+        onRow={(row) => ({ onClick: () => navigate(`/ard/tests/${row.atrId}/${row.id}`), className: 'cursor-pointer' })}
+        columns={[
+          { title: 'ATR Form No.', dataIndex: 'formNo', key: 'formNo', render: (v) => <span className="font-mono text-xs">{v}</span> },
+          { title: 'AR Number', dataIndex: 'arNumber', key: 'arNumber', render: (v) => v || '—' },
+          { title: 'Test / Technique', key: 'test', render: (_, row: any) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}` },
+          { title: 'Assigned To', dataIndex: 'assignedToName', key: 'assignedToName', render: (v) => v || '—' },
+          { title: 'Status', dataIndex: 'status', key: 'status', render: (v) => <Tag color={TEST_STATUS_COLOR[v] ?? 'default'} className="text-xs">{v}</Tag> },
+        ]}
+      />
+    </Card>
+  )
+}
+
 // ── Main Page ─────────────────────────────────────────────────────────────────
 
 function ArdExperimentWorkspacePage() {
@@ -824,7 +863,6 @@ function ArdExperimentWorkspacePage() {
   const [historyOpen, setHistoryOpen] = useState(false)
   const [eventsOpen, setEventsOpen] = useState(false)
   const [cloneLoading, setCloneLoading] = useState(false)
-  const [viewMode, setViewMode] = useState<'tabbed' | 'single'>('tabbed')
   const [takeoverOpen, setTakeoverOpen] = useState(false)
   const [takeoverAnalystId, setTakeoverAnalystId] = useState<string | undefined>()
   const [takeoverRemarks, setTakeoverRemarks] = useState('')
@@ -876,6 +914,32 @@ function ArdExperimentWorkspacePage() {
     queryFn: () => ardNotebooksApi.get(notebookId!),
     enabled: !!notebookId,
   })
+
+  // The experiment route is flat (/ard/experiments/:id, not nested under its
+  // project/notebook), so without this the breadcrumb only ever showed
+  // "ARD > Experiments > <raw id>" — no label override existed here at all,
+  // and no way back to the project or notebook the user actually came
+  // through. Reuses notebookDetail (already fetched above) for the notebook
+  // crumb; fetches the project separately since exp carries projectId but
+  // not its name.
+  useBreadcrumbLabel(experimentId ?? '', exp?.code ?? null)
+  const { data: expParentProject } = useQuery({
+    queryKey: ['ard-project', exp?.projectId],
+    queryFn: () => ardProjectsApi.get(exp!.projectId!),
+    enabled: !!exp?.projectId,
+  })
+  useBreadcrumbPrefix(
+    exp?.projectId
+      ? [
+          { label: 'Projects', href: '/ard/projects' },
+          { label: expParentProject?.productName || expParentProject?.code || '…', href: `/ard/projects/${exp.projectId}` },
+          ...(notebookId ? [
+            { label: 'Notebooks', href: '/ard/notebooks' },
+            { label: notebookDetail?.name || '…', href: `/ard/notebooks/${notebookId}` },
+          ] : []),
+        ]
+      : null,
+  )
   const notebookMemberOptions = useMemo(() => {
     const members = (notebookDetail as any)?.assignedUsers ?? []
     if (members.length === 0) return []
@@ -929,6 +993,22 @@ function ArdExperimentWorkspacePage() {
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to update references.'),
   })
+
+  // Aim/Objective and Conclusion are fixed rich-text blocks every experiment
+  // has, regardless of its template's attached sections (mirrors Attachments,
+  // which is also not a template-authored section) — see ardExperiments.routes.ts.
+  const patchAim = useMutation({
+    mutationFn: (aim: string) => ardExperimentApi.patch(experimentId!, { aim }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] }); msg.success('Aim saved.') },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save Aim.'),
+  })
+  const patchConclusion = useMutation({
+    mutationFn: (conclusion: string) => ardExperimentApi.patch(experimentId!, { conclusion }),
+    onSuccess: () => { qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] }); msg.success('Conclusion saved.') },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to save Conclusion.'),
+  })
+  const [aimDraft, setAimDraft] = useState<string | null>(null)
+  const [conclusionDraft, setConclusionDraft] = useState<string | null>(null)
 
   const transition = useMutation({
     mutationFn: ({ to, password, remarks, reason, aimAchieved: aim, aimRemarks: aimR, reviewerId, linkedAtrIds: atrIds }: { to: string; password?: string; remarks?: string; reason?: string; aimAchieved?: boolean | null; aimRemarks?: string; reviewerId?: string; linkedAtrIds?: string[] }) =>
@@ -1235,21 +1315,21 @@ function ArdExperimentWorkspacePage() {
   }
 
   const sectionDefs = Array.isArray(exp.sectionDefs) ? (exp.sectionDefs as SectionDef[]) : []
-  const sectionTabItems = sectionDefs.map((section, idx) => ({
-    key: section?.id || `sec-${idx}`,
-    label: `${idx + 1}. ${section?.title || 'Section'}`,
-    children: (
-      <ExperimentSectionRenderer
-        section={section || { id: `sec-${idx}`, title: 'Section', type: 'richtext' }}
-        data={data}
-        onChange={onChange}
-        readOnly={isSectionReadOnly(section?.id || `sec-${idx}`)}
-        projectId={exp.projectId ?? undefined}
-        onSave={handleSave}
-        isSaving={patch.isPending}
-      />
-    ),
-  }))
+
+  // Section-routing nav — every experiment always renders as one continuous
+  // page (no more Tabbed/Single Page toggle); this lets you jump straight to
+  // a section instead of scrolling, mirroring the legacy ELN's top nav strip.
+  const navSections = [
+    { id: 'sec-aim', label: 'Aim / Objective' },
+    ...sectionDefs.map((section, idx) => ({ id: `sec-${section?.id || idx}`, label: section?.title || 'Section' })),
+    { id: 'sec-attachments', label: 'Attachments' },
+    { id: 'sec-experiment-parameters', label: 'Experiment Parameters' },
+    { id: 'sec-conclusion', label: 'Conclusion' },
+    { id: 'sec-reference-experiments', label: 'Reference Experiments' },
+  ]
+  const scrollToSection = (id: string) => {
+    document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+  }
 
   return (
     <div className="p-4 md:p-6 space-y-4">
@@ -1421,31 +1501,54 @@ function ArdExperimentWorkspacePage() {
         />
       )}
 
-      {/* 2-Button View Mode Toggle: Tabbed View | Single Page View */}
-      <div className="glass-card flex justify-between items-center px-4 py-2.5 rounded-lg mb-4">
-        <span className="text-xs font-bold text-slate-600 uppercase tracking-wider">Experiment Layout View</span>
-        <Segmented
-          value={viewMode}
-          onChange={(v) => setViewMode(v as 'tabbed' | 'single')}
-          options={[
-            { label: 'Tabbed View', value: 'tabbed', icon: <LayoutList size={14} className="inline mr-1" /> },
-            { label: 'Single Page View', value: 'single', icon: <FileText size={14} className="inline mr-1" /> },
-          ]}
-        />
+      {/* Section routing — sticky jump-nav to every section on this page */}
+      <div className="glass-card sticky top-0 z-10 flex items-center gap-1 px-3 py-2 rounded-lg mb-4 overflow-x-auto">
+        {navSections.map((s) => (
+          <button
+            key={s.id}
+            type="button"
+            onClick={() => scrollToSection(s.id)}
+            className="shrink-0 text-xs font-medium text-violet-700 hover:text-violet-900 hover:bg-violet-50 px-2.5 py-1 rounded-md whitespace-nowrap"
+          >
+            {s.label}
+          </button>
+        ))}
       </div>
 
-      {/* Sections rendering based on viewMode */}
+      {/* Linked ATR Tests — tests that pointed their Notebook Reference at this
+          experiment (ArdTestExecutePage's "Existing/New Experiment" link
+          modes). Read-only here; the link itself is set from the test side. */}
+      <LinkedAtrTestsPanel experimentId={experimentId!} />
+
+      {/* Aim/Objective — fixed block, every experiment has this regardless of template */}
+      <Card id="sec-aim" size="small" title="Aim / Objective" className="rounded-lg overflow-hidden glass-card">
+        <RichEditor
+          value={aimDraft ?? exp.aim ?? ''}
+          onChange={setAimDraft}
+          readOnly={!editable}
+          placeholder="State the aim/objective of this experiment..."
+          minHeight={100}
+        />
+        {editable && (
+          <div className="pt-2 flex justify-end">
+            <Button size="small" type="primary" icon={<Save size={13} />} loading={patchAim.isPending}
+              disabled={aimDraft === null || aimDraft === (exp.aim ?? '')}
+              onClick={() => { if (aimDraft !== null) patchAim.mutate(aimDraft) }}>
+              Save Aim
+            </Button>
+          </div>
+        )}
+      </Card>
+
+      {/* Sections — always rendered as one continuous page (no more Tabbed/Single Page toggle) */}
       {sectionDefs.length === 0 ? (
         <Empty description="This template has no sections defined." />
-      ) : viewMode === 'tabbed' ? (
-        <div className="glass-card rounded-lg p-4">
-          <Tabs type="card" items={sectionTabItems} />
-        </div>
       ) : (
         <div className="space-y-4">
           {sectionDefs.map((section, idx) => (
             <Card
               key={section?.id || `sec-${idx}`}
+              id={`sec-${section?.id || idx}`}
               size="small"
               title={
                 <span className="flex items-center gap-2 text-sm font-semibold text-slate-700">
@@ -1469,7 +1572,50 @@ function ArdExperimentWorkspacePage() {
         </div>
       )}
 
+      {/* Attachments — fixed block, not a template-authored section */}
+      <Card id="sec-attachments" size="small" title="Attachments" className="rounded-lg overflow-hidden glass-card">
+        <ArdAttachmentsPanel entityType="ard_experiment" entityId={exp.id} readOnly={!editable} />
+      </Card>
+
+      {/* Experiment Parameters — fixed block, every experiment has this
+          regardless of template/STP. Reuses ExperimentSectionRenderer's
+          existing 'params' case (same key/value/UOM param table used by
+          template-authored sections) with a stable synthetic section id, so
+          its data persists through the same sections JSONB/onChange path
+          every other section already uses — no new column needed. */}
+      <Card id="sec-experiment-parameters" size="small" title="Experiment Parameters" className="rounded-lg overflow-hidden glass-card">
+        <ExperimentSectionRenderer
+          section={{ id: 'experiment_parameters', title: 'Experiment Parameters', type: 'params' }}
+          data={data}
+          onChange={onChange}
+          readOnly={!editable}
+          onSave={handleSave}
+          isSaving={patch.isPending}
+        />
+      </Card>
+
+      {/* Conclusion — fixed block, every experiment has this regardless of template */}
+      <Card id="sec-conclusion" size="small" title="Conclusion" className="rounded-lg overflow-hidden glass-card">
+        <RichEditor
+          value={conclusionDraft ?? exp.conclusion ?? ''}
+          onChange={setConclusionDraft}
+          readOnly={!editable}
+          placeholder="Summarize the outcome and conclusion of this experiment..."
+          minHeight={100}
+        />
+        {editable && (
+          <div className="pt-2 flex justify-end">
+            <Button size="small" type="primary" icon={<Save size={13} />} loading={patchConclusion.isPending}
+              disabled={conclusionDraft === null || conclusionDraft === (exp.conclusion ?? '')}
+              onClick={() => { if (conclusionDraft !== null) patchConclusion.mutate(conclusionDraft) }}>
+              Save Conclusion
+            </Button>
+          </div>
+        )}
+      </Card>
+
       {/* Reference Experiments */}
+      <div id="sec-reference-experiments">
       <ReferenceExperimentsPanel
         experimentId={experimentId!}
         currentProjectId={exp.projectId ?? undefined}
@@ -1478,6 +1624,7 @@ function ArdExperimentWorkspacePage() {
         onUpdate={(refs) => patchRefs.mutate(refs)}
         saving={patchRefs.isPending}
       />
+      </div>
 
       {/* QA Comments */}
       {(() => {

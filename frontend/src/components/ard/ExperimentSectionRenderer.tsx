@@ -11,11 +11,12 @@ import {
   Table, Input, Button, Select, Tag, DatePicker, Popconfirm, Empty, Alert, Modal, Spin, Tooltip, message, Checkbox, Radio, Divider,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { Plus, Trash2, Package, ShieldAlert, FileText, Edit2, ClipboardCheck } from 'lucide-react'
+import { Plus, Trash2, Package, ShieldAlert, FileText, Edit2, ClipboardCheck, Save } from 'lucide-react'
 import dayjs from 'dayjs'
 import RichEditor from '../RichEditor'
 import { inventoryApi } from '../../api/inventory'
-import { UniverSheetField } from './UniverSheetField'
+import SpreadsheetFieldRuntime from '../../pages/admin/templateBuilder/SpreadsheetFieldRuntime'
+import type { TemplateField } from '../../pages/admin/templateBuilder/types'
 import { ardApi } from '../../api/ard'
 import { adminApi } from '../../api/admin'
 import { apiPost, apiPatch, apiUpload, apiGet, BASE_URL } from '../../api/client'
@@ -30,6 +31,9 @@ export interface SectionDef {
   columns?: { key: string; label: string }[]
   children?: SectionDef[]
   required?: boolean
+  spreadsheet?: TemplateField['spreadsheet']
+  editorHeight?: number | null
+  dataItemLinks?: { dataItemId: string; name: string; dataType: string; isMandatory: boolean }[]
 }
 
 function uid() {
@@ -89,14 +93,70 @@ function AddRowFooter({ label, onAdd, readOnly }: { label?: string; onAdd: () =>
 }
 
 // ── Section: richtext / conclusion ────────────────────────────────────────────
-function RichtextSection({ value, onChange, readOnly }: {
-  value: string; onChange: (v: string) => void; readOnly: boolean
+function RichtextSection({ value, onChange, readOnly, height }: {
+  value: string; onChange: (v: string) => void; readOnly: boolean; height?: number
 }) {
-  return <RichEditor value={value ?? ''} onChange={onChange} readOnly={readOnly} />
+  return <RichEditor value={value ?? ''} onChange={onChange} readOnly={readOnly} height={height} />
 }
 
 // ── Section: params ───────────────────────────────────────────────────────────
-function ParamsSection({ value, onChange, readOnly }: {
+// Two distinct callers share this 'params' case:
+//  1. Template-authored Params/Combined sections (Configuration → Sections) —
+//     `section.dataItemLinks` is always an array (possibly empty) once built by
+//     buildExperimentSectionDefs. One labeled input per configured Data Item.
+//  2. The fixed "Experiment Parameters" block every experiment has regardless
+//     of template (ArdExperimentWorkspacePage.tsx) — never sets dataItemLinks
+//     at all, and always meant free-form arbitrary parameter entry.
+// Distinguish by whether dataItemLinks is defined, not by its length.
+function ParamsSection({ section, value, onChange, readOnly }: {
+  section: SectionDef
+  value: Record<string, string> | { id: string; parameter: string; value: string; uom: string }[] | undefined
+  onChange: (v: unknown) => void; readOnly: boolean
+}) {
+  if (section.dataItemLinks === undefined) {
+    return <FreeformParamsSection value={Array.isArray(value) ? value : []} onChange={onChange} readOnly={readOnly} />
+  }
+
+  const items = section.dataItemLinks
+  const values = (value && !Array.isArray(value) ? value : {}) as Record<string, string>
+  const setField = (dataItemId: string, v: string) => onChange({ ...values, [dataItemId]: v })
+
+  if (items.length === 0) {
+    return <p className="text-slate-400 text-sm italic">No parameters configured for this section.</p>
+  }
+
+  return (
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      {items.map(item => (
+        <div key={item.dataItemId} className="border border-slate-200 rounded overflow-hidden flex flex-col sm:flex-row">
+          <div className="bg-slate-50 text-xs font-medium text-slate-700 px-2.5 py-2 sm:w-1/2 flex items-center">
+            {item.name}{item.isMandatory && <span className="text-red-500 ml-0.5">*</span>}
+          </div>
+          <div className="p-1.5 sm:w-1/2">
+            {item.dataType === 'DATE' ? (
+              <DatePicker
+                size="small" style={{ width: '100%' }} disabled={readOnly}
+                value={values[item.dataItemId] ? dayjs(values[item.dataItemId]) : null}
+                onChange={d => setField(item.dataItemId, d ? d.format('YYYY-MM-DD') : '')}
+              />
+            ) : (
+              <Input
+                size="small" disabled={readOnly} type={item.dataType === 'INTEGER' ? 'number' : 'text'}
+                value={values[item.dataItemId] ?? ''}
+                onChange={e => setField(item.dataItemId, e.target.value)}
+                placeholder={item.dataType === 'LOV' ? 'Select / enter value' : undefined}
+              />
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+// Original free-form Parameter/Value/UOM add-row grid — preserved verbatim for
+// the fixed "Experiment Parameters" block (see ParamsSection above).
+function FreeformParamsSection({ value, onChange, readOnly }: {
   value: { id: string; parameter: string; value: string; uom: string }[]
   onChange: (v: unknown) => void; readOnly: boolean
 }) {
@@ -785,16 +845,22 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
                         <p className="text-xs font-semibold text-slate-500 mb-1.5">
                           Tests ({allTests.length}) — {unassignedCount} unassigned
                         </p>
-                        <div className="space-y-1">
+                        <div className="divide-y divide-slate-100 rounded-md border border-slate-100 overflow-hidden">
                           {allTests.map((t: any, ti: number) => (
-                            <div key={ti} className="flex items-center gap-2 text-xs text-slate-600">
-                              <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
-                              <span className="font-medium">{t.testType || '—'}</span>
-                              {t.testSubtype && <span className="text-slate-400">· {t.testSubtype}</span>}
-                              {t.arNumber
-                                ? <span className="ml-auto font-mono text-violet-700 bg-violet-50 px-1 rounded">{t.arNumber}</span>
-                                : <span className="ml-auto text-amber-600 bg-amber-50 px-1 rounded">No AR#</span>}
-                              {t.assignedToName && <span className="text-slate-400">→ {t.assignedToName}</span>}
+                            <div key={ti} className="flex items-center justify-between gap-3 text-xs bg-white px-2 py-1.5">
+                              <div className="flex items-center gap-1.5 min-w-0">
+                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
+                                <span className="font-medium text-slate-700 truncate">
+                                  {t.testType || t.techniqueCode || `Test ${ti + 1}`}
+                                </span>
+                                {t.testSubtype && <span className="text-slate-400 truncate">· {t.testSubtype}</span>}
+                              </div>
+                              <div className="flex items-center gap-2 shrink-0">
+                                {t.assignedToName && <span className="text-slate-400">→ {t.assignedToName}</span>}
+                                {t.arNumber
+                                  ? <span className="font-mono text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">{t.arNumber}</span>
+                                  : <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">No AR#</span>}
+                              </div>
                             </div>
                           ))}
                         </div>
@@ -1407,42 +1473,6 @@ function DataItemSection({ value, onChange, readOnly }: {
   )
 }
 
-// ── Section: standard-preparation ────────────────────────────────────────────
-interface PrepRow { id: string; component: string; casNo: string; purity: string; weighedMg: string; volumeMl: string; concentration: string; uom: string; remarks: string }
-
-function StandardPrepSection({ value, onChange, readOnly }: {
-  value: PrepRow[]; onChange: (v: unknown) => void; readOnly: boolean
-}) {
-  const rows: PrepRow[] = value ?? []
-  const upd = (i: number, patch: Partial<PrepRow>) => {
-    const n = rows.slice()
-    n[i] = { ...n[i], ...patch }
-    if ('weighedMg' in patch || 'purity' in patch || 'volumeMl' in patch) {
-      const wt = parseFloat(n[i].weighedMg)
-      const pur = parseFloat(n[i].purity)
-      const vol = parseFloat(n[i].volumeMl)
-      if (!isNaN(wt) && !isNaN(pur) && !isNaN(vol) && vol > 0) {
-        n[i] = { ...n[i], concentration: ((wt * pur / 100) / vol).toFixed(4) }
-      }
-    }
-    onChange(n)
-  }
-  const cols: ColumnsType<PrepRow> = [
-    { title: '#', key: 'sl', width: 36, render: (_, __, i) => i + 1 },
-    { title: 'Component / Standard', dataIndex: 'component', render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { component: val })} readOnly={readOnly} placeholder="e.g. Aspirin RS" /> },
-    { title: 'CAS No', dataIndex: 'casNo', width: 120, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { casNo: val })} readOnly={readOnly} placeholder="Optional" /> },
-    { title: 'Purity (%)', dataIndex: 'purity', width: 100, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { purity: val })} readOnly={readOnly} placeholder="99.5" /> },
-    { title: 'Weighed (mg)', dataIndex: 'weighedMg', width: 110, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { weighedMg: val })} readOnly={readOnly} placeholder="50.0" /> },
-    { title: 'Volume (mL)', dataIndex: 'volumeMl', width: 110, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { volumeMl: val })} readOnly={readOnly} placeholder="100" /> },
-    { title: 'Concentration', dataIndex: 'concentration', width: 120, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { concentration: val })} readOnly={readOnly} placeholder="Auto-calculated" /> },
-    { title: 'UOM', dataIndex: 'uom', width: 90, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { uom: val })} readOnly={readOnly} placeholder="mg/mL" /> },
-    { title: 'Remarks', dataIndex: 'remarks', render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { remarks: val })} readOnly={readOnly} placeholder="Notes" /> },
-    { title: '', key: 'del', width: 40, render: (_, __, i) => <RowActions onDelete={() => onChange(rows.filter((_, j) => j !== i))} readOnly={readOnly} /> },
-  ]
-  return <Table rowKey="id" dataSource={rows} columns={cols} size="small" pagination={false}
-    footer={() => <AddRowFooter label="Add preparation" onAdd={() => onChange([...rows, { id: uid(), component: '', casNo: '', purity: '', weighedMg: '', volumeMl: '', concentration: '', uom: '', remarks: '' }])} readOnly={readOnly} />} />
-}
-
 // ── Section: preconfigured-excel ──────────────────────────────────────────────
 interface ExcelRow { id: string; [col: string]: string }
 
@@ -1549,10 +1579,23 @@ export default function ExperimentSectionRenderer({ section, data, onChange, rea
 
       case 'richtext':
       case 'conclusion':
-        return <RichtextSection value={typeof value === 'string' ? value : (value == null ? '' : JSON.stringify(value))} onChange={change} readOnly={readOnly} />
+      // Authored identically to richtext in the Sections library (Configuration
+      // → Sections groups both under RICHTEXT_TYPES, same defaultContent/
+      // editorHeight shape) — rendering it as an unrelated structured
+      // component/CAS-No./purity table here discarded whatever was actually
+      // authored. See StandardPrepSection below, now unused by this path.
+      case 'standard_preparation':
+        return (
+          <RichtextSection
+            value={typeof value === 'string' ? value : (value == null ? '' : JSON.stringify(value))}
+            onChange={change}
+            readOnly={readOnly}
+            height={section.editorHeight ?? undefined}
+          />
+        )
 
       case 'params':
-        return <ParamsSection value={Array.isArray(value) ? (value as Parameters<typeof ParamsSection>[0]['value']) : []} onChange={change} readOnly={readOnly} />
+        return <ParamsSection section={section} value={value as Record<string, string> | { id: string; parameter: string; value: string; uom: string }[] | undefined} onChange={change} readOnly={readOnly} />
 
       case 'table':
         return <TableSection section={section} value={Array.isArray(value) ? (value as Record<string, string>[]) : []} onChange={change} readOnly={readOnly} />
@@ -1605,22 +1648,21 @@ export default function ExperimentSectionRenderer({ section, data, onChange, rea
       case 'autocomplete_data_item':
         return <DataItemSection value={Array.isArray(value) ? (value as DataItem[]) : []} onChange={change} readOnly={readOnly} />
 
-      case 'standard_preparation':
-        return <StandardPrepSection value={Array.isArray(value) ? (value as PrepRow[]) : []} onChange={change} readOnly={readOnly} />
-
       case 'spreadsheet':
       case 'excel':
       case 'excel_embed':
       case 'preconfigured_excel':
+        // Genuine two-way persistence via `value`/`change` (same round-trip
+        // every other section type uses) — the previous UniverSheetField
+        // here had no value/onChange at all, so anything typed into it was
+        // lost the moment the component unmounted.
         return (
-          <div className="space-y-2">
-            {!readOnly && onSave && (
-              <div className="flex justify-end">
-                <Button type="primary" size="small" onClick={onSave} loading={isSaving}>Save</Button>
-              </div>
-            )}
-            <UniverSheetField readOnly={readOnly} height={360} headers={(section as any).sheetHeaders} lockHeaderRow={!!(section as any).sheetHeaders?.length} />
-          </div>
+          <SpreadsheetFieldRuntime
+            spreadsheet={section.spreadsheet}
+            value={value as Record<string, unknown> | undefined}
+            onChange={change}
+            disabled={readOnly}
+          />
         )
 
       case 'content_block':
@@ -1642,6 +1684,18 @@ export default function ExperimentSectionRenderer({ section, data, onChange, rea
   return (
     <ErrorBoundary fallbackMessage={`Error rendering section "${section.title || 'Section'}"`}>
       {renderSectionContent()}
+      {/* Parent already passes onSave/isSaving down to every section (Tabbed
+          and Single Page View both wire this up) — previously declared here
+          but never rendered, so there was no per-section save affordance,
+          only the page-wide "unsaved changes" banner. Matches the explicit
+          Save button every fixed block (Aim, Conclusion) already has. */}
+      {!readOnly && onSave && (
+        <div className="pt-2 flex justify-end">
+          <Button size="small" type="primary" icon={<Save size={13} />} loading={!!isSaving} onClick={onSave}>
+            Save Section
+          </Button>
+        </div>
+      )}
     </ErrorBoundary>
   )
 }

@@ -400,6 +400,12 @@ calcTemplateRouter.post(
       if (await userHasPrivilege(user, 'admin.settings')) return next()
       if (await userHasDeptPrivilege(user, 'adc.calc_templates.manage')) return next()
       if (await userHasDeptPrivilege(user, 'cgt.calc_templates.manage')) return next()
+      // ARD's STP Procedure field (ArdProjectWorkspacePage.tsx) uses this same
+      // conversion utility to turn an uploaded .xlsx into the embedded
+      // spreadsheet — ARD has no privilege-table entry of its own, so mirror
+      // the plain role check STP editing already uses (canEdit there).
+      const roleCode: string = (user.role as any)?.code ?? ''
+      if (['TL', 'HOD', 'SUPER_ADMIN'].includes(roleCode)) return next()
       throw new ForbiddenError('You do not have permission to manage templates.')
     } catch (err) {
       next(err)

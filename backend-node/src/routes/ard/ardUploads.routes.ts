@@ -2,6 +2,7 @@ import { Router, Request, Response, NextFunction } from 'express'
 import path from 'path'
 import fs from 'fs'
 import { z } from 'zod'
+import { Op } from 'sequelize'
 import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse, listResponse } from '../../utils/response'
 import { NotFoundError, BadRequestError } from '../../utils/errors'
@@ -53,6 +54,18 @@ ardUploadRouter.post(
       const body = bodySchema.parse(req.body)
       const user = req.user as any
 
+      const duplicate = await ArdAttachment.findOne({
+        where: {
+          entityType: body.entity_type,
+          entityId: body.entity_id,
+          name: { [Op.iLike]: body.name },
+        } as any,
+      })
+      if (duplicate) {
+        fs.unlink(req.file.path, () => {})
+        throw new BadRequestError('An attachment with this name already exists.', 'CONFLICT')
+      }
+
       const attachment = await ArdAttachment.create({
         entityType: body.entity_type,
         entityId: body.entity_id,
@@ -88,6 +101,15 @@ ardUploadRouter.post('/folder-link', authenticate, async (req: Request, res: Res
 
     const body = bodySchema.parse(req.body)
     const user = req.user as any
+
+    const duplicate = await ArdAttachment.findOne({
+      where: {
+        entityType: body.entity_type,
+        entityId: body.entity_id,
+        name: { [Op.iLike]: body.name },
+      } as any,
+    })
+    if (duplicate) throw new BadRequestError('An attachment with this name already exists.', 'CONFLICT')
 
     const attachment = await ArdAttachment.create({
       entityType: body.entity_type,
@@ -137,6 +159,19 @@ ardUploadRouter.patch('/:attachmentId', authenticate, async (req: Request, res: 
     })
 
     const body = bodySchema.parse(req.body)
+
+    if (body.name !== undefined && body.name !== (attachment as any).name) {
+      const duplicate = await ArdAttachment.findOne({
+        where: {
+          entityType: (attachment as any).entityType,
+          entityId: (attachment as any).entityId,
+          name: { [Op.iLike]: body.name },
+          id: { [Op.ne]: attachment.id },
+        } as any,
+      })
+      if (duplicate) throw new BadRequestError('An attachment with this name already exists.', 'CONFLICT')
+    }
+
     await attachment.update({
       ...(body.name !== undefined ? { name: body.name } : {}),
       ...(body.description !== undefined ? { description: body.description } : {}),

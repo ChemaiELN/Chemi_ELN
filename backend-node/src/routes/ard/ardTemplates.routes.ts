@@ -6,17 +6,28 @@ import { requireArdDeptMember, assertSameDept } from '../../shared/ardDepartment
 import { enforceEsignature, ESIGN_FLAGS } from '../../shared/ardSettings';
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response';
 import { NotFoundError, BadRequestError, ForbiddenError, ConflictError, AppError } from '../../utils/errors';
-import { SECTION_TYPES, normalizeSectionType, DATATABLE_TYPES, SINGLE_DATA_ITEM_TYPES, MULTI_DATA_ITEM_TYPES, RICHTEXT_TYPES, EMBEDDED_FILE_TYPES } from '../../constants/ardSectionTypes';
+import { SECTION_TYPES, normalizeSectionType, DATATABLE_TYPES, SINGLE_DATA_ITEM_TYPES, MULTI_DATA_ITEM_TYPES, RICHTEXT_TYPES, EMBEDDED_FILE_TYPES, CONTENT_BLOCK_TYPES } from '../../constants/ardSectionTypes';
 import { sequelize } from '../../database/connection';
 import {
   ArdTemplate, ArdExperiment, ArdAuditLog,
   ArdSection, ArdSectionDatatable, ArdDatatableColumn, ArdSectionDataItem, ArdDataItem,
-  ArdSectionRichtext, ArdSectionEmbeddedFile,
+  ArdSectionRichtext, ArdSectionEmbeddedFile, ArdContentBlock,
   ArdTemplateSection,
   ArdTemplateSectionRichtextSnapshot, ArdTemplateSectionDataItemSnapshot,
   ArdTemplateSectionDatatableSnapshot, ArdTemplateDatatableColumnSnapshot,
   ArdTemplateSectionEmbeddedFileSnapshot,
 } from '../../models/index';
+import { loadDetail } from './ardSections.routes';
+
+// See ardSections.routes.ts's identical helper — content_block sections are
+// intentionally not snapshotted (§3.4 exemption), so both the section detail
+// endpoint and this template's preview resolve the block live.
+async function contentBlockDetail(contentBlockId: string | null) {
+  if (!contentBlockId) return null;
+  const block = await (ArdContentBlock as any).findByPk(contentBlockId);
+  if (!block) return null;
+  return { id: block.id, name: block.name, contentType: block.contentType, body: block.body, active: block.isActive };
+}
 
 const ardTemplateRouter = Router();
 ardTemplateRouter.use(authenticate, requireArdDeptMember);
@@ -58,6 +69,7 @@ const templateSectionAttachmentSchema = z.object({
   updateSampleWeights: z.boolean().optional(),
   updateResultSample: z.boolean().optional(),
   includeReadWeighingExcel: z.boolean().optional(),
+  isMandatory: z.boolean().optional(),
 });
 
 const saveTemplateSchema = z.object({
@@ -79,6 +91,7 @@ const saveTemplateSchema = z.object({
   includeResults: z.boolean().optional(),
   includeConclusion: z.boolean().optional(),
   includeCdsReport: z.boolean().optional(),
+  includeExperimentParameters: z.boolean().optional(),
 });
 
 const transitionSchema = z.object({
@@ -127,6 +140,7 @@ async function replaceTemplateSections(
       updateSampleWeights: a.updateSampleWeights ?? false,
       updateResultSample: a.updateResultSample ?? false,
       includeReadWeighingExcel: a.includeReadWeighingExcel ?? false,
+      isMandatory: a.isMandatory ?? false,
       isActive: true,
     };
     if (match) {
@@ -172,6 +186,9 @@ async function assertTemplateSectionsValid(templateId: string) {
     if (SINGLE_DATA_ITEM_TYPES.has(stype)) {
       const linkCount = await (ArdSectionDataItem as any).count({ where: { sectionId: section.id, isActive: true } });
       if (!linkCount) errors.push(`Section '${section.name}' needs a linked data item.`);
+    }
+    if (CONTENT_BLOCK_TYPES.has(stype) && !section.contentBlockId) {
+      errors.push(`Section '${section.name}' needs a linked content block.`);
     }
   }
 
@@ -223,19 +240,35 @@ export async function snapshotTemplateSections(templateId: string, t: any) {
         await dtSnap.update({ name: dt.name, description: dt.description, typicalRowCount: dt.typicalRowCount }, { transaction: t });
 
         const columns = await (ArdDatatableColumn as any).findAll({ where: { datatableId: dt.id, isActive: true }, transaction: t });
+        const keepColSnapIds: string[] = [];
         for (const col of columns) {
+          const matchWhere = col.dataItemId
+            ? { datatableSnapshotId: dtSnap.id, dataItemId: col.dataItemId }
+            : { datatableSnapshotId: dtSnap.id, dataItemId: null, columnKey: col.columnKey };
           const [colSnap] = await (ArdTemplateDatatableColumnSnapshot as any).findOrCreate({
-            where: { datatableSnapshotId: dtSnap.id, dataItemId: col.dataItemId },
+            where: matchWhere,
             defaults: {
               templateId, datatableSnapshotId: dtSnap.id, dataItemId: col.dataItemId,
+              columnKey: col.columnKey, columnLabel: col.columnLabel,
               sequenceNumber: col.sequenceNumber, relativeWidth: col.relativeWidth, isMandatory: col.isMandatory,
             },
             transaction: t,
           });
           await colSnap.update({
             sequenceNumber: col.sequenceNumber, relativeWidth: col.relativeWidth, isMandatory: col.isMandatory,
+            columnKey: col.columnKey, columnLabel: col.columnLabel,
           }, { transaction: t });
+          keepColSnapIds.push(colSnap.id);
         }
+        // Columns removed/renamed since the last save left their old snapshot
+        // rows behind forever (no cleanup existed here before) — buildExperimentSectionDefs
+        // groups ALL rows under this datatableSnapshotId, so a template re-saved
+        // with different columns kept showing stale ones mixed with current ones
+        // on every new experiment. Prune anything not just touched above.
+        await (ArdTemplateDatatableColumnSnapshot as any).destroy({
+          where: { datatableSnapshotId: dtSnap.id, id: { [Op.notIn]: keepColSnapIds.length ? keepColSnapIds : [null] } },
+          transaction: t,
+        });
       }
     }
 
@@ -249,6 +282,7 @@ export async function snapshotTemplateSections(templateId: string, t: any) {
       await efSnap.update({
         fileName: ef?.fileName ?? null, fileData: ef?.fileData ?? null,
         mappingFileName: ef?.mappingFileName ?? null, mappingFileData: ef?.mappingFileData ?? null,
+        workbookData: ef?.workbookData ?? null, metadata: ef?.metadata ?? null,
       }, { transaction: t });
     }
 
@@ -297,7 +331,8 @@ async function copySnapshotFromSource(sourceTemplateId: string, newTemplateId: s
   for (const r of embeddedFileRows) {
     await (ArdTemplateSectionEmbeddedFileSnapshot as any).create({
       templateId: newTemplateId, sectionId: r.sectionId, fileName: r.fileName, fileData: r.fileData,
-      mappingFileName: r.mappingFileName, mappingFileData: r.mappingFileData,
+      mappingFileName: r.mappingFileName, mappingFileData: r.mappingFileData, workbookData: r.workbookData,
+      metadata: r.metadata,
     }, { transaction: t });
   }
 
@@ -326,7 +361,7 @@ async function copyTemplateSectionAttachments(sourceTemplateId: string, newTempl
       templateId: newTemplateId, sectionId: r.sectionId, sequenceNumber: r.sequenceNumber,
       includeInCloning: r.includeInCloning, includeInEmpower: r.includeInEmpower,
       updateSampleWeights: r.updateSampleWeights, updateResultSample: r.updateResultSample,
-      includeReadWeighingExcel: r.includeReadWeighingExcel, isActive: true,
+      includeReadWeighingExcel: r.includeReadWeighingExcel, isMandatory: r.isMandatory, isActive: true,
     }, { transaction: t });
   }
 }
@@ -422,18 +457,20 @@ ardTemplateRouter.get('/:templateId/sections', async (req: Request, res: Respons
       include: [{ model: ArdSection, as: 'section' }],
       order: [['sequenceNumber', 'ASC']],
     });
-    res.json(successResponse('Template sections', {
-      items: rows.map((r: any) => ({
-        id: r.id, sectionId: r.sectionId, sequenceNumber: r.sequenceNumber,
-        includeInCloning: r.includeInCloning, includeInEmpower: r.includeInEmpower,
-        updateSampleWeights: r.updateSampleWeights, updateResultSample: r.updateResultSample,
-        includeReadWeighingExcel: r.includeReadWeighingExcel,
-        section: r.section ? {
-          id: r.section.id, name: r.section.name, sectionType: r.section.sectionType,
-          description: r.section.description, active: r.section.isActive,
-        } : null,
-      })),
-    }));
+    // Full section detail (datatable/columns, richtext, dataItemLinks, content
+    // block) — not just the join-row summary. The builder's Properties panel
+    // hydrates its edit form from this response; the summary-only shape used
+    // here previously meant a section's already-saved columns/content never
+    // appeared when you reselected it, even though Preview (which reads the
+    // publish snapshot) showed them fine.
+    const items = await Promise.all(rows.map(async (r: any) => ({
+      id: r.id, sectionId: r.sectionId, sequenceNumber: r.sequenceNumber,
+      includeInCloning: r.includeInCloning, includeInEmpower: r.includeInEmpower,
+      updateSampleWeights: r.updateSampleWeights, updateResultSample: r.updateResultSample,
+      includeReadWeighingExcel: r.includeReadWeighingExcel, isMandatory: r.isMandatory,
+      section: r.section ? await loadDetail(r.section) : null,
+    })));
+    res.json(successResponse('Template sections', { items }));
   } catch (err) { next(err); }
 });
 
@@ -462,29 +499,139 @@ ardTemplateRouter.get('/:templateId/preview', async (req: Request, res: Response
     const columnsByDatatableSnap = new Map<string, any[]>();
     for (const c of columns) {
       const list = columnsByDatatableSnap.get(c.datatableSnapshotId) ?? [];
-      list.push({ dataItemId: c.dataItemId, sequenceNumber: c.sequenceNumber, relativeWidth: Number(c.relativeWidth), isMandatory: c.isMandatory });
+      list.push({ dataItemId: c.dataItemId, columnKey: c.columnKey, columnLabel: c.columnLabel, sequenceNumber: c.sequenceNumber, relativeWidth: Number(c.relativeWidth), isMandatory: c.isMandatory });
       columnsByDatatableSnap.set(c.datatableSnapshotId, list);
     }
 
-    const sections = attachments.map((a: any) => {
+    const sections = await Promise.all(attachments.map(async (a: any) => {
       const section = a.section;
-      const base = { sectionId: a.sectionId, name: section?.name ?? null, sectionType: section?.sectionType ?? null, sequenceNumber: a.sequenceNumber };
+      const stype = section ? normalizeSectionType(section.sectionType) : null;
+      const base = { sectionId: a.sectionId, name: section?.name ?? null, sectionType: section?.sectionType ?? null, sequenceNumber: a.sequenceNumber, isMandatory: a.isMandatory };
       const rt = richtext.find((r: any) => r.sectionId === a.sectionId);
       const dt = datatables.find((r: any) => r.sectionId === a.sectionId);
       const ef = embeddedFiles.find((r: any) => r.sectionId === a.sectionId);
       const dataItemLinks = dataItems.filter((r: any) => r.sectionId === a.sectionId);
+      // content_block is intentionally not snapshotted (§3.4 exemption, matching
+      // the old builder's own live read of masterData.contentBlocks) — resolved
+      // fresh here so edits to the shared block are reflected immediately.
+      const contentBlock = stype && CONTENT_BLOCK_TYPES.has(stype) && section?.contentBlockId
+        ? await contentBlockDetail(section.contentBlockId)
+        : undefined;
       return {
         ...base,
         richtext: rt ? { editorHeight: rt.editorHeight, editorWidth: rt.editorWidth, defaultContent: rt.defaultContent } : undefined,
         datatable: dt ? { name: dt.name, description: dt.description, typicalRowCount: dt.typicalRowCount, columns: columnsByDatatableSnap.get(dt.id) ?? [] } : undefined,
-        embeddedFile: ef ? { fileName: ef.fileName, mappingFileName: ef.mappingFileName, hasFile: !!ef.fileData } : undefined,
+        embeddedFile: ef ? { fileName: ef.fileName, mappingFileName: ef.mappingFileName, hasFile: !!ef.fileData, workbookData: ef.workbookData ?? null, metadata: ef.metadata ?? null } : undefined,
         dataItemLinks: dataItemLinks.length ? dataItemLinks.map((l: any) => ({ dataItemId: l.dataItemId, name: l.name, dataType: l.dataType, lengthCategory: l.lengthCategory, isMandatory: l.isMandatory })) : undefined,
+        contentBlock,
       };
-    });
+    }));
 
     res.json(successResponse('Template preview', { templateId: tpl.id, name: (tpl as any).name, status: (tpl as any).status, sections }));
   } catch (err) { next(err); }
 });
+
+// Builds the `sectionDefs` an experiment created from this template needs,
+// from the SNAPSHOT tables (never live ard_sections) — same read-path as
+// GET /:templateId/preview above. Used by POST /api/ard/experiments.
+// The old code read the legacy ArdTemplate.sections JSONB column here, which
+// is permanently empty for any template built via the new Section library
+// (confirmed bug: every experiment created from such a template silently got
+// zero sections — "This template has no sections defined.").
+export async function buildExperimentSectionDefs(templateId: string): Promise<any[]> {
+  const [richtext, dataItems, datatables, columns, embeddedFiles] = await Promise.all([
+    (ArdTemplateSectionRichtextSnapshot as any).findAll({ where: { templateId } }),
+    (ArdTemplateSectionDataItemSnapshot as any).findAll({ where: { templateId }, order: [['sequenceNumber', 'ASC']] }),
+    (ArdTemplateSectionDatatableSnapshot as any).findAll({ where: { templateId } }),
+    (ArdTemplateDatatableColumnSnapshot as any).findAll({ where: { templateId }, order: [['sequenceNumber', 'ASC']] }),
+    (ArdTemplateSectionEmbeddedFileSnapshot as any).findAll({ where: { templateId } }),
+  ]);
+
+  const attachments = await (ArdTemplateSection as any).findAll({
+    where: { templateId, isActive: true },
+    include: [{ model: ArdSection, as: 'section' }],
+    order: [['sequenceNumber', 'ASC']],
+  });
+
+  // Master-data-linked columns (table/combined) never set columnKey/columnLabel
+  // at all — those two fields are only used by the free-text GxP preset
+  // columns (Lab Component sections). Falling back to the raw dataItemId
+  // when columnLabel is null showed the column header as a bare UUID —
+  // confirmed bug. Resolve the real Data Item name for anything with a
+  // dataItemId instead.
+  const linkedDataItemIds = [...new Set(columns.map((c: any) => c.dataItemId).filter(Boolean))];
+  const linkedDataItems = linkedDataItemIds.length
+    ? await (ArdDataItem as any).findAll({ where: { id: linkedDataItemIds } })
+    : [];
+  const dataItemNameById = new Map(linkedDataItems.map((d: any) => [d.id, d.name]));
+
+  const columnsByDatatableSnap = new Map<string, any[]>();
+  for (const c of columns) {
+    const list = columnsByDatatableSnap.get(c.datatableSnapshotId) ?? [];
+    const resolvedLabel = c.columnLabel ?? (c.dataItemId ? dataItemNameById.get(c.dataItemId) : undefined) ?? c.dataItemId;
+    list.push({ key: c.columnKey ?? c.dataItemId, label: resolvedLabel, dataItemId: c.dataItemId ?? undefined });
+    columnsByDatatableSnap.set(c.datatableSnapshotId, list);
+  }
+
+  return attachments
+    .filter((a: any) => a.section)
+    .map((a: any) => {
+      const section = a.section;
+      const stype = normalizeSectionType(section.sectionType);
+      const dt = datatables.find((r: any) => r.sectionId === a.sectionId);
+      const rt = richtext.find((r: any) => r.sectionId === a.sectionId);
+      const dataItemLinks = dataItems.filter((r: any) => r.sectionId === a.sectionId);
+      const ef = embeddedFiles.find((r: any) => r.sectionId === a.sectionId);
+      const resolvedColumns = dt ? columnsByDatatableSnap.get(dt.id) ?? [] : undefined;
+      // Every linked item, not just the first — previously only dataItemLinks[0]
+      // was kept, silently discarding the rest for any 'params'/'combined'
+      // section with more than one configured item. name/dataType/isMandatory
+      // are already denormalized onto the snapshot row (§1.6), so no extra
+      // lookup is needed here.
+      const resolvedDataItemLinks = dataItemLinks.map((l: any) => ({
+        dataItemId: l.dataItemId, name: l.name, dataType: l.dataType, isMandatory: !!l.isMandatory,
+      }));
+      return {
+        id: section.id,
+        title: section.name,
+        type: stype,
+        required: !!a.isMandatory,
+        columns: resolvedColumns,
+        dataItemId: dataItemLinks[0]?.dataItemId,
+        dataItemLinks: resolvedDataItemLinks,
+        defaultContent: rt?.defaultContent ?? undefined,
+        editorHeight: rt?.editorHeight ?? undefined,
+        contentBlockId: section.contentBlockId ?? undefined,
+        // 'combined' = a Param block + a Data Table block sharing one section
+        // record (§1.6), rendered as two nested sub-sections — previously
+        // `children` was never populated at all, so ExperimentSectionRenderer's
+        // `case 'combined':` (which maps over section.children) always rendered
+        // nothing, regardless of what was configured.
+        children: stype === 'combined'
+          ? [
+              { id: `${section.id}-params`, title: 'Parameters', type: 'params', dataItemLinks: resolvedDataItemLinks },
+              { id: `${section.id}-table`, title: 'Data Table', type: 'table', columns: resolvedColumns ?? [] },
+            ]
+          : undefined,
+        // preconfigured_excel sections render the same way STP Procedure
+        // does — a live Univer sheet via SpreadsheetFieldRuntime, not a
+        // plain filename — see ExperimentSectionRenderer.tsx.
+        spreadsheet: ef?.workbookData
+          ? {
+              mode: 'inline' as const,
+              workbookData: ef.workbookData,
+              // Not wiring metadata.fields here — those are convertXlsx's
+              // heuristic named-range/formula-cell suggestions, unrelated to
+              // which cells the author actually locked, and changing them
+              // would alter save/restore behavior this fix isn't meant to
+              // touch. protectedRanges IS the author's real Excel lock state.
+              fields: [],
+              protectedRanges: (ef.metadata as any)?.protectedRanges ?? [],
+            }
+          : undefined,
+      };
+    });
+}
 
 // GET /:templateId
 ardTemplateRouter.get('/:templateId', async (req: Request, res: Response, next: NextFunction) => {
@@ -525,6 +672,7 @@ ardTemplateRouter.post('/', async (req: Request, res: Response, next: NextFuncti
       includeResults: body.includeResults,
       includeConclusion: body.includeConclusion,
       includeCdsReport: body.includeCdsReport,
+      includeExperimentParameters: body.includeExperimentParameters,
       status: 'DRAFT',
       // §5.4: no explicit version here — the model default (0) applies. A DRAFT
       // that's never been published shouldn't claim to be "version 1"; the

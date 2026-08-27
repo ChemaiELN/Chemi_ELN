@@ -201,6 +201,9 @@ ArdTemplateSection.belongsTo(ArdTemplate, { foreignKey: 'templateId', as: 'templ
 ArdTemplateSection.belongsTo(ArdSection, { foreignKey: 'sectionId', as: 'section' })
 ArdSection.hasMany(ArdTemplateSection, { foreignKey: 'sectionId', as: 'templateAttachments' })
 
+ArdSection.belongsTo(User, { foreignKey: 'createdById', as: 'creator' })
+ArdSection.belongsTo(User, { foreignKey: 'lastUpdatedById', as: 'updater' })
+
 ArdSection.hasOne(ArdSectionRichtext, { foreignKey: 'sectionId', as: 'richtext' })
 ArdSectionRichtext.belongsTo(ArdSection, { foreignKey: 'sectionId', as: 'section' })
 ArdSection.hasMany(ArdSectionDatatable, { foreignKey: 'sectionId', as: 'datatables' })

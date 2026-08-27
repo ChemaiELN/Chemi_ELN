@@ -12,7 +12,7 @@ import { selectUser } from '../../store/authSlice'
 import { glassModalProps } from '../../utils/modalStyles'
 
 const STATUS_COLOR: Record<string, string> = {
-  OPEN: 'green', CLOSED: 'default', ARCHIVED: 'volcano',
+  ACTIVE: 'green', CLOSED: 'default', DEACTIVE: 'volcano',
 }
 
 const NOTEBOOK_TYPES = [
@@ -183,9 +183,9 @@ export default function ArdNotebooksPage() {
             value={statusFilter}
             onChange={setStatusFilter}
             options={[
-              { value: 'OPEN', label: 'Open' },
+              { value: 'ACTIVE', label: 'Active' },
               { value: 'CLOSED', label: 'Closed' },
-              { value: 'ARCHIVED', label: 'Archived' },
+              { value: 'DEACTIVE', label: 'Deactive' },
             ]}
           />
         </div>

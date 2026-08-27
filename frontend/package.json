@@ -28,6 +28,7 @@
     "lucide-react": "^1.21.0",
     "qrcode.react": "^4.2.0",
     "quill": "^2.0.3",
+    "quill-table-better": "^1.2.3",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "react-hook-form": "^7.80.0",

@@ -3,12 +3,13 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Button, Table, Tag, Modal, Form, Input, InputNumber, Select, Space, Popconfirm, message, Typography, Tooltip
 } from 'antd'
-import { Plus, Trash2, Edit3, Send, ShieldCheck, FileText } from 'lucide-react'
+import { Plus, Trash2, Edit3, Send, ShieldCheck, FileText, Eye } from 'lucide-react'
 import dayjs from 'dayjs'
 import {
   ardApi, ardProjectSpecsApi, type ArdProjectSpecification, type ArdSpecTestParam, type ArdTestConfiguration
 } from '../../api/ard'
 import { ESignatureModal } from '../common/ESignatureModal'
+import { ApiError } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
@@ -31,6 +32,9 @@ export default function ProjectSpecificationsPanel({
   // Modal states
   const [modalOpen, setModalOpen] = useState(false)
   const [editingSpec, setEditingSpec] = useState<ArdProjectSpecification | null>(null)
+  // Once a spec is submitted, Edit disappears and View takes its place —
+  // same modal/form, but every field locked and no Save/Submit affordance.
+  const [specViewOnly, setSpecViewOnly] = useState(false)
   const [testParams, setTestParams] = useState<ArdSpecTestParam[]>([])
   // Tests explicitly linked to this spec — tracked separately from testParams
   // so a test with no parameters yet still shows as a group you can add rows
@@ -89,9 +93,32 @@ export default function ProjectSpecificationsPanel({
     )
   }, [masterData?.testConfigs, addTestType, addTestSubtype])
 
-  // E-Signature modal state
+  // The single Test Configuration the current Type/Subtype(/Technique)
+  // selection resolves to, if any — used both by "Add Test" and by "Add
+  // Parameter" (which needs to know which already-linked group to drop a
+  // blank row into).
+  const selectedTestConfigId =
+    matchingConfigsForAdd.length === 1 ? matchingConfigsForAdd[0].id
+      : matchingConfigsForAdd.length > 1 && addTestTechnique ? addTestTechnique
+      : undefined
+  const selectedTestAlreadyLinked = !!selectedTestConfigId && linkedTests.some(t => t.testConfigId === selectedTestConfigId)
+
+  // "Add Parameter" targets whichever test group the Type/Subtype selects
+  // currently resolve to, same as above — but when nothing's picked up there
+  // and there's only one test group on the spec already, target that one
+  // directly rather than forcing a redundant reselection just to add a
+  // second row to the only group that exists.
+  const addParameterTargetId = selectedTestAlreadyLinked
+    ? selectedTestConfigId
+    : (!addTestType && !addTestSubtype && linkedTests.length === 1 ? linkedTests[0].testConfigId : undefined)
+
+  // E-Signature modal state — shared between Submit and Approve, since both
+  // are GxP-significant actions requiring password re-auth (+ remarks for
+  // Submit specifically).
   const [esignModalOpen, setEsignModalOpen] = useState(false)
+  const [esignAction, setEsignAction] = useState<'submit' | 'approve' | null>(null)
   const [approvingSpecId, setApprovingSpecId] = useState<string | null>(null)
+  const [submittingSpecId, setSubmittingSpecId] = useState<string | null>(null)
 
   // Query specifications
   const { data: specs = [], isLoading } = useQuery({
@@ -126,24 +153,29 @@ export default function ProjectSpecificationsPanel({
   })
 
   const submitMut = useMutation({
-    mutationFn: (specId: string) => ardProjectSpecsApi.submit(projectId, specId),
+    mutationFn: ({ specId, remarks, password }: { specId: string; remarks?: string; password: string }) =>
+      ardProjectSpecsApi.submit(projectId, specId, { remarks, password }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-project-specs', projectId] })
       msgApi.success('Specification submitted for review.')
+      setEsignModalOpen(false)
+      setEsignAction(null)
+      setSubmittingSpecId(null)
     },
-    onError: () => msgApi.error('Failed to submit specification.'),
+    onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Failed to submit specification.'),
   })
 
   const approveMut = useMutation({
-    mutationFn: ({ specId, password }: { specId: string; password?: string }) =>
-      ardProjectSpecsApi.approve(projectId, specId, { password }),
+    mutationFn: ({ specId, remarks, password }: { specId: string; remarks?: string; password: string }) =>
+      ardProjectSpecsApi.approve(projectId, specId, { remarks, password }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-project-specs', projectId] })
       msgApi.success('Specification approved with electronic signature!')
       setEsignModalOpen(false)
+      setEsignAction(null)
       setApprovingSpecId(null)
     },
-    onError: () => msgApi.error('Failed to approve specification.'),
+    onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Failed to approve specification.'),
   })
 
   const deleteMut = useMutation({
@@ -156,6 +188,7 @@ export default function ProjectSpecificationsPanel({
   })
 
   const handleOpenAdd = () => {
+    setSpecViewOnly(false)
     setEditingSpec(null)
     setTestParams([])
     setLinkedTests([])
@@ -233,14 +266,8 @@ export default function ProjectSpecificationsPanel({
     ])
   }
 
-  const addCustomParamRow = () => {
-    setTestParams([
-      ...testParams,
-      { id: String(Date.now()), testConfigId: null, testType: null, testSubtype: null, manualEntry: true, parameter: '', dataType: 'text', validationType: 'NONE', specLimit: '', unit: null },
-    ])
-  }
-
-  const handleOpenEdit = (spec: ArdProjectSpecification) => {
+  const handleOpenEdit = (spec: ArdProjectSpecification, viewOnly = false) => {
+    setSpecViewOnly(viewOnly)
     setEditingSpec(spec)
     const params = spec.testParameters || []
     setTestParams(params)
@@ -295,6 +322,11 @@ export default function ProjectSpecificationsPanel({
   const updateParamRow = (index: number, key: keyof ArdSpecTestParam, val: unknown) => {
     const next = [...testParams]
     next[index] = { ...next[index], [key]: val }
+    // Text parameters don't have numeric NMT/NLT/Range limits — validation is
+    // always None for them, entered as one free-text Specification field
+    // instead. Force it on the dataType change itself so the Validation
+    // select never shows a stale numeric choice for a text row.
+    if (key === 'dataType' && val === 'text') next[index].validationType = 'NONE'
     setTestParams(next)
   }
 
@@ -393,29 +425,50 @@ export default function ProjectSpecificationsPanel({
         <Space size="small">
           {record.status === 'DRAFT' && !readOnly && (
             <>
-              <Button
-                size="small"
-                icon={<Edit3 size={13} />}
-                onClick={() => handleOpenEdit(record)}
-              >
-                Edit
-              </Button>
-              <Button
-                size="small"
-                type="primary"
-                icon={<Send size={13} />}
-                onClick={() => submitMut.mutate(record.id)}
-                loading={submitMut.isPending}
-                className="bg-indigo-600 hover:bg-indigo-700"
-              >
-                Submit
-              </Button>
+              <Tooltip title="Edit">
+                <Button
+                  size="small"
+                  icon={<Edit3 size={13} />}
+                  onClick={() => handleOpenEdit(record)}
+                />
+              </Tooltip>
+              <Tooltip title="Submit for review">
+                <Button
+                  size="small"
+                  type="primary"
+                  icon={<Send size={13} />}
+                  onClick={() => {
+                    setSubmittingSpecId(record.id)
+                    setEsignAction('submit')
+                    setEsignModalOpen(true)
+                  }}
+                  loading={submitMut.isPending}
+                  className="bg-indigo-600 hover:bg-indigo-700"
+                />
+              </Tooltip>
+              <Popconfirm title="Delete this specification?" onConfirm={() => deleteMut.mutate(record.id)}>
+                <Tooltip title="Delete">
+                  <Button size="small" danger icon={<Trash2 size={13} />} />
+                </Tooltip>
+              </Popconfirm>
             </>
+          )}
+          {/* Once submitted, Edit/Delete disappear — the spec is out of the
+              creator's hands; anyone with access can only view it, and
+              whoever's allowed to approve gets that action too. */}
+          {record.status !== 'DRAFT' && (
+            <Tooltip title="View">
+              <Button
+                size="small"
+                icon={<Eye size={13} />}
+                onClick={() => handleOpenEdit(record, true)}
+              />
+            </Tooltip>
           )}
           {record.status === 'SUBMITTED' && !readOnly && (() => {
             const isSelf = record.createdById && user?.id && record.createdById === user.id
             return (
-              <Tooltip title={isSelf ? 'You cannot approve a specification you created' : undefined}>
+              <Tooltip title={isSelf ? 'You cannot approve a specification you created' : 'Approve (E-Sign)'}>
                 <Button
                   size="small"
                   type="primary"
@@ -423,19 +476,13 @@ export default function ProjectSpecificationsPanel({
                   disabled={!!isSelf}
                   onClick={() => {
                     setApprovingSpecId(record.id)
+                    setEsignAction('approve')
                     setEsignModalOpen(true)
                   }}
-                >
-                  Approve (E-Sign)
-                </Button>
+                />
               </Tooltip>
             )
           })()}
-          {record.status !== 'APPROVED' && !readOnly && (
-            <Popconfirm title="Delete this specification?" onConfirm={() => deleteMut.mutate(record.id)}>
-              <Button size="small" danger icon={<Trash2 size={13} />} />
-            </Popconfirm>
-          )}
         </Space>
       ),
     },
@@ -473,35 +520,38 @@ export default function ProjectSpecificationsPanel({
         />
       </div>
 
-      {/* Add / Edit Specification Modal */}
+      {/* Add / Edit / View Specification Modal */}
       <Modal
         {...glassModalProps}
-        title={editingSpec ? `Edit Specification — ${editingSpec.specCode}` : 'Create New Project Specification'}
+        title={specViewOnly ? `View Specification — ${editingSpec?.specCode || 'Pending Approval'}` : editingSpec ? `Edit Specification — ${editingSpec.specCode || 'Pending Approval'}` : 'Create New Project Specification'}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
-        onOk={() => form.submit()}
+        onOk={specViewOnly ? () => setModalOpen(false) : () => form.submit()}
+        okText={specViewOnly ? 'Close' : 'OK'}
+        cancelButtonProps={specViewOnly ? { style: { display: 'none' } } : undefined}
         confirmLoading={createMut.isPending || updateMut.isPending}
         width={980}
       >
         <Form form={form} layout="vertical" onFinish={handleSaveForm} className="pt-2">
           <div className="grid grid-cols-3 gap-x-4">
             <Form.Item name="title" label="Specification Name" rules={[{ required: true }]} className="col-span-1">
-              <Input placeholder="e.g. Release Specification" />
+              <Input placeholder="e.g. Release Specification" disabled={specViewOnly} />
             </Form.Item>
             <Form.Item label="Specification Number" className="col-span-1">
-              <Input disabled value={editingSpec?.specCode || 'Auto-generated on save'} />
+              <Input disabled value={editingSpec?.specCode || 'Auto-generated on approval'} />
             </Form.Item>
             <Form.Item name="specType" label="Specification Type" rules={[{ required: true }]} className="col-span-1">
-              <Select allowClear placeholder="Select type" options={specTypeOptions} />
+              <Select allowClear placeholder="Select type" options={specTypeOptions} disabled={specViewOnly} />
             </Form.Item>
             <Form.Item name="description" label="Description" rules={[{ required: true }]} className="col-span-3">
-              <Input.TextArea rows={2} placeholder="Brief description of this specification..." />
+              <Input.TextArea rows={2} placeholder="Brief description of this specification..." disabled={specViewOnly} />
             </Form.Item>
           </div>
 
           <div className="mt-2 border-t border-slate-100 pt-3">
             <div className="flex justify-between items-center mb-2">
               <Text strong className="text-xs text-slate-700 uppercase tracking-wide">Test Parameters & Specification Limits</Text>
+              {!specViewOnly && (
               <div className="flex items-center gap-2 flex-wrap">
                 <Select
                   showSearch
@@ -539,16 +589,25 @@ export default function ProjectSpecificationsPanel({
                   size="small"
                   type="primary"
                   icon={<Plus size={13} />}
-                  disabled={matchingConfigsForAdd.length === 0 || (matchingConfigsForAdd.length > 1 && !addTestTechnique)}
+                  disabled={!selectedTestConfigId || selectedTestAlreadyLinked}
                   onClick={handleAddTestClick}
                   className="text-xs"
                 >
                   Add Test
                 </Button>
-                <Button size="small" icon={<Plus size={13} />} onClick={addCustomParamRow} className="text-xs">
-                  Add Custom Parameter
-                </Button>
+                <Tooltip title={addParameterTargetId ? undefined : 'Pick a Test Type & Subtype already added below, then add another parameter to it'}>
+                  <Button
+                    size="small"
+                    icon={<Plus size={13} />}
+                    disabled={!addParameterTargetId}
+                    onClick={() => { if (addParameterTargetId) addParamToLinkedTest(addParameterTargetId) }}
+                    className="text-xs"
+                  >
+                    Add Parameter
+                  </Button>
+                </Tooltip>
               </div>
+              )}
             </div>
 
             {linkedTests.length === 0 && testParams.length === 0 ? (
@@ -615,13 +674,7 @@ export default function ProjectSpecificationsPanel({
                               <td colSpan={7} className="border-b border-slate-100 px-2 py-1.5 font-semibold text-slate-700">{group.label}</td>
                               <td className="border-b border-slate-100 px-2 py-1.5">
                                 <Space size={2}>
-                                  {group.testConfigId && (
-                                    <Tooltip title="Add parameter to this test">
-                                      <Button size="small" type="text" icon={<Plus size={13} className="text-indigo-600" />}
-                                        onClick={() => addParamToLinkedTest(group.testConfigId!)} />
-                                    </Tooltip>
-                                  )}
-                                  {group.testConfigId && (
+                                  {group.testConfigId && !specViewOnly && (
                                     <Tooltip title="Remove this test">
                                       <Button size="small" type="text" danger icon={<Trash2 size={13} />}
                                         onClick={() => removeTestFromSpec(group.testConfigId!)} />
@@ -637,35 +690,31 @@ export default function ProjectSpecificationsPanel({
                                 </td>
                               </tr>
                             ) : group.rows.map(({ param, index }) => {
-                              const isCustom = !!param.manualEntry
+                              const isText = (param.dataType || 'text') === 'text'
                               const showLower = param.validationType === 'NLT' || param.validationType === 'RANGE'
                               const showUpper = param.validationType === 'NMT' || param.validationType === 'RANGE'
                               return (
                                 <tr key={param.id ?? index} className="hover:bg-slate-50/50">
                                   <td className="border-b border-slate-100 px-2 py-1.5"></td>
                                   <td className="border-b border-slate-100 px-2 py-1.5">
-                                    {isCustom ? (
-                                      <Input size="small" placeholder="Parameter name" value={param.parameter}
-                                        onChange={(e) => updateParamRow(index, 'parameter', e.target.value)} />
-                                    ) : (
-                                      <span className="font-medium text-slate-700">{param.parameter}</span>
-                                    )}
+                                    <Input size="small" placeholder="Parameter name" value={param.parameter} disabled={specViewOnly}
+                                      onChange={(e) => updateParamRow(index, 'parameter', e.target.value)} />
                                   </td>
                                   <td className="border-b border-slate-100 px-2 py-1.5">
-                                    <Input size="small" placeholder="Details / remarks" value={param.remarks ?? ''}
+                                    <Input size="small" placeholder="Details / remarks" value={param.remarks ?? ''} disabled={specViewOnly}
                                       onChange={(e) => updateParamRow(index, 'remarks', e.target.value)} />
                                   </td>
                                   <td className="border-b border-slate-100 px-2 py-1.5">
-                                    {isCustom ? (
-                                      <Select size="small" style={{ width: '100%' }} value={param.dataType || 'text'}
-                                        onChange={(v) => updateParamRow(index, 'dataType', v)}
-                                        options={[{ value: 'text', label: 'Text' }, { value: 'number', label: 'Number' }]} />
-                                    ) : (
-                                      <Tag className="text-[10px] uppercase">{param.dataType || 'text'}</Tag>
-                                    )}
+                                    <Select size="small" style={{ width: '100%' }} value={param.dataType || 'text'} disabled={specViewOnly}
+                                      onChange={(v) => updateParamRow(index, 'dataType', v)}
+                                      options={[{ value: 'text', label: 'Text' }, { value: 'number', label: 'Number' }]} />
                                   </td>
                                   <td className="border-b border-slate-100 px-2 py-1.5">
-                                    <Select size="small" style={{ width: '100%' }} value={param.validationType || 'NONE'}
+                                    {/* Text parameters have no numeric limit scheme — Validation is
+                                        always None and locked; the row shows a free-text Specification
+                                        field instead of Precision/Lower/Upper/UOM (below). */}
+                                    <Select size="small" style={{ width: '100%' }} value={isText ? 'NONE' : (param.validationType || 'NONE')}
+                                      disabled={isText || specViewOnly}
                                       onChange={(v) => updateParamRow(index, 'validationType', v)}
                                       options={[
                                         { value: 'NONE', label: 'None' },
@@ -674,29 +723,40 @@ export default function ProjectSpecificationsPanel({
                                         { value: 'RANGE', label: 'Range' },
                                       ]} />
                                   </td>
-                                  <td className="border-b border-l border-slate-100 px-2 py-1.5">
-                                    <InputNumber size="small" style={{ width: '100%' }} value={param.precision ?? undefined}
-                                      onChange={(v) => updateParamRow(index, 'precision', v ?? null)} />
-                                  </td>
-                                  <td className="border-b border-slate-100 px-2 py-1.5">
-                                    {showLower && (
-                                      <InputNumber size="small" style={{ width: '100%' }} value={param.lowerLimit ?? undefined}
-                                        onChange={(v) => updateParamRow(index, 'lowerLimit', v ?? null)} />
-                                    )}
-                                  </td>
-                                  <td className="border-b border-slate-100 px-2 py-1.5">
-                                    {showUpper && (
-                                      <InputNumber size="small" style={{ width: '100%' }} value={param.upperLimit ?? undefined}
-                                        onChange={(v) => updateParamRow(index, 'upperLimit', v ?? null)} />
-                                    )}
-                                  </td>
-                                  <td className="border-b border-slate-100 px-2 py-1.5">
-                                    <Select size="small" showSearch allowClear style={{ width: '100%' }} value={param.unit || undefined}
-                                      onChange={(v) => updateParamRow(index, 'unit', v ?? null)} options={uomOptions} />
-                                  </td>
+                                  {isText ? (
+                                    <td colSpan={4} className="border-b border-l border-slate-100 px-2 py-1.5">
+                                      <Input size="small" placeholder="Specification" value={param.specLimit ?? ''} disabled={specViewOnly}
+                                        onChange={(e) => updateParamRow(index, 'specLimit', e.target.value)} />
+                                    </td>
+                                  ) : (
+                                    <>
+                                      <td className="border-b border-l border-slate-100 px-2 py-1.5">
+                                        <InputNumber size="small" style={{ width: '100%' }} value={param.precision ?? undefined} disabled={specViewOnly}
+                                          onChange={(v) => updateParamRow(index, 'precision', v ?? null)} />
+                                      </td>
+                                      <td className="border-b border-slate-100 px-2 py-1.5">
+                                        {showLower && (
+                                          <InputNumber size="small" style={{ width: '100%' }} value={param.lowerLimit ?? undefined} disabled={specViewOnly}
+                                            onChange={(v) => updateParamRow(index, 'lowerLimit', v ?? null)} />
+                                        )}
+                                      </td>
+                                      <td className="border-b border-slate-100 px-2 py-1.5">
+                                        {showUpper && (
+                                          <InputNumber size="small" style={{ width: '100%' }} value={param.upperLimit ?? undefined} disabled={specViewOnly}
+                                            onChange={(v) => updateParamRow(index, 'upperLimit', v ?? null)} />
+                                        )}
+                                      </td>
+                                      <td className="border-b border-slate-100 px-2 py-1.5">
+                                        <Select size="small" showSearch allowClear style={{ width: '100%' }} value={param.unit || undefined} disabled={specViewOnly}
+                                          onChange={(v) => updateParamRow(index, 'unit', v ?? null)} options={uomOptions} />
+                                      </td>
+                                    </>
+                                  )}
                                   <td className="border-b border-slate-100 px-2 py-1.5 text-center">
-                                    <Button size="small" danger type="text" icon={<Trash2 size={13} />}
-                                      onClick={() => setTestParams(testParams.filter((_, i2) => i2 !== index))} />
+                                    {!specViewOnly && (
+                                      <Button size="small" danger type="text" icon={<Trash2 size={13} />}
+                                        onClick={() => setTestParams(testParams.filter((_, i2) => i2 !== index))} />
+                                    )}
                                   </td>
                                 </tr>
                               )
@@ -713,22 +773,28 @@ export default function ProjectSpecificationsPanel({
         </Form>
       </Modal>
 
-      {/* E-Signature Approval Modal */}
+      {/* E-Signature Modal — shared by Submit (+ remarks) and Approve */}
       <ESignatureModal
         open={esignModalOpen}
-        title="Approve Specification (E-Signature)"
-        description="Re-authenticate with your password to approve this project analytical specification."
+        title={esignAction === 'submit' ? 'Submit Specification (E-Signature)' : 'Approve Specification (E-Signature)'}
+        description={esignAction === 'submit'
+          ? 'Re-authenticate with your password and add remarks to submit this specification for review.'
+          : 'Re-authenticate with your password to approve this project analytical specification.'}
         userName={user?.username || 'Current User'}
         requireReason={true}
-        reasonLabel="Reason for Approval"
-        loading={approveMut.isPending}
+        reasonLabel={esignAction === 'submit' ? 'Remarks' : 'Reason for Approval'}
+        loading={esignAction === 'submit' ? submitMut.isPending : approveMut.isPending}
         onCancel={() => {
           setEsignModalOpen(false)
+          setEsignAction(null)
           setApprovingSpecId(null)
+          setSubmittingSpecId(null)
         }}
         onConfirm={async (payload) => {
-          if (approvingSpecId) {
-            await approveMut.mutateAsync({ specId: approvingSpecId, password: payload.password })
+          if (esignAction === 'submit' && submittingSpecId) {
+            await submitMut.mutateAsync({ specId: submittingSpecId, remarks: payload.reason, password: payload.password })
+          } else if (esignAction === 'approve' && approvingSpecId) {
+            await approveMut.mutateAsync({ specId: approvingSpecId, remarks: payload.reason, password: payload.password })
           }
         }}
       />

@@ -15,6 +15,7 @@ export class ArdSection extends Model<InferAttributes<ArdSection>, InferCreation
   declare uniqueIdentifier: string | null
   declare sectionType: string
   declare deptId: string | null
+  declare contentBlockId: string | null
   declare isActive: CreationOptional<boolean>
   declare createdById: string | null
   declare createdAt: CreationOptional<Date>
@@ -28,6 +29,7 @@ ArdSection.init({
   uniqueIdentifier: { type: DataTypes.STRING(100), allowNull: true, field: 'unique_identifier' },
   sectionType: { type: DataTypes.STRING(50), allowNull: false, field: 'section_type' },
   deptId: { type: DataTypes.UUID, allowNull: true, field: 'dept_id' },
+  contentBlockId: { type: DataTypes.UUID, allowNull: true, field: 'content_block_id' },
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: 'is_active' },
   createdById: { type: DataTypes.UUID, allowNull: true, field: 'created_by_id' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
@@ -72,6 +74,8 @@ export class ArdSectionEmbeddedFile extends Model<InferAttributes<ArdSectionEmbe
   declare fileData: Buffer | null
   declare mappingFileName: string | null
   declare mappingFileData: Buffer | null
+  declare workbookData: object | null
+  declare metadata: object | null
 }
 ArdSectionEmbeddedFile.init({
   sectionId: { type: DataTypes.UUID, primaryKey: true, field: 'section_id' },
@@ -79,6 +83,8 @@ ArdSectionEmbeddedFile.init({
   fileData: { type: DataTypes.BLOB('long'), allowNull: true, field: 'file_data' },
   mappingFileName: { type: DataTypes.STRING(255), allowNull: true, field: 'mapping_file_name' },
   mappingFileData: { type: DataTypes.BLOB('long'), allowNull: true, field: 'mapping_file_data' },
+  workbookData: { type: DataTypes.JSONB, allowNull: true, field: 'workbook_data' },
+  metadata: { type: DataTypes.JSONB, allowNull: true, field: 'metadata' },
 }, { sequelize, tableName: 'ard_section_embedded_file', timestamps: false })
 
 // ── ArdTemplateSection (join: template version ↔ section) ───────────────────────
@@ -92,6 +98,7 @@ export class ArdTemplateSection extends Model<InferAttributes<ArdTemplateSection
   declare updateSampleWeights: CreationOptional<boolean>
   declare updateResultSample: CreationOptional<boolean>
   declare includeReadWeighingExcel: CreationOptional<boolean>
+  declare isMandatory: CreationOptional<boolean>
   declare isActive: CreationOptional<boolean>
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
@@ -106,6 +113,7 @@ ArdTemplateSection.init({
   updateSampleWeights: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'update_sample_weights' },
   updateResultSample: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'update_result_sample' },
   includeReadWeighingExcel: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'include_read_weighing_excel' },
+  isMandatory: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_mandatory' },
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: 'is_active' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, field: 'updated_at' },
@@ -137,7 +145,12 @@ ArdSectionDataItem.init({
 export class ArdDatatableColumn extends Model<InferAttributes<ArdDatatableColumn>, InferCreationAttributes<ArdDatatableColumn>> {
   declare id: CreationOptional<string>
   declare datatableId: string
-  declare dataItemId: string
+  // Exactly one of dataItemId (governed Master Data column — table/combined
+  // sections) or columnKey/columnLabel (old's fixed free-text GxP preset —
+  // Lab Component sections) is set, never both. See migration 20260825000003.
+  declare dataItemId: string | null
+  declare columnKey: string | null
+  declare columnLabel: string | null
   declare sequenceNumber: CreationOptional<number>
   declare relativeWidth: number
   declare isMandatory: CreationOptional<boolean>
@@ -148,7 +161,9 @@ export class ArdDatatableColumn extends Model<InferAttributes<ArdDatatableColumn
 ArdDatatableColumn.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   datatableId: { type: DataTypes.UUID, allowNull: false, field: 'datatable_id' },
-  dataItemId: { type: DataTypes.UUID, allowNull: false, field: 'data_item_id' },
+  dataItemId: { type: DataTypes.UUID, allowNull: true, field: 'data_item_id' },
+  columnKey: { type: DataTypes.STRING(100), allowNull: true, field: 'column_key' },
+  columnLabel: { type: DataTypes.STRING(200), allowNull: true, field: 'column_label' },
   sequenceNumber: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, field: 'sequence_number' },
   relativeWidth: { type: DataTypes.DECIMAL(5, 2), allowNull: false, field: 'relative_width' },
   isMandatory: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_mandatory' },
@@ -234,7 +249,9 @@ export class ArdTemplateDatatableColumnSnapshot extends Model<InferAttributes<Ar
   declare id: CreationOptional<string>
   declare templateId: string
   declare datatableSnapshotId: string
-  declare dataItemId: string
+  declare dataItemId: string | null
+  declare columnKey: string | null
+  declare columnLabel: string | null
   declare sequenceNumber: CreationOptional<number>
   declare relativeWidth: number
   declare isMandatory: CreationOptional<boolean>
@@ -245,7 +262,9 @@ ArdTemplateDatatableColumnSnapshot.init({
   id: { type: DataTypes.UUID, primaryKey: true, defaultValue: DataTypes.UUIDV4 },
   templateId: { type: DataTypes.UUID, allowNull: false, field: 'template_id' },
   datatableSnapshotId: { type: DataTypes.UUID, allowNull: false, field: 'datatable_snapshot_id' },
-  dataItemId: { type: DataTypes.UUID, allowNull: false, field: 'data_item_id' },
+  dataItemId: { type: DataTypes.UUID, allowNull: true, field: 'data_item_id' },
+  columnKey: { type: DataTypes.STRING(100), allowNull: true, field: 'column_key' },
+  columnLabel: { type: DataTypes.STRING(200), allowNull: true, field: 'column_label' },
   sequenceNumber: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0, field: 'sequence_number' },
   relativeWidth: { type: DataTypes.DECIMAL(5, 2), allowNull: false, field: 'relative_width' },
   isMandatory: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'is_mandatory' },
@@ -261,6 +280,8 @@ export class ArdTemplateSectionEmbeddedFileSnapshot extends Model<InferAttribute
   declare fileData: Buffer | null
   declare mappingFileName: string | null
   declare mappingFileData: Buffer | null
+  declare workbookData: object | null
+  declare metadata: object | null
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 }
@@ -272,6 +293,8 @@ ArdTemplateSectionEmbeddedFileSnapshot.init({
   fileData: { type: DataTypes.BLOB('long'), allowNull: true, field: 'file_data' },
   mappingFileName: { type: DataTypes.STRING(255), allowNull: true, field: 'mapping_file_name' },
   mappingFileData: { type: DataTypes.BLOB('long'), allowNull: true, field: 'mapping_file_data' },
+  workbookData: { type: DataTypes.JSONB, allowNull: true, field: 'workbook_data' },
+  metadata: { type: DataTypes.JSONB, allowNull: true, field: 'metadata' },
   createdAt: { type: DataTypes.DATE, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, field: 'updated_at' },
 }, { sequelize, tableName: 'ard_template_section_embedded_file_snapshot', timestamps: false })

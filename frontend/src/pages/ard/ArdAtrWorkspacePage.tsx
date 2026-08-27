@@ -561,8 +561,9 @@ function ManageChemicalsModal({ sample, onSave, onClose, readOnly }: { sample: A
   )
 }
 
-function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleIntegrityOptions = [] }: {
+function SamplesEditor({ atrId, formTypeId, samples, onChange, readOnly, uomOptions, sampleIntegrityOptions = [] }: {
   atrId: string
+  formTypeId?: string | null
   samples: AtrSample[]
   onChange: (s: AtrSample[]) => void
   readOnly: boolean
@@ -574,6 +575,9 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
   const [manageChems, setManageChems] = useState<{ sample: AtrSample; index: number } | null>(null)
   const [msgApi, contextHolder] = message.useMessage()
   const { data: masterData } = useQuery({ queryKey: ['ard-master-data'], queryFn: ardApi.getMasterData })
+  const selectedFormType = masterData?.formTypes?.find((ft: any) => ft.id === formTypeId)
+  const mandateBatchNo = selectedFormType?.mandateBatchNo ?? false
+  const mandateSampleQty = selectedFormType?.mandateSampleQty ?? false
   // Mirrors the same lookup category used for the equivalent Sample Type
   // field in the CGT/ADC "Raise ATR Request" panel (AtrRequestField.tsx) —
   // configured under ARD's Configuration → Lookups, not Test Configurations.
@@ -935,7 +939,7 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
               ),
           },
           {
-            title: <span>Batch No. <span className="text-red-500">*</span></span>, dataIndex: 'batchNo',
+            title: <span>Batch No. {mandateBatchNo && <span className="text-red-500">*</span>}</span>, dataIndex: 'batchNo',
             render: (v, _r, i) => readOnly ? v : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { batchNo: e.target.value })} />,
           },
           {
@@ -943,7 +947,7 @@ function SamplesEditor({ atrId, samples, onChange, readOnly, uomOptions, sampleI
             render: (v, _r, i) => readOnly ? (v || '—') : <Input size="small" value={v ?? ''} onChange={(e) => update(i, { sampleDescription: e.target.value })} />,
           },
           {
-            title: <span>Sample Qty. <span className="text-red-500">*</span></span>, dataIndex: 'quantity',
+            title: <span>Sample Qty. {mandateSampleQty && <span className="text-red-500">*</span>}</span>, dataIndex: 'quantity',
             render: (v, r: any, i) => readOnly ? (
               <span>{[v, r.uom].filter(Boolean).join(' ') || '—'}</span>
             ) : (
@@ -2370,7 +2374,7 @@ export default function ArdAtrWorkspacePage() {
           {
             key: 'samples', label: `2. Samples & Test Results (${samples.length})`, children: (
               <div>
-                <SamplesEditor atrId={atr.id} samples={samples} onChange={setSamplesDraft} readOnly={!editable} uomOptions={uomOptions} sampleIntegrityOptions={sampleIntegrityOptions} />
+                <SamplesEditor atrId={atr.id} formTypeId={atr.formTypeId} samples={samples} onChange={setSamplesDraft} readOnly={!editable} uomOptions={uomOptions} sampleIntegrityOptions={sampleIntegrityOptions} />
                 {editable && samplesDraft && (
                   <div className="mt-3 flex justify-end">
                     <Button type="primary" onClick={() => save.mutate({ samples: samplesDraft })} loading={save.isPending}>

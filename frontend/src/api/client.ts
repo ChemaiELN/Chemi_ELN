@@ -44,13 +44,16 @@ async function parseResponse<T>(res: Response): Promise<T> {
       throw new ApiError(401, detail)
     }
 
-    const hadToken = !!localStorage.getItem('access_token')
     localStorage.removeItem('access_token')
     localStorage.removeItem('refresh_token')
-    if (hadToken) {
-      // Session expired — redirect to login.
-      window.location.href = '/login'
-    }
+    // Any non-password 401 means the session is unusable — including when
+    // the token was ALREADY missing (e.g. cleared by an earlier request in
+    // this same page, or another tab logging out). Previously this only
+    // redirected `if (hadToken)`, so a request that fired with no token at
+    // all just threw silently: the user stayed on the current screen,
+    // mid-form, seeing a bare "No authentication token provided." toast on
+    // every subsequent action instead of being sent to log back in.
+    window.location.href = '/login'
     throw new ApiError(401, detail)
   }
   if (!res.ok) {

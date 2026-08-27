@@ -148,6 +148,26 @@ const RiskRowSchema = z.object({
   mitigation: z.string().optional().nullable(),
 })
 
+/** Map wire risk-row fields onto ProjectRiskRow model columns. */
+function riskRowFieldsFromBody(body: {
+  hazard?: string
+  likelihood?: string
+  severity?: number
+  riskLevel?: string
+  mitigation?: string | null
+}): Record<string, unknown> {
+  const out: Record<string, unknown> = {}
+  if (body.hazard !== undefined) out.processStep = body.hazard
+  if (body.likelihood !== undefined) out.failureMode = body.likelihood
+  if (body.severity !== undefined) out.severity = body.severity
+  if (body.riskLevel !== undefined) {
+    const levelMap: Record<string, number> = { low: 1, medium: 2, high: 3 }
+    out.detection = levelMap[body.riskLevel.toLowerCase()] ?? null
+  }
+  if (body.mitigation !== undefined) out.mitigation = body.mitigation
+  return out
+}
+
 // ── HOD Dashboard ─────────────────────────────────────────────────────────────
 // The combined {stats, with_notebooks, without_notebooks} endpoint that used
 // to live here has been split into GET /hod-stats (below) for the KPI cards
@@ -628,8 +648,7 @@ router.post('/:projectId/risk-assessment/rows', authenticate, requireDeptPrivile
     const body = RiskRowSchema.parse(req.body)
     const row = await ProjectRiskRow.create({
       assessmentId: (ra as any).id,
-      severity: body.severity,
-      mitigation: body.mitigation ?? null,
+      ...riskRowFieldsFromBody(body),
     } as any)
 
     res.status(201).json(successResponse('Risk row created successfully.', row))
@@ -644,7 +663,7 @@ router.patch('/:projectId/risk-assessment/rows/:rowId', authenticate, requireDep
     if (!row) throw new NotFoundError('Risk row')
 
     const body = RiskRowSchema.partial().parse(req.body)
-    await row.update(body as any)
+    await row.update(riskRowFieldsFromBody(body) as any)
 
     res.json(successResponse('Risk row updated successfully.', row))
   } catch (err) {

@@ -7,6 +7,8 @@ const tsJestTransform = {
 const config: Config = {
   // Sequelize/pg pool can keep the process alive after afterAll close on Windows
   forceExit: true,
+  // Shared sentinel users (test_superadmin) must not race across files
+  maxWorkers: 1,
   projects: [
     {
       displayName: 'unit',

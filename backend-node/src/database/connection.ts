@@ -9,7 +9,8 @@ if (config.db.url) {
     dialect: 'postgres',
     logging: config.isDev ? (msg) => logger.debug(msg) : false,
     pool: config.nodeEnv === 'test'
-      ? { max: 1, min: 0, acquire: 10000, idle: 1000 }
+      // max:1 deadlocks project create transactions (SELECT FOR UPDATE) under Supertest
+      ? { max: 5, min: 0, acquire: 30000, idle: 10000 }
       : { max: 10, min: 0, acquire: 30000, idle: 10000 },
     dialectOptions: { ssl: false },
   })
@@ -20,7 +21,7 @@ if (config.db.url) {
     dialect: 'postgres',
     logging: config.isDev ? (msg) => logger.debug(msg) : false,
     pool: config.nodeEnv === 'test'
-      ? { max: 1, min: 0, acquire: 10000, idle: 1000 }
+      ? { max: 5, min: 0, acquire: 30000, idle: 10000 }
       : { max: 10, min: 0, acquire: 30000, idle: 10000 },
   })
 }

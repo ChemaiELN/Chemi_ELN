@@ -6,8 +6,11 @@ import request from 'supertest'
 import app from '../../app'
 import {
   seedMinimalAdmin,
+  seedNoprivUser,
   TEST_ADMIN_PASSWORD,
   TEST_ADMIN_USERNAME,
+  TEST_NOPRIV_PASSWORD,
+  TEST_NOPRIV_USERNAME,
 } from './seed.helper'
 
 export async function getTokenForUser(username: string, password: string): Promise<string> {
@@ -33,14 +36,14 @@ export async function getAdminToken(): Promise<string> {
   return getTokenForUser(TEST_ADMIN_USERNAME, TEST_ADMIN_PASSWORD)
 }
 
-/**
- * Phase 0 only maps admin aliases to the seeded test_superadmin.
- * Expand in Phase 1+ when more role fixtures exist.
- */
 export async function getUserToken(role: string): Promise<string> {
   const normalized = role.trim().toUpperCase().replace(/[\s-]+/g, '_')
   if (['SUPER_ADMIN', 'SUPERADMIN', 'ADMIN', 'TEST_SUPER_ADMIN'].includes(normalized)) {
     return getAdminToken()
+  }
+  if (['NOPRIV', 'NO_PRIV', 'TEST_NOPRIV', 'NONE'].includes(normalized)) {
+    await seedNoprivUser()
+    return getTokenForUser(TEST_NOPRIV_USERNAME, TEST_NOPRIV_PASSWORD)
   }
   throw new Error(
     `getUserToken("${role}") not available yet — seed that role in a later phase`,

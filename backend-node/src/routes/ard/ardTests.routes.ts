@@ -5,6 +5,7 @@ import { v4 as uuidv4 } from 'uuid'
 import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response'
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../utils/errors'
+import { verifyPassword } from '../../utils/auth.utils'
 import {
   ArdTestRequest,
   ArdAtrForm,
@@ -346,7 +347,17 @@ ardTestRouter.post('/bulk-reassign-team', authenticate, async (req: Request, res
       testIds: z.array(z.string()).min(1),
       tlId: z.string(),
       remarks: z.string().min(1),
+      password: z.string().min(1),
     }).parse(req.body)
+
+    // This bulk, cross-team ownership change always requires e-signature —
+    // unlike this file's other ESIGN_FLAGS-gated actions (which are
+    // admin-toggle, off by default), this one is unconditional, matching
+    // ardProjects.routes.ts's spec submit/approve routes.
+    const passwordValid = await verifyPassword(body.password, user.passwordHash)
+    if (!passwordValid) {
+      throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED')
+    }
 
     const targetTl = await User.findByPk(body.tlId)
     if (!targetTl) throw new NotFoundError('Target Team Lead not found')

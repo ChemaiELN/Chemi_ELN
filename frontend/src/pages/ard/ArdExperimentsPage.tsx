@@ -1,13 +1,12 @@
 import { useState, useMemo } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Table, Tag, Button, Modal, Form, Input, Select, Radio, message, Tabs, Checkbox } from 'antd'
-import { Plus, Search, FlaskConical, ClipboardList } from 'lucide-react'
+import { Table, Tag, Button, Modal, Form, Input, Select, Radio, message, Tabs } from 'antd'
+import { Plus, Search, FlaskConical } from 'lucide-react'
 import { ardTemplateApi, ardExperimentApi, type ExperimentStatus } from '../../api/ard'
 import { ardNotebooksApi } from '../../api/ard-notebooks'
 import { ApiError } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
-import { adminApi } from '../../api/admin'
 
 import { ardProjectsApi, type ProjectStp } from '../../api/ard-projects'
 import { useAppSelector } from '../../store'
@@ -51,9 +50,7 @@ export default function ArdExperimentsPage() {
   const { textColor: healthTextColor } = useHealthIndicator()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
-  const [listTab, setListTab] = useState<'active' | 'inactive' | 'delayed' | 'review_comments'>('active')
-  const [includeAllUsersReview, setIncludeAllUsersReview] = useState(false)
-  const [reviewCommentsModalRows, setReviewCommentsModalRows] = useState<unknown[] | null>(null)
+  const [listTab, setListTab] = useState<'active' | 'inactive' | 'delayed'>('active')
   const [form] = Form.useForm()
   const [creationMode, setCreationMode] = useState<'template' | 'stp'>('template')
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>()
@@ -132,37 +129,9 @@ export default function ArdExperimentsPage() {
   const activeExperiments = useMemo(() => scopedExperiments.filter(e => e.status !== 'DEACTIVATED'), [scopedExperiments])
   const inactiveExperiments = useMemo(() => scopedExperiments.filter(e => e.status === 'DEACTIVATED'), [scopedExperiments])
 
-  // ── Review Comments tab (Analyst) — experiments a reviewer left feedback
-  // on (exp.clarifications, the same thread QA Comments posts to on the
-  // experiment workspace page). "Include All Users" lifts the usual
-  // mine-only narrowing to the whole team, same idea as the Tests screen's
-  // In Progress tab.
-  const { data: allUsersData } = useQuery({
-    queryKey: ['ard-all-users-exp'],
-    queryFn: () => adminApi.listUsers({ page_size: 200 }),
-    enabled: isAnalystRole,
-  })
-  const usersById = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const u of allUsersData?.items ?? []) map.set(u.id, u.username)
-    return map
-  }, [allUsersData])
-
-  const reviewCommentExperiments = useMemo(() => {
-    const withComments = (data?.items ?? []).filter(e => Array.isArray((e as any).clarifications) && (e as any).clarifications.length > 0)
-    if (!isScopedUser || includeAllUsersReview) return withComments
-    return withComments.filter(exp => {
-      const isCreator = (exp as any).createdBy === user?.username || exp.createdById === user?.id
-      const isAssigned = (exp as any).assignedToId === user?.id || (exp as any).assignedToName === user?.username
-      const isNotebookAssigned = exp.notebookId ? scopedNotebookIds.has(exp.notebookId) : false
-      return isCreator || isAssigned || isNotebookAssigned
-    })
-  }, [data?.items, isScopedUser, includeAllUsersReview, user, scopedNotebookIds])
-
   const filteredExperiments = useMemo(() => {
     const base = listTab === 'inactive' ? inactiveExperiments
       : listTab === 'delayed' ? (delayedData?.items ?? [])
-      : listTab === 'review_comments' ? reviewCommentExperiments
       : activeExperiments
     const term = q.trim().toLowerCase()
     if (!term) return base
@@ -171,7 +140,7 @@ export default function ArdExperimentsPage() {
       exp.templateName?.toLowerCase().includes(term) ||
       exp.status?.toLowerCase().includes(term)
     )
-  }, [activeExperiments, inactiveExperiments, delayedData, reviewCommentExperiments, listTab, q])
+  }, [activeExperiments, inactiveExperiments, delayedData, listTab, q])
 
   const templateOptions = useMemo(() => {
     const pub = published?.items ?? []
@@ -258,85 +227,16 @@ export default function ArdExperimentsPage() {
 
       <Tabs
         activeKey={listTab}
-        onChange={k => setListTab(k as 'active' | 'inactive' | 'delayed' | 'review_comments')}
+        onChange={k => setListTab(k as 'active' | 'inactive' | 'delayed')}
         className="mb-2"
         items={[
           { key: 'active', label: `Active (${activeExperiments.length})` },
           { key: 'inactive', label: `Inactive / Deactivated (${inactiveExperiments.length})` },
           ...(isAnalystRole ? [{ key: 'delayed', label: `Delayed (${delayedData?.items?.length ?? 0})` }] : []),
-          ...(isAnalystRole ? [{ key: 'review_comments', label: `Review Comments (${reviewCommentExperiments.length})` }] : []),
         ]}
       />
 
-      {listTab === 'review_comments' && (
-        <div className="flex justify-end mb-2">
-          <Checkbox checked={includeAllUsersReview} onChange={(e) => setIncludeAllUsersReview(e.target.checked)}>
-            Include All Users
-          </Checkbox>
-        </div>
-      )}
-
       <div className="glass-card rounded-lg overflow-hidden">
-      {listTab === 'review_comments' ? (
-        <Table
-          rowKey="id"
-          loading={isLoading}
-          dataSource={filteredExperiments}
-          size="small"
-          onRow={(row) => ({ onClick: () => navigate(`/ard/experiments/${row.id}`) })}
-          rowClassName={() => 'cursor-pointer'}
-          columns={[
-            {
-              title: 'Product', width: 160,
-              render: (_: unknown, row: any) => {
-                const nb = (notebooksData?.items ?? []).find(n => n.id === row.notebookId)
-                const pid = row.projectId || nb?.projectId
-                const proj = (projectsData?.items ?? []).find(p => p.id === pid)
-                return proj ? ((proj as any).productName || proj.name || proj.code) : '—'
-              },
-            },
-            { title: 'Experiment Code', dataIndex: 'code', render: (v) => <span className="font-mono text-indigo-700 font-semibold">{v}</span> },
-            {
-              title: 'Test Number(s)',
-              render: (_: unknown, row: any) => (Array.isArray(row.linkedAtrIds) && row.linkedAtrIds.length > 0 ? row.linkedAtrIds.join(', ') : '—'),
-            },
-            {
-              title: 'Notebook Type', width: 140,
-              render: (_: unknown, row: any) => {
-                const nb = (notebooksData?.items ?? []).find(n => n.id === row.notebookId)
-                return nb?.notebookType || '—'
-              },
-            },
-            { title: 'Template Name', dataIndex: 'templateName', render: (v) => v || '—' },
-            { title: 'Experiment Aim', dataIndex: 'aim', render: (v) => v ? <span className="line-clamp-2">{v}</span> : '—' },
-            {
-              title: 'Improvement Suggested', width: 100, align: 'center',
-              render: (_: unknown, row: any) => (
-                <Button
-                  type="text" shape="circle" icon={<ClipboardList size={16} className="text-indigo-600" />}
-                  onClick={(e) => { e.stopPropagation(); setReviewCommentsModalRows(row.clarifications ?? []) }}
-                />
-              ),
-            },
-            {
-              title: 'Started By (On)', width: 170,
-              render: (_: unknown, row: any) => (
-                <div className="text-xs">
-                  <p className="font-medium text-slate-700">{usersById.get(row.createdById) || '—'}</p>
-                  <p className="text-[11px] text-slate-400">{row.createdAt ? new Date(row.createdAt).toLocaleString() : '—'}</p>
-                </div>
-              ),
-            },
-            {
-              title: 'Age', dataIndex: 'createdAt',
-              render: (v) => {
-                const d = ageDays(v)
-                return <span className={`text-xs font-mono ${healthTextColor(d)}`}>{d !== null ? d : '—'}</span>
-              },
-            },
-          ]}
-        />
-      ) : (
       <Table
         rowKey="id"
         loading={isLoading}
@@ -385,34 +285,7 @@ export default function ArdExperimentsPage() {
           },
         ]}
       />
-      )}
       </div>
-
-      {/* Improvement Suggested — the review comments thread for one experiment */}
-      <Modal
-        {...glassModalProps}
-        title="Improvement Suggested"
-        open={!!reviewCommentsModalRows}
-        onCancel={() => setReviewCommentsModalRows(null)}
-        footer={null}
-      >
-        <div className="py-2 space-y-3 max-h-[60vh] overflow-y-auto">
-          {(reviewCommentsModalRows ?? []).length === 0 ? (
-            <p className="text-xs text-slate-400 italic">No comments.</p>
-          ) : (
-            (reviewCommentsModalRows as { id?: string; message?: string; byName?: string; at?: string }[]).map((c, i) => (
-              <div key={c.id ?? i} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
-                <div className="flex justify-between items-center mb-0.5">
-                  <span className="font-semibold text-slate-700">{c.byName || 'Reviewer'}</span>
-                  <span className="text-slate-400">{c.at ? new Date(c.at).toLocaleString() : ''}</span>
-                </div>
-                <p className="text-slate-700">{c.message}</p>
-              </div>
-            ))
-          )}
-        </div>
-      </Modal>
-
       <Modal
         {...glassModalProps}
         title="Create New Experiment"

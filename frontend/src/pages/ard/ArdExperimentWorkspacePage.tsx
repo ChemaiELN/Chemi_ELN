@@ -973,7 +973,7 @@ function ArdExperimentWorkspacePage() {
     const raw = (settingsMap as any)?.['IncludeADVerificationFlow']
     const val = typeof raw === 'object' && raw !== null && 'value' in raw ? raw.value : raw
     const appOk = val === undefined || val === null ? true : (typeof val === 'boolean' ? val : String(val).toLowerCase() !== 'false')
-    const nbOk = (notebookDetail as any)?.includeVerificationFlow ?? true
+    const nbOk = notebookDetail?.includeVerificationFlow ?? true
     return appOk && nbOk
   }, [settingsMap, notebookDetail])
 
@@ -1222,6 +1222,11 @@ function ArdExperimentWorkspacePage() {
   const nextStates = rawNextStates.filter(s => {
     // B-80: hide peer-verification step when disabled at app or notebook level
     if (s === 'VERIFICATION_REQUESTED' && !verificationEnabled) return false
+    // Mirror image of the line above: when verification IS required, the
+    // direct IN_PROGRESS -> SUBMITTED shortcut must not be offered either —
+    // otherwise an analyst could just click "Submit for Approval" and skip
+    // the mandatory peer-verification step entirely.
+    if (s === 'SUBMITTED' && exp.status === 'IN_PROGRESS' && verificationEnabled) return false
     // After TL verifies, only TL/HOD sends the experiment to HOD for approval (not analyst)
     if (s === 'SUBMITTED' && exp.status === 'VERIFIED') return !isAnalyst
     const category = TRANSITION_ROLE[s as ExperimentStatus] ?? 'any'

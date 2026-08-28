@@ -2,10 +2,10 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Button, Tabs, Input, Select, Tag, Spin, Alert, Modal, Table, Form, Radio, Popconfirm, message, Segmented, Card, Switch, Tooltip,
+  Button, Tabs, Input, Select, Tag, Spin, Alert, Modal, Table, Form, Radio, Popconfirm, message, Switch, Tooltip,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ArrowLeft, BookOpen, Plus, Trash2, LayoutList, FileText, Star } from 'lucide-react'
+import { ArrowLeft, BookOpen, Plus, Trash2, FileText, Star } from 'lucide-react'
 import dayjs from 'dayjs'
 import { ardNotebooksApi, type Notebook, type ResultParameter, type AssignedUser, type ExperimentSummary } from '../../api/ard-notebooks'
 import { ardProjectsApi, type ProjectStp } from '../../api/ard-projects'
@@ -40,11 +40,27 @@ function newId() { return crypto.randomUUID ? crypto.randomUUID() : Math.random(
 
 // ── Summary tab ───────────────────────────────────────────────────────────────
 function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partial<Notebook>) => void; saving: boolean }) {
+  // Frozen by default (legacy behavior) — Edit unlocks the fields, Cancel
+  // discards local changes and re-freezes without saving.
+  const [isEditing, setIsEditing] = useState(false)
   const [name, setName] = useState(nb.name)
   const [description, setDescription] = useState(nb.description ?? '')
   const [notebookType, setNotebookType] = useState(nb.notebookType ?? '')
-  useEffect(() => { setName(nb.name); setDescription(nb.description ?? ''); setNotebookType(nb.notebookType ?? '') }, [nb])
-  const dirty = name !== nb.name || description !== (nb.description ?? '') || notebookType !== (nb.notebookType ?? '')
+  const [includeVerificationFlow, setIncludeVerificationFlow] = useState(nb.includeVerificationFlow ?? true)
+  const resetFromNb = () => {
+    setName(nb.name)
+    setDescription(nb.description ?? '')
+    setNotebookType(nb.notebookType ?? '')
+    setIncludeVerificationFlow(nb.includeVerificationFlow ?? true)
+  }
+  useEffect(() => { resetFromNb() }, [nb])
+
+  const handleCancel = () => { resetFromNb(); setIsEditing(false) }
+  const handleSave = () => {
+    onSave({ name, description, notebookType: notebookType || undefined, includeVerificationFlow })
+    setIsEditing(false)
+  }
+
   return (
     <div className="glass-card rounded-lg p-5 md:p-2 space-y-5 w-full">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
@@ -61,38 +77,59 @@ function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Part
 
         <div className="md:col-span-2">
           <label className="text-xs text-slate-400 font-medium block mb-1.5">Name</label>
-          <Input
-            value={name}
-            onChange={e => setName(e.target.value)}
-            disabled={nb.status !== 'ACTIVE'}
-            className="rounded-lg"
-            placeholder="Notebook name"
-          />
+          {isEditing ? (
+            <Input
+              value={name}
+              onChange={e => setName(e.target.value)}
+              className="rounded-lg"
+              placeholder="Notebook name"
+            />
+          ) : (
+            <p className="text-sm text-slate-700 font-medium">{nb.name}</p>
+          )}
         </div>
 
         <div className="md:col-span-2">
           <label className="text-xs text-slate-400 font-medium block mb-1.5">Notebook Type</label>
-          <Select
-            value={notebookType || undefined}
-            onChange={setNotebookType}
-            options={NOTEBOOK_TYPES}
-            allowClear
-            placeholder="Select type"
-            className="w-full rounded-lg"
-            disabled={nb.status !== 'ACTIVE'}
-          />
+          {isEditing ? (
+            <Select
+              value={notebookType || undefined}
+              onChange={setNotebookType}
+              options={NOTEBOOK_TYPES}
+              allowClear
+              placeholder="Select type"
+              className="w-full rounded-lg"
+            />
+          ) : (
+            <p className="text-sm text-slate-700">{NOTEBOOK_TYPES.find(t => t.value === nb.notebookType)?.label ?? nb.notebookType ?? '—'}</p>
+          )}
         </div>
 
         <div className="md:col-span-2">
           <label className="text-xs text-slate-400 font-medium block mb-1.5">Description</label>
-          <TextArea
-            rows={4}
-            value={description}
-            onChange={e => setDescription(e.target.value)}
-            disabled={nb.status !== 'ACTIVE'}
-            className="rounded-lg"
-            placeholder="Enter notebook description..."
-          />
+          {isEditing ? (
+            <TextArea
+              rows={4}
+              value={description}
+              onChange={e => setDescription(e.target.value)}
+              className="rounded-lg"
+              placeholder="Enter notebook description..."
+            />
+          ) : (
+            <p className="text-sm text-slate-600 whitespace-pre-wrap">{nb.description || '—'}</p>
+          )}
+        </div>
+
+        <div className="md:col-span-2">
+          <label className="text-xs text-slate-400 font-medium block mb-1.5">Include Verification Flow</label>
+          <div className="flex items-center gap-2">
+            <Switch checked={isEditing ? includeVerificationFlow : (nb.includeVerificationFlow ?? true)} onChange={setIncludeVerificationFlow} disabled={!isEditing} />
+            <span className="text-xs text-slate-500">
+              {(isEditing ? includeVerificationFlow : (nb.includeVerificationFlow ?? true))
+                ? 'On — experiments in this notebook go through peer Verification before Approval (2-step).'
+                : 'Off — experiments in this notebook go straight to Approval (1-step).'}
+            </span>
+          </div>
         </div>
 
         <div>
@@ -110,11 +147,16 @@ function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Part
         </div>
       </div>
 
-      {dirty && nb.status === 'ACTIVE' && (
-        <div className="pt-2 flex justify-end">
-          <Button type="primary" loading={saving} onClick={() => onSave({ name, description, notebookType: notebookType || undefined })}>
-            Save Changes
-          </Button>
+      {nb.status === 'ACTIVE' && (
+        <div className="pt-2 flex justify-end gap-2">
+          {isEditing ? (
+            <>
+              <Button onClick={handleCancel}>Cancel</Button>
+              <Button type="primary" loading={saving} onClick={handleSave}>Save Changes</Button>
+            </>
+          ) : (
+            <Button onClick={() => setIsEditing(true)}>Edit</Button>
+          )}
         </div>
       )}
     </div>
@@ -987,7 +1029,6 @@ export default function ArdNotebookWorkspacePage() {
     onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Save failed'),
   })
 
-  const [viewMode, setViewMode] = useState<'tabbed' | 'single'>('tabbed')
 
   // Close / Archive / Reopen modal state
   const [closeOpen, setCloseOpen] = useState(false)
@@ -1075,15 +1116,6 @@ export default function ArdNotebookWorkspacePage() {
             <p className="text-xs text-slate-400 font-mono">{nb.code}</p>
           </div>
           <Tag color={STATUS_COLOR[nb.status] ?? 'default'} className="ml-auto shrink-0">{nb.status}</Tag>
-          <Segmented
-            size="middle"
-            value={viewMode}
-            onChange={(v) => setViewMode(v as 'tabbed' | 'single')}
-            options={[
-              { label: 'Tabbed View', value: 'tabbed', icon: <LayoutList size={14} className="inline mr-1" /> },
-              { label: 'Single Page View', value: 'single', icon: <FileText size={14} className="inline mr-1" /> },
-            ]}
-          />
           <Button
             icon={<FileText size={14} className="inline mr-1" />}
             onClick={async () => {
@@ -1115,24 +1147,9 @@ export default function ArdNotebookWorkspacePage() {
           )}
         </div>
 
-        {/* Tabs vs Single Page Cards */}
-        {viewMode === 'tabbed' ? (
-          <div className="glass-card rounded-lg p-4">
-            <Tabs key={notebookId} items={tabItems} defaultActiveKey="experiments" />
-          </div>
-        ) : (
-          <div className="space-y-6">
-            {tabItems.map((tab) => (
-              <Card
-                key={tab.key}
-                title={<span className="font-bold text-slate-800 text-base">{tab.label}</span>}
-                className="rounded-lg overflow-hidden"
-              >
-                {tab.children}
-              </Card>
-            ))}
-          </div>
-        )}
+        <div className="glass-card rounded-lg p-4">
+          <Tabs key={notebookId} items={tabItems} defaultActiveKey="experiments" />
+        </div>
       </div>
 
       {/* Close Notebook Modal */}

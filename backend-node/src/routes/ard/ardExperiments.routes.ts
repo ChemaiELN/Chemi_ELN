@@ -17,6 +17,7 @@ import {
   ArdTestRequest,
   ArdAtrForm,
   ArdProject,
+  ArdSetting,
   User,
   Role,
 } from '../../models/index';
@@ -28,6 +29,18 @@ const ardExperimentRouter = Router();
 // Mirrors Python's is_lab_role (atr_rbac.py:151-152) — analyst/TL/HOD/QA/admin.
 function isLabRole(rc: string): boolean {
   return ['ANALYST', 'CHEM', 'CHEMIST', 'TL', 'HOD', 'QA', 'ADMIN', 'SUPER_ADMIN'].includes(rc);
+}
+
+// B-80: mirrors ArdExperimentWorkspacePage.tsx's `verificationEnabled` — both
+// the app-level setting and the notebook flag default to true when unset
+// (verification required unless explicitly turned off at either level).
+async function isVerificationRequired(notebookId: string | null): Promise<boolean> {
+  const setting = await (ArdSetting as any).findOne({ where: { key: 'IncludeADVerificationFlow' } });
+  const appOk = setting ? String(setting.value).toLowerCase() !== 'false' : true;
+  if (!appOk) return false;
+  if (!notebookId) return true;
+  const nb = await (ArdNotebook as any).findByPk(notebookId, { attributes: ['includeVerificationFlow'] });
+  return nb?.includeVerificationFlow ?? true;
 }
 
 // Status machine
@@ -578,6 +591,18 @@ ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: 
 
     if (!allowed.includes(action)) {
       throw new BadRequestError(`Transition '${action}' not allowed from status '${currentStatus}'`);
+    }
+
+    // B-80: IN_PROGRESS -> SUBMITTED is the direct 1-step shortcut that skips
+    // peer verification entirely — only valid when verification isn't
+    // required for this experiment (app setting AND notebook flag). This
+    // must be enforced here, not just hidden in the UI, since the frontend
+    // button being hidden doesn't stop a direct API call.
+    if (currentStatus === 'IN_PROGRESS' && action === 'SUBMITTED') {
+      const required = await isVerificationRequired((exp as any).notebookId ?? null);
+      if (required) {
+        throw new BadRequestError('This notebook requires peer verification before approval — submit for verification instead.', 'VERIFICATION_REQUIRED');
+      }
     }
 
     const esignFlag = ESIGN_TRANSITIONS[action];

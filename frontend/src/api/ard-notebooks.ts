@@ -17,7 +17,7 @@ export interface Notebook {
   projectId: string | null
   notebookType: string | null
   status: string
-  verificationFlow?: boolean
+  includeVerificationFlow?: boolean
   assignedUsers: AssignedUser[]
   resultParameters: ResultParameter[]
   auditTrail: AuditEntry[]

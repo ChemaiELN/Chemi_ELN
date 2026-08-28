@@ -9,7 +9,7 @@ import {
 import type { ColumnsType } from 'antd/es/table'
 import {
   ArrowLeft, FolderOpen, Plus, Trash2, CheckCircle2,
-  RotateCcw, Edit3, Lock, Unlock, BookOpen, Send, Users, ShieldCheck, Eye, Calendar, UserPlus, LayoutList, FileText, Upload as UploadIcon
+  Edit3, Lock, Unlock, BookOpen, Send, Users, ShieldCheck, Eye, Calendar, UserPlus, LayoutList, FileText, Upload as UploadIcon
 } from 'lucide-react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { ardProjectsApi, type Project, type ProjectStp, type ProjectAttribute, type ProjectTeamMember } from '../../api/ard-projects'
@@ -374,12 +374,6 @@ export default function ArdProjectWorkspacePage() {
     onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Approve failed.'),
   })
 
-  const stpReturnMut = useMutation({
-    mutationFn: (stpId: string) => ardProjectsApi.returnStp(projectId, stpId),
-    onSuccess: () => { msgApi.success('STP returned to author.'); invalidate() },
-    onError: (e) => msgApi.error(e instanceof ApiError ? e.detail : 'Return failed.'),
-  })
-
   const canEdit = ['TL', 'HOD', 'SUPER_ADMIN'].includes(role) && data?.status === 'OPEN'
   const canApproveStp = ['TL', 'TEAM_LEAD', 'HOD', 'SUPER_ADMIN'].includes(role)
 
@@ -447,10 +441,6 @@ export default function ArdProjectWorkspacePage() {
 
   function handleApproveStpWithEsign(stp: ProjectStp, remarks: string | undefined, password: string) {
     stpApproveMut.mutate({ stpId: stp.id, body: { remarks, password } })
-  }
-
-  function handleReturnStp(stp: ProjectStp) {
-    stpReturnMut.mutate(stp.id)
   }
 
   function handleDeleteStp(id: string) {
@@ -824,9 +814,6 @@ export default function ArdProjectWorkspacePage() {
                       Approve
                     </Button>
                   </Tooltip>
-                  <Popconfirm title="Return this STP to the author?" onConfirm={() => handleReturnStp(row)}>
-                    <Button size="small" icon={<RotateCcw size={12} />} loading={stpReturnMut.isPending}>Return</Button>
-                  </Popconfirm>
                 </>
               )}
             </>

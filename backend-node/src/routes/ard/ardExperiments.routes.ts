@@ -337,6 +337,68 @@ ardExperimentRouter.get('/ongoing', authenticate, async (req: Request, res: Resp
   }
 });
 
+// GET /review-comments — the AD Experiments "Review Comments" tab: every
+// experiment carrying at least one reviewer comment (the same clarifications
+// thread the experiment workspace's "QA Comments" panel posts to via
+// POST /:experimentId/clarifications). perspective=all widens beyond just
+// the caller's own experiments — same idea as the Tests screen's "Include
+// All Users" checkbox on In Progress.
+ardExperimentRouter.get('/review-comments', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user;
+    const { perspective } = req.query as Record<string, string>;
+
+    const rows = await (ArdExperiment as any).findAll({ order: [['updatedAt', 'DESC']] });
+    const withComments = rows.filter((e: any) => Array.isArray(e.clarifications) && e.clarifications.length > 0);
+    const scoped = perspective === 'all'
+      ? withComments
+      : withComments.filter((e: any) => e.createdById === user.id);
+
+    const projectIds = Array.from(new Set(scoped.map((e: any) => e.projectId).filter(Boolean)));
+    const projects = projectIds.length
+      ? await (ArdProject as any).findAll({ where: { id: { [Op.in]: projectIds } }, attributes: ['id', 'code', 'productName'] })
+      : [];
+    const projectMap = new Map(projects.map((p: any) => [p.id, p]));
+
+    const notebookIds = Array.from(new Set(scoped.map((e: any) => e.notebookId).filter(Boolean)));
+    const notebooks = notebookIds.length
+      ? await (ArdNotebook as any).findAll({ where: { id: { [Op.in]: notebookIds } }, attributes: ['id', 'notebookType'] })
+      : [];
+    const notebookMap = new Map(notebooks.map((n: any) => [n.id, n]));
+
+    const creatorIds = Array.from(new Set(scoped.map((e: any) => e.createdById).filter(Boolean)));
+    const creators = creatorIds.length
+      ? await (User as any).findAll({ where: { id: { [Op.in]: creatorIds } }, attributes: ['id', 'username'] })
+      : [];
+    const creatorMap = new Map(creators.map((u: any) => [u.id, u.username]));
+
+    const MS_PER_DAY = 86_400_000;
+    const now = Date.now();
+    const items = scoped.map((e: any) => {
+      const project: any = e.projectId ? projectMap.get(e.projectId) : null;
+      const notebook: any = e.notebookId ? notebookMap.get(e.notebookId) : null;
+      return {
+        id: String(e.id),
+        code: e.code,
+        templateName: e.templateName ?? null,
+        aim: e.aim ?? null,
+        projectCode: project?.code ?? null,
+        productName: project?.productName ?? null,
+        notebookType: notebook?.notebookType ?? null,
+        linkedAtrIds: e.linkedAtrIds ?? [],
+        clarifications: e.clarifications ?? [],
+        createdByName: e.createdById ? (creatorMap.get(e.createdById) ?? null) : null,
+        createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
+        ageDays: e.createdAt ? Math.floor((now - new Date(e.createdAt).getTime()) / MS_PER_DAY) : null,
+      };
+    });
+
+    res.json(successResponse('Review comments', { items, total: items.length }));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // GET /pending-review
 ardExperimentRouter.get('/pending-review', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {

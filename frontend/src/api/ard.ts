@@ -767,6 +767,21 @@ export interface OngoingExperimentItem {
   createdAt: string | null
 }
 
+export interface ReviewCommentItem {
+  id: string
+  code: string
+  templateName: string | null
+  aim: string | null
+  projectCode: string | null
+  productName: string | null
+  notebookType: string | null
+  linkedAtrIds: string[]
+  clarifications: { id?: string; message?: string; by?: string; byName?: string; at?: string }[]
+  createdByName: string | null
+  createdAt: string | null
+  ageDays: number | null
+}
+
 export interface PendingReviewItem {
   id: string
   code: string
@@ -836,6 +851,8 @@ export const ardExperimentApi = {
   ongoing: () => apiGet<{ items: OngoingExperimentItem[]; total: number }>(`${EXPERIMENT_BASE}/ongoing`),
   pendingReview: (perspective: 'mine' | 'others', status?: 'SUBMITTED' | 'VERIFICATION_REQUESTED') =>
     apiGet<{ items: PendingReviewItem[]; total: number }>(`${EXPERIMENT_BASE}/pending-review`, { perspective, status }),
+  reviewComments: (perspective: 'mine' | 'all') =>
+    apiGet<{ items: ReviewCommentItem[]; total: number }>(`${EXPERIMENT_BASE}/review-comments`, { perspective }),
   acquireLock: (id: string) => apiPost<ExperimentLockInfo>(`${EXPERIMENT_BASE}/${id}/acquire-lock`),
   releaseLock: (id: string) => apiDelete<{ released: boolean }>(`${EXPERIMENT_BASE}/${id}/lock`),
   checkLock: (id: string) => apiGet<ExperimentLockInfo>(`${EXPERIMENT_BASE}/${id}/check-lock`),

@@ -1,10 +1,10 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Card, Tabs, Table, Button, Input, Space, Modal, message } from 'antd'
-import { FlaskConical, Search, ArrowRight, RotateCcw } from 'lucide-react'
+import { Card, Tabs, Table, Button, Input, Space, Modal, message, Checkbox } from 'antd'
+import { FlaskConical, Search, ArrowRight, RotateCcw, ClipboardList } from 'lucide-react'
 import dayjs from 'dayjs'
-import { ardExperimentApi, type PendingReviewItem, type OngoingExperimentItem } from '../../api/ard'
+import { ardExperimentApi, type PendingReviewItem, type OngoingExperimentItem, type ReviewCommentItem } from '../../api/ard'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import { useHealthIndicator } from '../../hooks/useHealthIndicator'
@@ -266,8 +266,82 @@ function OngoingTable() {
   )
 }
 
+function ReviewCommentsTable({ onCommentsClick }: { onCommentsClick: (thread: ReviewCommentItem['clarifications']) => void }) {
+  const navigate = useNavigate()
+  const { tagColor } = useHealthIndicator()
+  const [includeAllUsers, setIncludeAllUsers] = useState(false)
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['ard-experiments-review-comments', includeAllUsers],
+    queryFn: () => ardExperimentApi.reviewComments(includeAllUsers ? 'all' : 'mine'),
+  })
+  const items = data?.items ?? []
+
+  const columns = [
+    { title: 'Product', dataIndex: 'productName', render: (v: string | null) => v || '—', ...getColumnSelectFilterProps((r: ReviewCommentItem) => r.productName, items) },
+    {
+      title: 'Experiment Code', dataIndex: 'code',
+      render: (v: string) => <span className="font-mono text-xs font-semibold text-indigo-900">{v}</span>,
+      ...getColumnSearchProps((r: ReviewCommentItem) => r.code, 'Experiment Code'),
+    },
+    {
+      title: 'Test Number(s)',
+      render: (_: unknown, r: ReviewCommentItem) => (r.linkedAtrIds?.length ? r.linkedAtrIds.join(', ') : '—'),
+    },
+    { title: 'Notebook Type', dataIndex: 'notebookType', render: (v: string | null) => v || '—', ...getColumnSelectFilterProps((r: ReviewCommentItem) => r.notebookType, items) },
+    { title: 'Template Name', dataIndex: 'templateName', render: (v: string | null) => v || '—', ...getColumnSearchProps((r: ReviewCommentItem) => r.templateName, 'Template Name') },
+    { title: 'Experiment Aim', dataIndex: 'aim', render: (v: string | null) => stripHtml(v) || '—', ...getColumnSearchProps((r: ReviewCommentItem) => stripHtml(r.aim), 'Experiment Aim') },
+    {
+      title: 'Improvement Suggested', width: 90, align: 'center' as const,
+      render: (_: unknown, r: ReviewCommentItem) => (
+        <Button
+          type="text" shape="circle" icon={<ClipboardList size={16} className="text-indigo-600" />}
+          onClick={(e) => { e.stopPropagation(); onCommentsClick(r.clarifications) }}
+        />
+      ),
+    },
+    {
+      title: 'Started By (On)',
+      render: (_: unknown, r: ReviewCommentItem) => (
+        <div className="text-xs">
+          <p className="font-medium text-slate-700">{r.createdByName || '—'}</p>
+          <p className="text-[11px] text-slate-400">{r.createdAt ? dayjs(r.createdAt).format('DD MMM YYYY (HH:mm)') : '—'}</p>
+        </div>
+      ),
+      ...getColumnSelectFilterProps((r: ReviewCommentItem) => r.createdByName, items),
+    },
+    {
+      title: 'Age', dataIndex: 'ageDays',
+      sorter: (a: ReviewCommentItem, b: ReviewCommentItem) => (a.ageDays ?? 0) - (b.ageDays ?? 0),
+      render: (v: number | null) => <AgeDot days={v} tagColor={tagColor} />,
+    },
+  ]
+
+  return (
+    <div className="space-y-3">
+      <div className="flex justify-end">
+        <Checkbox checked={includeAllUsers} onChange={(e) => setIncludeAllUsers(e.target.checked)}>
+          Include All Users
+        </Checkbox>
+      </div>
+      <Table
+        rowKey="id"
+        loading={isLoading}
+        dataSource={items}
+        size="small"
+        onRow={(row: ReviewCommentItem) => ({ onClick: () => navigate(`/ard/experiments/${row.id}`) })}
+        rowClassName={() => 'cursor-pointer hover:bg-indigo-50/40 transition-colors'}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} experiments` }}
+        columns={columns as any}
+        locale={{ emptyText: 'No experiments with review comments.' }}
+      />
+    </div>
+  )
+}
+
 export default function ArdAdExperimentsPage() {
   const [eventsRows, setEventsRows] = useState<PendingReviewItem[] | null>(null)
+  const [commentsThread, setCommentsThread] = useState<ReviewCommentItem['clarifications'] | null>(null)
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -308,9 +382,33 @@ export default function ArdAdExperimentsPage() {
               label: 'Ongoing',
               children: <OngoingTable />,
             },
+            {
+              key: 'review_comments',
+              label: 'Review Comments',
+              children: <ReviewCommentsTable onCommentsClick={setCommentsThread} />,
+            },
           ]}
         />
       </Card>
+
+      {/* Improvement Suggested — the review comments thread for one experiment */}
+      <Modal {...glassModalProps} title="Improvement Suggested" open={!!commentsThread} onCancel={() => setCommentsThread(null)} footer={null}>
+        <div className="py-2 space-y-3 max-h-[60vh] overflow-y-auto">
+          {(commentsThread ?? []).length === 0 ? (
+            <p className="text-xs text-slate-400 italic">No comments.</p>
+          ) : (
+            (commentsThread ?? []).map((c, i) => (
+              <div key={c.id ?? i} className="bg-slate-50 border border-slate-200 rounded-lg px-3 py-2 text-xs">
+                <div className="flex justify-between items-center mb-0.5">
+                  <span className="font-semibold text-slate-700">{c.byName || 'Reviewer'}</span>
+                  <span className="text-slate-400">{c.at ? dayjs(c.at).format('DD MMM YYYY (HH:mm)') : ''}</span>
+                </div>
+                <p className="text-slate-700">{c.message}</p>
+              </div>
+            ))
+          )}
+        </div>
+      </Modal>
 
       <Modal {...glassModalProps} title="Events" open={!!eventsRows} onCancel={() => setEventsRows(null)} footer={null}>
         <div className="py-2 space-y-4 max-h-[60vh] overflow-y-auto">

@@ -317,7 +317,10 @@ atrRouter.get('/', authenticate, async (req: Request, res: Response, next: NextF
       // findAndCountAll actually returns.
       distinct: true,
       include: [
-        { model: ArdAtrSample, as: 'samples', attributes: ['id', 'sampleCode', 'sampleType'], include: [{ model: ArdTestRequest, as: 'tests', attributes: ['id'] }] },
+        // batchNo/storageCondition added for the analyst "Clarification
+        // Requests" tab's Batch Number / Storage Condition & Period columns
+        // — everything else here already only ever used sampleCode/sampleType.
+        { model: ArdAtrSample, as: 'samples', attributes: ['id', 'sampleCode', 'sampleType', 'batchNo', 'storageCondition'], include: [{ model: ArdTestRequest, as: 'tests', attributes: ['id'] }] },
       ],
     });
 
@@ -865,12 +868,17 @@ atrRouter.post('/:atrId/clarifications', authenticate, async (req: Request, res:
     const { message } = clarificationSchema.parse(req.body);
     const user = (req as any).user;
     const atr = await findAtr((req.params.atrId as string));
+    // Field names must match the ClarificationMessage contract the frontend
+    // actually renders (ArdAtrWorkspacePage.tsx's Clarifications tab reads
+    // .authorName/.authorRole/.createdAt) — this previously wrote
+    // by/byName/at instead, so every clarification message ever posted here
+    // rendered with a blank author name, role and date.
     const entry = {
       id: uuidv4(),
       message,
-      by: user.id,
-      byName: user.username,
-      at: new Date(),
+      authorName: user.username,
+      authorRole: (user.role as any)?.code ?? null,
+      createdAt: new Date(),
     };
     await (atr as any).update({
       clarifications: [...((atr as any).clarifications || []), entry],

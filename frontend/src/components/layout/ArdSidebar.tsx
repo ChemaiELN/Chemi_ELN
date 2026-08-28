@@ -132,6 +132,9 @@ function makeArdItems(roleCode?: string): MenuItem[] {
 
   const isLabRole = !['ADMIN'].includes(roleCode ?? '')
   const isAdminOrHod = CONFIG_MANAGE_ROLES.includes(roleCode ?? '')
+  // Analysts get Master Data too (Sections + Data Items only — the page
+  // itself filters which tabs render) but not Audit Trail.
+  const isAnalystRole = ['ANALYST', 'CHEMIST', 'CHEM'].includes(roleCode ?? '')
 
   const items: MenuItem[] = [
     { key: '/ard', icon: <LayoutDashboard size={15} />, label: 'Dashboard' },
@@ -199,6 +202,15 @@ function makeArdItems(roleCode?: string): MenuItem[] {
       label: 'Admin',
       children: [
         { key: '/ard/audit', icon: <History size={15} />, label: 'Audit Trail' },
+        { key: '/ard/configuration', icon: <Settings2 size={15} />, label: 'Master Data' },
+      ],
+    })
+  } else if (isAnalystRole) {
+    items.push({
+      key: 'admin',
+      icon: <Settings2 size={15} />,
+      label: 'Admin',
+      children: [
         { key: '/ard/configuration', icon: <Settings2 size={15} />, label: 'Master Data' },
       ],
     })

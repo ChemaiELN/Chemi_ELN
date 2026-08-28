@@ -47,6 +47,10 @@ const ARD_MENU_ITEMS: Array<{
 ]
 const ADMIN_ONLY_GROUPS = new Set(['admin'])
 const ADMIN_ROLE_CODES = new Set(['HOD', 'SUPER_ADMIN', 'ADMIN', 'TL', 'TEAM_LEAD'])
+// Analysts get Master Data too (Sections + Data Items only — enforced by
+// ArdConfigurationPage.tsx's own tab filtering, not here) — everything else
+// in the 'admin' group (Audit Trail) stays admin-only.
+const ANALYST_ROLE_CODES = new Set(['ANALYST', 'CHEMIST', 'CHEM'])
 
 // GET /api/ard/ping
 router.get('/ping', authenticate, (req: Request, res: Response) => {
@@ -98,6 +102,7 @@ router.get('/menu', authenticate, (req: Request, res: Response) => {
 
   const items = ARD_MENU_ITEMS.filter(item => {
     if (item.key === 'my-queue' && (roleCode === 'ADMIN' || roleCode === 'SUPER_ADMIN')) return false
+    if (item.key === 'configuration' && ANALYST_ROLE_CODES.has(roleCode)) return true
     if (item.group !== null && ADMIN_ONLY_GROUPS.has(item.group) && !isAdminRole) return false
     return true
   })

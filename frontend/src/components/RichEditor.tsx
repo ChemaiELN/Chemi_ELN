@@ -82,6 +82,32 @@ export default function RichEditor({
 
   useEffect(() => { onChangeRef.current = onChange }, [onChange])
 
+  // Sets height/min-height as inline styles on this instance's own DOM nodes
+  // rather than through the shared `.rich-editor-wrap .ql-container` class
+  // selector (see the comment at the call site below for why that mattered).
+  function applyHeight() {
+    const quill = quillRef.current
+    if (!quill) return
+    const containerEl = quill.container as HTMLElement
+    const editorEl = quill.root as HTMLElement
+    if (height) {
+      containerEl.style.height = `${height}px`
+      containerEl.style.overflowY = 'auto'
+      containerEl.style.minHeight = ''
+      editorEl.style.minHeight = `${height}px`
+    } else {
+      containerEl.style.height = ''
+      containerEl.style.overflowY = ''
+      containerEl.style.minHeight = `${minHeight}px`
+      editorEl.style.minHeight = `${minHeight}px`
+    }
+  }
+
+  // Section Properties' Height field edits this live (secEditorHeight state
+  // feeds straight back into this prop) — re-apply whenever it changes rather
+  // than only once at mount.
+  useEffect(() => { applyHeight() }, [height, minHeight])
+
   useEffect(() => {
     // Guard: refs survive Strict Mode cycles, so this only runs once per true mount
     if (initializedRef.current || !wrapRef.current) return
@@ -124,6 +150,15 @@ export default function RichEditor({
     quillRef.current = quill
 
     if (value) quill.root.innerHTML = value
+
+    // Height is per-instance and was previously set via a global, unscoped
+    // `.rich-editor-wrap .ql-container` CSS rule injected by every RichEditor
+    // on the page — since that selector matches ANY instance, not just this
+    // one, whichever instance mounted last silently won the cascade for every
+    // other editor's height too (confirmed: a 400px "Test Procedure" section
+    // was overriding a 220px Aim/Objective box elsewhere on the same page).
+    // Applied as inline styles instead, which only ever affect this instance.
+    applyHeight()
 
     quill.on('text-change', (_delta, _oldDelta, source) => {
       if (source !== 'user') return
@@ -184,15 +219,11 @@ export default function RichEditor({
           border-bottom-left-radius: 8px;
           border-bottom-right-radius: 8px;
           font-size: 14px;
-          ${height ? `height: ${height}px; overflow-y: auto;` : `min-height: ${minHeight}px;`}
         }
         .rich-editor-wrap .ql-toolbar {
           border-top-left-radius: 8px;
           border-top-right-radius: 8px;
           background: #fafafa;
-        }
-        .rich-editor-wrap .ql-editor {
-          ${height ? `min-height: ${height}px;` : `min-height: ${minHeight}px;`}
         }
         .rich-editor-wrap .ql-editor.ql-blank::before {
           color: #bfbfbf;

@@ -1530,7 +1530,21 @@ export default function ArdAtrWorkspacePage() {
   })
 
   const transition = useMutation({
-    mutationFn: (body: Record<string, unknown>) => ardAtrApi.transition(atrId!, body),
+    mutationFn: async (body: Record<string, unknown>) => {
+      const result = await ardAtrApi.transition(atrId!, body)
+      // The "mandatory business justification" modal above sends its text as
+      // `remarks` on this same call — but the backend's /transition endpoint
+      // has no `remarks` field in its schema and silently drops it (Zod
+      // strips unknown keys), so it was never actually persisted anywhere.
+      // The clarification thread (POST /:atrId/clarifications, already shown
+      // in the Clarifications tab below) is the one place a message like
+      // this really is saved — mirror it there so a PENDING_CLARIFICATION
+      // transition's remarks survive at all.
+      if (body.to === 'PENDING_CLARIFICATION' && typeof body.remarks === 'string' && body.remarks.trim()) {
+        await ardAtrApi.addClarification(atrId!, { message: body.remarks })
+      }
+      return result
+    },
     onSuccess: () => { invalidate(); msg.success('Status updated.'); setTransitionModal(null); setPassword(''); setRemarksModalOpen(false); setRemarksInput(''); setQaApproveRemarksInput('') },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Transition failed.'),
   })

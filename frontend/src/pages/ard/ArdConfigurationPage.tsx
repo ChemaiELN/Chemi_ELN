@@ -2872,9 +2872,12 @@ export default function ArdConfigurationPage() {
   const [viewMode, setViewMode] = useState<'tabbed' | 'single'>('tabbed')
   const location = useLocation()
   const initialTab = (location.state as { tab?: string } | null)?.tab
-  const [activeKey, setActiveKey] = useState(initialTab ?? 'techniques')
+  // Analysts only ever see Sections/Data Items (below), so their default tab
+  // can't be 'techniques' — it isn't in their list.
+  const isAnalystRole = ['ANALYST', 'CHEMIST', 'CHEM'].includes(user?.role_code ?? '')
+  const [activeKey, setActiveKey] = useState(initialTab ?? (isAnalystRole ? 'sections' : 'techniques'))
 
-  const isAllowed = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'TL', 'TEAM_LEAD', 'QA', 'QC_MANAGER'].includes(user?.role_code ?? '')
+  const isAllowed = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'TL', 'TEAM_LEAD', 'QA', 'QC_MANAGER'].includes(user?.role_code ?? '') || isAnalystRole
 
   if (!isAllowed) {
     return (
@@ -2891,7 +2894,7 @@ export default function ArdConfigurationPage() {
 
   if (isLoading || !data) return <div className="p-4 md:p-6"><Empty description="Loading configuration…" /></div>
 
-  const items = [
+  const fullItems = [
     { key: 'techniques', label: `Techniques (${data.techniques.length})`, children: <TechniquesTab data={data} /> },
     { key: 'configs', label: `Test Configurations (${data.testConfigs.length})`, children: <TestConfigsTab data={data} /> },
     { key: 'groups', label: `Test Groups (${data.testGroups.length})`, children: <TestGroupsTab data={data} /> },
@@ -2904,6 +2907,10 @@ export default function ArdConfigurationPage() {
     { key: 'qualification', label: `Analyst Qualification (${data.qualifications.length})`, children: <QualificationsTab data={data} /> },
     { key: 'settings', label: 'Settings', children: <SettingsTab data={data} /> },
   ]
+  // Analysts get Master Data in their nav, but only these two tabs — the rest
+  // of Configuration (Techniques, Test Configs, Lookups, Settings, etc.) stays
+  // HOD/TL/QA/Admin-only.
+  const items = isAnalystRole ? fullItems.filter((t) => t.key === 'sections' || t.key === 'data-items') : fullItems
 
   return (
     <div className="p-4 md:p-6 space-y-4">

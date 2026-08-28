@@ -728,7 +728,12 @@ ardTestRouter.post(
     try {
       const user = req.user as any
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
-      assertStatus(test, ['IN_PROGRESS'], 'submit')
+      // ArdTestExecutePage.tsx already shows "Submit for Verification"
+      // whenever status is in executingStatuses (IN_PROGRESS, ASSIGNED,
+      // VERIFICATION_REWORK, UNLOCKED) — this only ever actually allowed
+      // IN_PROGRESS through, so resubmitting a reworked test (fixed via the
+      // /rework fix above) would 400 here.
+      assertStatus(test, ['IN_PROGRESS', 'VERIFICATION_REWORK'], 'submit')
       await enforceEsignature(user, ESIGN_FLAGS.EXPERIMENT_SUBMIT_AUTH, req.body.password as string | undefined)
       await recordTestHistory((test as any).id, 'VERIFICATION_REQUESTED', user.id, user.username)
 
@@ -810,9 +815,18 @@ ardTestRouter.post(
         body.remarks,
       )
 
+      // Was setting status: 'ASSIGNED' — indistinguishable from a test that
+      // was simply assigned and never verified, which meant the "Rework"/
+      // "Verification Rework" queue (filtered on VERIFICATION_REWORK
+      // everywhere else in this codebase — ArdTestsPage.tsx's tab, its
+      // color/status maps, ArdTestExecutePage.tsx's executingStatuses and its
+      // "Returned for rework" banner) could never actually show anything.
+      // Also was overwriting the analyst's own `remarks` with the reviewer's
+      // comment instead of using `verifyRemarks`, the field
+      // ArdTestExecutePage.tsx already reads for that banner.
       await test.update({
-        status: 'ASSIGNED',
-        remarks: body.remarks ?? (test as any).remarks
+        status: 'VERIFICATION_REWORK',
+        verifyRemarks: body.remarks ?? (test as any).verifyRemarks,
       })
       return res.json(successResponse('Test sent for rework', test))
     } catch (err) {

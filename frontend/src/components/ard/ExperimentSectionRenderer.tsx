@@ -779,6 +779,15 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
             <div className="flex items-center gap-2 p-1">
               <Button
                 size="small"
+                type="primary"
+                ghost
+                icon={<Plus size={13} />}
+                onClick={() => setAtrModalOpen(true)}
+              >
+                Add ATR Test
+              </Button>
+              <Button
+                size="small"
                 type="dashed"
                 icon={<Plus size={13} />}
                 onClick={() => onChange([...rows, {
@@ -787,15 +796,6 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
                 }])}
               >
                 Add Sample
-              </Button>
-              <Button
-                size="small"
-                type="primary"
-                ghost
-                icon={<Plus size={13} />}
-                onClick={() => setAtrModalOpen(true)}
-              >
-                Add ATR Test
               </Button>
             </div>
           )

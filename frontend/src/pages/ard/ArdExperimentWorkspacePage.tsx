@@ -1581,7 +1581,7 @@ function ArdExperimentWorkspacePage() {
           onChange={setAimDraft}
           readOnly={!editable}
           placeholder="State the aim/objective of this experiment..."
-          minHeight={100}
+          height={220}
         />
         {editable && (
           <div className="pt-2 flex justify-end">

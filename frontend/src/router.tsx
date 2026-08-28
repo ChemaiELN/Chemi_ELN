@@ -125,10 +125,22 @@ const CGT_ASSIGNMENT_RESTRICTED_ROLES = ['CHEM', 'ANALYST']
 // ardDashboard.routes.ts) which is what actually decides who sees the link.
 // Sidebar link-hiding alone is insufficient — direct URL navigation must also be blocked.
 const ARD_ADMIN_ROLES = ['HOD', 'SUPER_ADMIN', 'ADMIN', 'TL', 'TEAM_LEAD']
+// Analysts get into Configuration too (ArdConfigurationPage.tsx itself then
+// restricts them to just the Sections/Data Items tabs) — but NOT into Audit,
+// which stays on ArdAdminRoute/ARD_ADMIN_ROLES below unchanged.
+const ARD_CONFIG_ROLES = [...ARD_ADMIN_ROLES, 'QA', 'QC_MANAGER', 'ANALYST', 'CHEMIST', 'CHEM']
 
 function ArdAdminRoute({ children }: { children: React.ReactNode }) {
   const user = useAppSelector(selectUser)
   if (user && !ARD_ADMIN_ROLES.includes(user.role_code ?? '')) {
+    return <Navigate to="/ard" replace />
+  }
+  return <>{children}</>
+}
+
+function ArdConfigurationRoute({ children }: { children: React.ReactNode }) {
+  const user = useAppSelector(selectUser)
+  if (user && !ARD_CONFIG_ROLES.includes(user.role_code ?? '')) {
     return <Navigate to="/ard" replace />
   }
   return <>{children}</>
@@ -350,7 +362,7 @@ export function AppRouter() {
         }
       >
         <Route index element={<ArdDashboardPage />} />
-        <Route path="configuration" element={<ArdAdminRoute><ArdConfigurationPage /></ArdAdminRoute>} />
+        <Route path="configuration" element={<ArdConfigurationRoute><ArdConfigurationPage /></ArdConfigurationRoute>} />
         <Route path="atrs" element={<ArdAtrsPage />} />
         <Route path="atrs/new" element={<ArdAtrNewPage />} />
         <Route path="atrs/:atrId" element={<ArdAtrWorkspacePage />} />

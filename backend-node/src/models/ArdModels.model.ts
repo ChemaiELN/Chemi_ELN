@@ -683,6 +683,7 @@ export class ArdExperiment extends Model<InferAttributes<ArdExperiment>, InferCr
   declare atrResultId: string | null
   declare versionSnapshots: object | null
   declare highlighted: CreationOptional<boolean>
+  declare highlightComment: string | null
   declare reviewerId: string | null
   declare reviewerName: string | null
   declare aimAchieved: boolean | null
@@ -727,6 +728,7 @@ ArdExperiment.init({
   atrResultId: { type: DataTypes.UUID, allowNull: true, field: 'atr_result_id' },
   versionSnapshots: { type: DataTypes.JSONB, allowNull: true, field: 'version_snapshots' },
   highlighted: { type: DataTypes.BOOLEAN, defaultValue: false },
+  highlightComment: { type: DataTypes.TEXT, allowNull: true, field: 'highlight_comment' },
   reviewerId: { type: DataTypes.UUID, allowNull: true, field: 'reviewer_id' },
   reviewerName: { type: DataTypes.STRING(200), allowNull: true, field: 'reviewer_name' },
   aimAchieved: { type: DataTypes.BOOLEAN, allowNull: true, field: 'aim_achieved' },

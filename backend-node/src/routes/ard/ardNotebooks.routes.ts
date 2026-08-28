@@ -6,7 +6,7 @@ import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response'
 import { NotFoundError, BadRequestError, ForbiddenError } from '../../utils/errors'
 import { sequelize } from '../../database/connection'
-import { ArdNotebook, ArdExperiment, ArdAuditLog, ArdProject } from '../../models/index'
+import { ArdNotebook, ArdExperiment, ArdAuditLog, ArdProject, ArdAtrForm, ArdAtrSample, ArdTestRequest, User } from '../../models/index'
 
 const router = Router()
 
@@ -345,13 +345,79 @@ router.get('/:notebookId/experiments', authenticate, async (req: Request, res: R
     const nb = await ArdNotebook.findByPk(req.params.notebookId as string, { attributes: ['id'] })
     if (!nb) throw new NotFoundError('Notebook')
 
+    // highlighted/highlightComment were previously omitted here entirely —
+    // the Experiments tab's star toggle called PATCH .../highlight and
+    // invalidated this same query, but the refetch could never actually show
+    // the persisted state since this endpoint never selected the column.
     const rows = await ArdExperiment.findAll({
       where: { notebookId: nb.id } as any,
-      attributes: ['id', 'code', 'templateName', 'status', 'createdAt'],
+      attributes: [
+        'id', 'code', 'templateName', 'status', 'createdAt', 'highlighted', 'highlightComment',
+        'aim', 'aimAchieved', 'createdById', 'linkedAtrIds',
+      ],
       order: [['createdAt', 'DESC']],
     })
+
+    const creatorIds = Array.from(new Set(rows.map((e: any) => e.createdById).filter(Boolean)))
+    const creators = creatorIds.length
+      ? await (User as any).findAll({ where: { id: { [Op.in]: creatorIds } }, attributes: ['id', 'username'] })
+      : []
+    const creatorMap = new Map(creators.map((u: any) => [u.id, u.username]))
+
+    // Legacy "ATR Form No(s)" / "Test Number(s)" / "Batch Number" / "Storage
+    // Condition & Period" columns all come from the ATR forms an experiment
+    // is linked to (experiment.linkedAtrIds) rather than from the experiment
+    // itself — an experiment can be linked to more than one form/sample, so
+    // these render as comma-joined lists, best-effort (there's no single
+    // canonical form/sample/test an experiment maps to 1:1).
+    const atrFormIds = Array.from(new Set(rows.flatMap((e: any) => (Array.isArray(e.linkedAtrIds) ? e.linkedAtrIds : []))))
+    const atrForms = atrFormIds.length
+      ? await (ArdAtrForm as any).findAll({ where: { id: { [Op.in]: atrFormIds } }, attributes: ['id', 'formNo'] })
+      : []
+    const atrFormMap = new Map(atrForms.map((f: any) => [f.id, f.formNo]))
+
+    const samples = atrFormIds.length
+      ? await (ArdAtrSample as any).findAll({ where: { atrFormId: { [Op.in]: atrFormIds } }, attributes: ['id', 'atrFormId', 'batchNo', 'storageCondition'] })
+      : []
+    const samplesByFormId = new Map<string, any[]>()
+    for (const s of samples as any[]) {
+      const list = samplesByFormId.get(s.atrFormId) ?? []
+      list.push(s)
+      samplesByFormId.set(s.atrFormId, list)
+    }
+
+    const sampleIds = (samples as any[]).map((s: any) => s.id)
+    const testRequests = sampleIds.length
+      ? await (ArdTestRequest as any).findAll({ where: { sampleId: { [Op.in]: sampleIds } }, attributes: ['id', 'sampleId', 'arNumber'] })
+      : []
+    const testsBySampleId = new Map<string, any[]>()
+    for (const t of testRequests as any[]) {
+      const list = testsBySampleId.get(t.sampleId) ?? []
+      list.push(t)
+      testsBySampleId.set(t.sampleId, list)
+    }
+
     res.json(successResponse('Notebook experiments', {
-      items: rows.map((e: any) => ({ id: e.id, code: e.code, templateName: e.templateName, status: e.status, createdAt: e.createdAt })),
+      items: rows.map((e: any) => {
+        const formIds: string[] = Array.isArray(e.linkedAtrIds) ? e.linkedAtrIds : []
+        const formNos = formIds.map(id => atrFormMap.get(id)).filter(Boolean)
+        const linkedSamples = formIds.flatMap(id => samplesByFormId.get(id) ?? [])
+        const testNumbers = linkedSamples
+          .flatMap(s => (testsBySampleId.get(s.id) ?? []).map((t: any) => t.arNumber))
+          .filter(Boolean)
+        const batchNumbers = Array.from(new Set(linkedSamples.map(s => s.batchNo).filter(Boolean)))
+        const storageConditions = Array.from(new Set(linkedSamples.map(s => s.storageCondition).filter(Boolean)))
+        return {
+          id: e.id, code: e.code, templateName: e.templateName, status: e.status, createdAt: e.createdAt,
+          highlighted: e.highlighted, highlightComment: e.highlightComment,
+          aim: e.aim, aimAchieved: e.aimAchieved,
+          startedByName: e.createdById ? (creatorMap.get(e.createdById) ?? null) : null,
+          atrFormNos: formNos,
+          testNumbers,
+          batchNumbers,
+          storageConditions,
+        }
+      }),
       total: rows.length,
     }))
   } catch (err) { next(err) }

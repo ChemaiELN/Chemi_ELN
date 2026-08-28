@@ -77,6 +77,14 @@ export interface ExperimentSummary {
   status: string
   createdAt: string | null
   highlighted?: boolean
+  highlightComment?: string | null
+  aim?: string | null
+  aimAchieved?: boolean | null
+  startedByName?: string | null
+  atrFormNos?: string[]
+  testNumbers?: string[]
+  batchNumbers?: string[]
+  storageConditions?: string[]
 }
 
 export const ardNotebooksApi = {

@@ -668,7 +668,7 @@ export const ardDataItemApi = {
 // ── Experiments ──────────────────────────────────────────────────────────
 
 export type ExperimentStatus =
-  | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REWORK' | 'VERIFICATION_REQUESTED' | 'VERIFICATION_REWORK' | 'VERIFIED' | 'UNLOCK_REQUESTED' | 'UNLOCKED' | 'DEACTIVATED'
+  | 'NEW' | 'IN_PROGRESS' | 'SUBMITTED' | 'APPROVED' | 'REWORK' | 'VERIFICATION_REQUESTED' | 'VERIFICATION_REWORK' | 'VERIFIED' | 'UNLOCK_REQUESTED' | 'UNLOCKED' | 'DEACTIVATED'
 
 export interface RefExperiment {
   code: string
@@ -848,6 +848,8 @@ export const ardExperimentApi = {
     apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/restore`, { remarks }),
   toggleHighlight: (id: string) =>
     apiPatch<{ highlighted: boolean }>(`${EXPERIMENT_BASE}/${id}/highlight`, {}),
+  setHighlightComment: (id: string, comment: string) =>
+    apiPatch<{ highlighted: boolean; highlightComment: string | null }>(`${EXPERIMENT_BASE}/${id}/highlight`, { comment }),
   ongoing: () => apiGet<{ items: OngoingExperimentItem[]; total: number }>(`${EXPERIMENT_BASE}/ongoing`),
   pendingReview: (perspective: 'mine' | 'others', status?: 'SUBMITTED' | 'VERIFICATION_REQUESTED') =>
     apiGet<{ items: PendingReviewItem[]; total: number }>(`${EXPERIMENT_BASE}/pending-review`, { perspective, status }),

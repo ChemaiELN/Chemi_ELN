@@ -1,5 +1,5 @@
 import { useState, useMemo, useEffect, useRef } from 'react'
-import { useParams, useNavigate } from 'react-router-dom'
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
   Tag, Button, Card, Space, Popconfirm, message, Empty, Spin, Alert, Divider,
@@ -30,12 +30,13 @@ import { ardNotebooksApi } from '../../api/ard-notebooks'
 import { useBreadcrumbLabel, useBreadcrumbPrefix } from '../../components/layout/ArdShell'
 
 const STATUS_COLOR: Record<string, string> = {
-  IN_PROGRESS: 'blue', SUBMITTED: 'purple', VERIFICATION_REQUESTED: 'gold',
+  NEW: 'default', IN_PROGRESS: 'blue', SUBMITTED: 'purple', VERIFICATION_REQUESTED: 'gold',
   VERIFIED: 'cyan', APPROVED: 'green', REWORK: 'red', VERIFICATION_REWORK: 'magenta',
   UNLOCK_REQUESTED: 'volcano', UNLOCKED: 'geekblue', DEACTIVATED: 'default',
 }
 
 const STATUS_LABEL: Record<string, string> = {
+  NEW: 'New',
   IN_PROGRESS: 'Ongoing',
   SUBMITTED: 'Submitted',
   APPROVED: 'Approved',
@@ -49,10 +50,14 @@ const STATUS_LABEL: Record<string, string> = {
 }
 
 // Correct experiment flow (per Chemia ELN manual):
-// IN_PROGRESS → [VERIFICATION_REQUESTED → VERIFIED] → SUBMITTED → APPROVED → UNLOCK_REQUESTED → UNLOCKED → IN_PROGRESS
+// NEW → (first save) → IN_PROGRESS → [VERIFICATION_REQUESTED → VERIFIED] → SUBMITTED → APPROVED → UNLOCK_REQUESTED → UNLOCKED → IN_PROGRESS
+// NEW -> IN_PROGRESS is NOT a manual transition button — the backend flips
+// it automatically the first time PATCH /:experimentId saves anything, so
+// NEW only ever offers Discontinue here.
 // Verification step is optional (controlled by VerificationRequestFlow ARD setting).
 // Both VERIFICATION_REQUESTED and SUBMITTED are offered from IN_PROGRESS; backend enforces the setting.
 const EXPERIMENT_TRANSITIONS: Record<ExperimentStatus, ExperimentStatus[]> = {
+  NEW: ['DEACTIVATED'],
   IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
   VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK', 'DEACTIVATED'],
   VERIFICATION_REWORK: ['VERIFICATION_REQUESTED'],
@@ -853,6 +858,12 @@ function LinkedAtrTestsPanel({ experimentId }: { experimentId: string }) {
 
 function ArdExperimentWorkspacePage() {
   const { experimentId } = useParams()
+  const [searchParams] = useSearchParams()
+  // "View" from the Notebook's Experiments tab lands here with ?view=1 —
+  // forces read-only rendering and trims the action bar down to just
+  // Clone/Download PDF, regardless of what the viewer's role/the experiment's
+  // status would otherwise allow.
+  const viewOnly = searchParams.get('view') === '1'
   const navigate = useNavigate()
   const qc = useQueryClient()
   const user = useAppSelector(selectUser)
@@ -1193,8 +1204,11 @@ function ArdExperimentWorkspacePage() {
   )
 
   const data = localData ?? parsedSections
-  // B-13: locked by another user → treat as read-only regardless of status
-  const editable = (exp.status === 'IN_PROGRESS' || exp.status === 'REWORK') && !lockedByOther
+  // B-13: locked by another user → treat as read-only regardless of status.
+  // "View" from the Notebook's Experiments tab (?view=1) forces the same
+  // read-only rendering regardless of status/role too — see the action bar
+  // below, which also drops everything except Clone/Download PDF in this mode.
+  const editable = (exp.status === 'NEW' || exp.status === 'IN_PROGRESS' || exp.status === 'REWORK') && !lockedByOther && !viewOnly
 
   // B-08: ModifyAfterRework — when setting is 'sections_with_comments_only', only sections
   // that have a reviewer/QA comment attached may be edited during REWORK.
@@ -1433,6 +1447,19 @@ function ArdExperimentWorkspacePage() {
         </div>
 
         {/* Action buttons */}
+        {viewOnly ? (
+          // "View" from the Notebook's Experiments tab — only Clone/Download
+          // PDF, regardless of status/role (per product review 2026-08-28).
+          <Space wrap>
+            <Button.Group>
+              <Button icon={<Copy size={14} />} loading={cloneLoading} onClick={() => handleClone(false)}>Clone</Button>
+              <Button loading={cloneLoading} onClick={() => handleClone(true)} title="Clone structure only — no data">Blank</Button>
+            </Button.Group>
+            <Button icon={<Download size={14} />} loading={downloading} onClick={handleDownloadPdf}>
+              Download PDF
+            </Button>
+          </Space>
+        ) : (
         <Space wrap>
           <Button icon={<History size={14} />} onClick={() => setHistoryOpen(true)}>History</Button>
           <Button icon={<Activity size={14} />} onClick={() => setEventsOpen(true)}>Events</Button>
@@ -1511,6 +1538,7 @@ function ArdExperimentWorkspacePage() {
             </Button>
           ))}
         </Space>
+        )}
       </div>
 
       {/* Unlock Authorization Card */}
@@ -1521,6 +1549,17 @@ function ArdExperimentWorkspacePage() {
           message="Experiment Unlocked for Revision"
           description={`Unlocked by ${(exp as any).unlockApprovedBy || (exp as any).unlockedBy || 'Authorized Approver'} on ${(exp as any).unlockedAt ? dayjs((exp as any).unlockedAt).format('DD MMM YYYY, HH:mm') : '—'}. Reason: ${(exp as any).unlockReason || 'Re-opening for corrections'}`}
           className="bg-indigo-50/80 border-indigo-200"
+        />
+      )}
+
+      {/* "View" from the Notebook's Experiments tab */}
+      {viewOnly && !lockedByOther && (
+        <Alert
+          type="info"
+          showIcon
+          message="Viewing in read-only mode"
+          description="Opened from the Notebook's Experiments tab — Clone and Download PDF are available; editing isn't."
+          className="border-indigo-200 bg-indigo-50/80"
         />
       )}
 

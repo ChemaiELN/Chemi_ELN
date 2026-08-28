@@ -45,6 +45,7 @@ async function isVerificationRequired(notebookId: string | null): Promise<boolea
 
 // Status machine
 const EXPERIMENT_TRANSITIONS: Record<string, string[]> = {
+  NEW: ['DEACTIVATED'],
   IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
   VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK', 'DEACTIVATED'],
   VERIFIED: ['SUBMITTED'],
@@ -297,7 +298,10 @@ ardExperimentRouter.post('/', authenticate, async (req: Request, res: Response, 
       notebookId,
       projectId,
       createdById: user.id,
-      status: 'IN_PROGRESS',
+      // A brand-new experiment starts NEW, not IN_PROGRESS/"Ongoing" — the
+      // PATCH route below flips it to IN_PROGRESS the first time any
+      // section content is actually saved (see the `sections` patch below).
+      status: 'NEW',
       history: [],
       linkedSamples: [],
       referenceExperiments: [],
@@ -535,12 +539,15 @@ ardExperimentRouter.patch('/:experimentId', authenticate, async (req: Request, r
   try {
     const exp = await findExperiment(req.params.experimentId as string);
     const currentStatus = (exp as any).status;
-    if (!['IN_PROGRESS', 'REWORK'].includes(currentStatus)) {
+    if (!['NEW', 'IN_PROGRESS', 'REWORK'].includes(currentStatus)) {
       throw new BadRequestError(`Experiment cannot be edited in status: ${currentStatus}`);
     }
 
     const body = updateExperimentSchema.parse(req.body);
     const updates: any = {};
+    // First save moves a brand-new experiment out of NEW into IN_PROGRESS/
+    // "Ongoing" — matches the legacy behavior the user asked to replicate.
+    if (currentStatus === 'NEW') updates.status = 'IN_PROGRESS';
 
     if (body.sections) {
       const existing = (exp as any).sections || {};
@@ -1051,12 +1058,21 @@ ardExperimentRouter.post('/bulk-take-over-review', authenticate, async (req: Req
   }
 });
 
-// PATCH /:experimentId/highlight
+// PATCH /:experimentId/highlight — bare call (no body) keeps the old quick
+// star-icon toggle; a `comment` field (Notebook Experiments tab's "Edit
+// Highlight Comment" modal) explicitly turns highlighting ON with that note,
+// rather than flipping whatever the current state happens to be.
+const highlightSchema = z.object({ comment: z.string().max(255).optional() });
 ardExperimentRouter.patch('/:experimentId/highlight', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const exp = await findExperiment(req.params.experimentId as string);
-    await (exp as any).update({ highlighted: !(exp as any).highlighted });
-    res.json(successResponse('Highlight toggled', { highlighted: (exp as any).highlighted }));
+    const { comment } = highlightSchema.parse(req.body ?? {});
+    if (comment !== undefined) {
+      await (exp as any).update({ highlighted: true, highlightComment: comment });
+    } else {
+      await (exp as any).update({ highlighted: !(exp as any).highlighted });
+    }
+    res.json(successResponse('Highlight updated', { highlighted: (exp as any).highlighted, highlightComment: (exp as any).highlightComment }));
   } catch (err) {
     next(err);
   }

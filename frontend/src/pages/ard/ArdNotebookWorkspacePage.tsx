@@ -5,7 +5,7 @@ import {
   Button, Tabs, Input, Select, Tag, Spin, Alert, Modal, Table, Form, Radio, Popconfirm, message, Switch, Tooltip,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ArrowLeft, BookOpen, Plus, Trash2, FileText, Star } from 'lucide-react'
+import { ArrowLeft, BookOpen, Plus, Trash2, FileText, Star, Edit2, Eye, Activity, History } from 'lucide-react'
 import dayjs from 'dayjs'
 import { ardNotebooksApi, type Notebook, type ResultParameter, type AssignedUser, type ExperimentSummary } from '../../api/ard-notebooks'
 import { ardProjectsApi, type ProjectStp } from '../../api/ard-projects'
@@ -21,11 +21,11 @@ const { TextArea } = Input
 
 const STATUS_COLOR: Record<string, string> = { ACTIVE: 'green', CLOSED: 'default', DEACTIVE: 'volcano' }
 const EXP_STATUS_COLOR: Record<string, string> = {
-  IN_PROGRESS: 'blue', SUBMITTED: 'purple', APPROVED: 'green', REWORK: 'red',
+  NEW: 'default', IN_PROGRESS: 'blue', SUBMITTED: 'purple', APPROVED: 'green', REWORK: 'red',
   VERIFICATION_REQUESTED: 'gold', VERIFIED: 'cyan', UNLOCKED: 'geekblue', DEACTIVATED: 'default',
 }
 const EXP_STATUS_LABEL: Record<string, string> = {
-  IN_PROGRESS: 'Ongoing', SUBMITTED: 'Submitted', APPROVED: 'Approved', REWORK: 'Rework',
+  NEW: 'New', IN_PROGRESS: 'Ongoing', SUBMITTED: 'Submitted', APPROVED: 'Approved', REWORK: 'Rework',
   VERIFICATION_REQUESTED: 'Verification Requested', VERIFIED: 'Verified',
   UNLOCK_REQUESTED: 'Unlock Requested', UNLOCKED: 'Unlocked', DEACTIVATED: 'Deactivated',
 }
@@ -387,6 +387,10 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
   const [selectedStp, setSelectedStp] = useState<ProjectStp | null>(null)
   const [selectedTemplateType, setSelectedTemplateType] = useState<string | undefined>(undefined)
   const [selectedTestType, setSelectedTestType] = useState<string | undefined>(undefined)
+  // Row-level action toolbar (Edit/View/Events/History) — Make STP Worksheet
+  // isn't needed here for now, per product review 2026-08-28.
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [eventsRow, setEventsRow] = useState<ExperimentSummary | null>(null)
 
   const { data, isLoading } = useQuery({
     queryKey: ['notebook-experiments', notebookId],
@@ -498,6 +502,17 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
   const highlightMut = useMutation({
     mutationFn: (expId: string) => ardExperimentApi.toggleHighlight(expId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['notebook-experiments', notebookId] }),
+    // Was silent on failure — a toggle click during a flaky connection looked
+    // exactly like "the button doesn't do anything" with no way to tell.
+    onError: (e) => message.error(e instanceof ApiError ? e.detail : 'Failed to update highlight — please try again.'),
+  })
+
+  // Events — same generic audit-log endpoint ArdExperimentWorkspacePage.tsx's
+  // own Events drawer reads (GET /api/ard/audit/entity/EXPERIMENT/:id).
+  const { data: eventsData, isLoading: eventsLoading } = useQuery({
+    queryKey: ['ard-experiment-events', eventsRow?.id],
+    queryFn: () => apiGet<{ items: { id: string; action: string; detail: string; userName: string; createdAt: string }[] }>(`/api/ard/audit/entity/EXPERIMENT/${eventsRow!.id}`),
+    enabled: !!eventsRow,
   })
 
   const handleCreate = (vals: any) => {
@@ -523,13 +538,14 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
     {
       title: '', dataIndex: 'highlighted', key: 'highlighted', width: 36,
       render: (v: boolean, row: ExperimentSummary) => (
-        <button
-          onClick={e => { e.stopPropagation(); highlightMut.mutate(row.id) }}
-          className="p-0 border-0 bg-transparent cursor-pointer"
-          title={v ? 'Remove highlight' : 'Highlight experiment'}
-        >
-          <Star size={14} className={v ? 'text-amber-400 fill-amber-400' : 'text-slate-300'} />
-        </button>
+        <Tooltip title={v ? 'Highlighted — click to remove' : 'Highlight experiment'}>
+          <button
+            onClick={e => { e.stopPropagation(); highlightMut.mutate(row.id) }}
+            className="p-0 border-0 bg-transparent cursor-pointer"
+          >
+            <Star size={14} className={v ? 'text-amber-400 fill-amber-400' : 'text-slate-300'} />
+          </button>
+        </Tooltip>
       ),
     },
     {
@@ -537,35 +553,118 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
       render: v => <span className="font-mono text-xs font-semibold text-slate-700">{v}</span>,
     },
     { title: 'Template', dataIndex: 'templateName', key: 'templateName', render: v => v ?? '—' },
+    { title: 'Aim', dataIndex: 'aim', key: 'aim', ellipsis: true, render: v => v || '—' },
     {
-      title: 'Status', dataIndex: 'status', key: 'status', width: 190,
+      title: 'Aim Achieved', dataIndex: 'aimAchieved', key: 'aimAchieved', width: 110,
+      render: (v: boolean | null) => v == null ? '—' : (v ? <Tag color="green">Yes</Tag> : <Tag color="red">No</Tag>),
+    },
+    {
+      title: 'Started By(On)', key: 'startedBy', width: 170,
+      render: (_: unknown, row: ExperimentSummary) => (
+        <span className="text-xs">
+          {row.startedByName || '—'}{row.createdAt ? ` (${dayjs(row.createdAt).format('DD MMM YYYY')})` : ''}
+        </span>
+      ),
+    },
+    {
+      title: 'Status', dataIndex: 'status', key: 'status', width: 130,
       render: (v: string) => <Tag color={EXP_STATUS_COLOR[v] ?? 'default'} className="text-xs">{EXP_STATUS_LABEL[v] ?? v}</Tag>,
     },
     {
-      title: 'Created', dataIndex: 'createdAt', key: 'createdAt', width: 130,
-      render: (v: string) => v ? dayjs(v).format('DD MMM YYYY') : '—',
+      title: 'ATR Form No(s)', dataIndex: 'atrFormNos', key: 'atrFormNos',
+      render: (v: string[]) => v?.length ? v.join(', ') : '—',
+    },
+    {
+      title: 'Test Number(s)', dataIndex: 'testNumbers', key: 'testNumbers',
+      render: (v: string[]) => v?.length ? v.join(', ') : '—',
+    },
+    {
+      title: 'Batch Number', dataIndex: 'batchNumbers', key: 'batchNumbers',
+      render: (v: string[]) => v?.length ? v.join(', ') : '—',
+    },
+    {
+      title: 'Storage Condition & Period', dataIndex: 'storageConditions', key: 'storageConditions',
+      render: (v: string[]) => v?.length ? v.join(', ') : '—',
     },
   ]
 
+  const items = data?.items ?? []
+  const selectedRow = selectedIds.length === 1 ? items.find(r => r.id === selectedIds[0]) : undefined
+
   return (
     <div className="space-y-3">
-      <div className="flex justify-end">
-        <Tooltip title={notebookStatus !== 'ACTIVE' ? 'Notebook must be Active to add experiments' : ''}>
-          <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen} disabled={notebookStatus !== 'ACTIVE'}>
-            New Experiment
-          </Button>
-        </Tooltip>
-      </div>
       <Table
         rowKey="id"
         columns={cols}
-        dataSource={data?.items ?? []}
+        dataSource={items}
         loading={isLoading}
-        onRow={r => ({ onClick: () => navigate(`/ard/experiments/${r.id}`), className: 'cursor-pointer' })}
+        rowSelection={{ type: 'checkbox', selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        onRow={r => ({
+          onClick: () => navigate(`/ard/experiments/${r.id}`),
+          className: `cursor-pointer${r.highlighted ? ' bg-amber-50 hover:bg-amber-100/70' : ''}`,
+        })}
         pagination={false}
         locale={{ emptyText: 'No experiments in this notebook.' }}
         size="small"
       />
+
+      {/* Row action toolbar — Edit/View/Events/HighLight/History all need
+          exactly one experiment selected; Add Experiment doesn't. Make STP
+          Worksheet dropped per product review 2026-08-28 (not needed for now). */}
+      <div className="flex flex-wrap items-center gap-2">
+        <Tooltip title={notebookStatus !== 'ACTIVE' ? 'Notebook must be Active to add experiments' : ''}>
+          <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen} disabled={notebookStatus !== 'ACTIVE'}
+            className="bg-emerald-600 hover:!bg-emerald-700 border-none">
+            Add Experiment
+          </Button>
+        </Tooltip>
+        <Button icon={<Edit2 size={14} />} disabled={!selectedRow}
+          onClick={() => { if (selectedRow) navigate(`/ard/experiments/${selectedRow.id}`) }}>
+          Edit
+        </Button>
+        {/* Read-only mode: ArdExperimentWorkspacePage.tsx shows only Export
+            PDF + Clone when opened with ?view=1, regardless of status/role. */}
+        <Button icon={<Eye size={14} />} disabled={!selectedRow}
+          onClick={() => { if (selectedRow) navigate(`/ard/experiments/${selectedRow.id}?view=1`) }}>
+          View
+        </Button>
+        <Button icon={<Activity size={14} />} disabled={!selectedRow}
+          onClick={() => { if (selectedRow) setEventsRow(selectedRow) }}>
+          Events
+        </Button>
+        {/* Full version comparison is a later feature — this just reserves
+            the action for now, per product review 2026-08-28. */}
+        <Button icon={<History size={14} />} disabled={!selectedRow}
+          onClick={() => message.info('Version comparison is coming soon.')}>
+          History
+        </Button>
+      </div>
+
+      {/* Events — this experiment's own audit trail */}
+      <Modal
+        {...glassModalProps}
+        title={`Events — ${eventsRow?.code ?? ''}`}
+        open={!!eventsRow}
+        onCancel={() => setEventsRow(null)}
+        footer={null}
+        destroyOnClose
+      >
+        <Table
+          rowKey="id"
+          size="small"
+          loading={eventsLoading}
+          dataSource={eventsData?.items ?? []}
+          pagination={{ pageSize: 10, showTotal: (t) => `${t} events` }}
+          locale={{ emptyText: 'No events recorded for this experiment.' }}
+          columns={[
+            { title: 'Event Type', dataIndex: 'action' },
+            { title: 'Event Time', dataIndex: 'createdAt', render: (v: string) => v ? dayjs(v).format('DD MMM YYYY (HH:mm)') : '—' },
+            { title: 'User', dataIndex: 'userName', render: (v: string) => v || '—' },
+            { title: 'Event Details', dataIndex: 'detail', render: (v: string) => v || '—' },
+          ]}
+        />
+      </Modal>
+
       <Modal
         {...glassModalProps}
         title="Create New Experiment"

@@ -2,9 +2,9 @@ import { useState, useMemo, useCallback, useRef } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import type { MenuProps } from 'antd'
-import { Table, Tag, Select, Input, Tabs, Card, Button, Modal, Form, message, Tooltip, Space, Dropdown, Checkbox, DatePicker } from 'antd'
-import { TestTube, Search, Clock, UserCheck, Eye, RotateCcw, Unlock, MoreHorizontal, History, CheckCircle2, Share2, Calendar, FileText } from 'lucide-react'
-import dayjs from 'dayjs'
+import { Table, Tag, Select, Input, Tabs, Card, Button, Modal, Form, message, Tooltip, Space, Dropdown, Checkbox, DatePicker, Radio } from 'antd'
+import { TestTube, Search, Clock, UserCheck, Eye, RotateCcw, Unlock, MoreHorizontal, History, CheckCircle2, Share2, Calendar, FileText, Download } from 'lucide-react'
+import dayjs, { type Dayjs } from 'dayjs'
 import { apiGet, apiPost } from '../../api/client'
 import { ardAtrApi } from '../../api/ard'
 import { ardUploadsApi } from '../../api/ard-uploads'
@@ -41,6 +41,9 @@ interface TestRow {
   notebookReference: string | null
   analyzedBy: string | null
   resultRemarks: string | null
+  verifyRemarks: string | null
+  verifiedBy: string | null
+  verifiedAt: string | null
   results: unknown[] | null
   enhancementRequests: { id: string; status: 'PENDING' | 'APPROVED' | 'REJECTED' }[] | null
 }
@@ -195,6 +198,16 @@ export default function ArdTestsPage() {
   // Tests, kept as its own state so switching tabs doesn't cross-contaminate
   // which sub-view is showing.
   const [enhancementSubTab, setEnhancementSubTab] = useState<'me' | 'others'>('me')
+  // Rework Tests — analyst-only enhanced view (legacy screen): "Assigned To
+  // Me" (tests I need to fix) vs "Assigned By Me" (tests tied to an ATR I
+  // raised, wherever they currently sit). Other roles keep the plain flat
+  // "Verification Rework" list this tab has always had.
+  const [reworkSubTab, setReworkSubTab] = useState<'me' | 'by_me'>('me')
+  // Verified Tests — analyst-only enhanced view: a "Select Frame" date filter
+  // (on verifiedAt) instead of the generic search/status row, matching the
+  // legacy screen. Other roles keep today's plain flat "Verified" list.
+  const [verifiedFrame, setVerifiedFrame] = useState<'current_month' | 'last_month' | 'custom'>('current_month')
+  const [verifiedCustomRange, setVerifiedCustomRange] = useState<[Dayjs, Dayjs] | null>(null)
 
   // Assign modal state
   const [assignModal, setAssignModal] = useState<{ row: TestRow } | null>(null)
@@ -375,11 +388,25 @@ export default function ArdTestsPage() {
       return assignedSubTab === 'me' ? isMine : (!!row.assignedToName && !isMine)
     }
     if (activeTab === 'pending_verify') return row.status === 'VERIFICATION_REQUESTED'
-    if (activeTab === 'rework') return row.status === 'VERIFICATION_REWORK'
+    if (activeTab === 'rework') {
+      if (!isAnalyst) return row.status === 'VERIFICATION_REWORK'
+      if (row.status !== 'VERIFICATION_REWORK') return false
+      const isMine = row.assignedToId === user?.id || row.assignedToName === user?.username
+      return reworkSubTab === 'me' ? isMine : row.requestedBy === user?.username
+    }
     if (activeTab === 'delegated') return row.status === 'DELEGATED'
     if (activeTab === 'in_progress') return row.status === 'IN_PROGRESS'
     if (activeTab === 'unassigned') return row.status === 'UNASSIGNED' || (!row.assignedToName && row.status !== 'CANCELLED' && row.status !== 'WITHDRAWN')
-    if (activeTab === 'verified') return row.status === 'VERIFIED'
+    if (activeTab === 'verified') {
+      if (row.status !== 'VERIFIED') return false
+      if (!isAnalyst) return true
+      const d = row.verifiedAt ? dayjs(row.verifiedAt) : null
+      if (!d) return false
+      if (verifiedFrame === 'current_month') return d.isSame(dayjs(), 'month')
+      if (verifiedFrame === 'last_month') return d.isSame(dayjs().subtract(1, 'month'), 'month')
+      if (!verifiedCustomRange) return true
+      return !d.isBefore(verifiedCustomRange[0], 'day') && !d.isAfter(verifiedCustomRange[1], 'day')
+    }
     if (activeTab === 'unlocked') return row.status === 'UNLOCKED'
     if (activeTab === 'enhancement') {
       if (!hasPendingEnhancement(row)) return false
@@ -397,6 +424,8 @@ export default function ArdTestsPage() {
   const countAssignedOthers = items.filter(r => !!r.assignedToName && r.assignedToId !== user?.id && r.assignedToName !== user?.username).length
   const countPendingVerify = items.filter(r => r.status === 'VERIFICATION_REQUESTED').length
   const countRework = items.filter(r => r.status === 'VERIFICATION_REWORK').length
+  const countReworkMe = items.filter(r => r.status === 'VERIFICATION_REWORK' && (r.assignedToId === user?.id || r.assignedToName === user?.username)).length
+  const countReworkByMe = items.filter(r => r.status === 'VERIFICATION_REWORK' && r.requestedBy === user?.username).length
   const countDelegated = items.filter(r => r.status === 'DELEGATED').length
   const countInProgress = items.filter(r => r.status === 'IN_PROGRESS').length
   const countUnassigned = items.filter(r => r.status === 'UNASSIGNED' || (!r.assignedToName && r.status !== 'CANCELLED' && r.status !== 'WITHDRAWN')).length
@@ -407,18 +436,22 @@ export default function ArdTestsPage() {
   const countEnhancementOthers = items.filter(r => hasPendingEnhancement(r) && !!r.assignedToName && r.assignedToId !== user?.id && r.assignedToName !== user?.username).length
   const countTeamQueue = items.filter(r => ['ASSIGNED', 'IN_PROGRESS', 'DELEGATED', 'VERIFICATION_REWORK'].includes(r.status)).length
 
+  // Unassigned/Delegated/Verified/Unlocked aren't an analyst's own work queue
+  // (unassigned work hasn't been claimed yet, delegated/verified/unlocked all
+  // belong to someone else's review step) — hidden from the Analyst/Chem login.
+  const ANALYST_HIDDEN_TABS = ['unassigned', 'delegated', 'verified', 'unlocked']
   const tabItems = [
     { key: 'unassigned', label: `Unassigned (${countUnassigned})` },
     { key: 'assigned_tests', label: `Assigned Tests (${countAssignedMe + countAssignedOthers})` },
     { key: 'in_progress', label: `In Progress (${countInProgress})` },
     { key: 'pending_verify', label: `Pending Verification (${countPendingVerify})` },
     { key: 'enhancement', label: `Enhancement Requested (${countEnhancement})` },
-    { key: 'rework', label: `Verification Rework (${countRework})` },
+    { key: 'rework', label: `Rework Tests (${countRework})` },
     { key: 'team_queue', label: `Team Queue (${countTeamQueue})` },
     { key: 'delegated', label: `Delegated (${countDelegated})` },
     { key: 'verified', label: `Verified (${countVerified})` },
     { key: 'unlocked', label: `Unlocked (${countUnlocked})` },
-  ]
+  ].filter((t) => !isAnalyst || !ANALYST_HIDDEN_TABS.includes(t.key))
 
   const handleAssignConfirm = async () => {
     if (!assignModal || !selectedAnalystId) {
@@ -473,6 +506,31 @@ export default function ArdTestsPage() {
       window.open(latest.downloadUrl, '_blank')
     } catch {
       msgApi.error('Failed to load the report.')
+    }
+  }
+
+  // Same file as View Report, but forces a save-as download instead of
+  // opening in a new tab — the Verified Tests screen shows both as separate
+  // actions. Matches ArdReportsPage.tsx's own blob-download convention.
+  const handleDownloadReportClick = async (row: TestRow) => {
+    try {
+      const files = await ardUploadsApi.list('test_final_report', row.id)
+      const latest = files[files.length - 1]
+      if (!latest) {
+        msgApi.error('No final report uploaded for this test yet.')
+        return
+      }
+      const { blob, filename } = await ardUploadsApi.downloadBlob(latest.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || latest.filename || 'final-report'
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } catch {
+      msgApi.error('Failed to download the report.')
     }
   }
 
@@ -1136,6 +1194,102 @@ export default function ArdTestsPage() {
     },
   ]
 
+  // Legacy "Rework Tests" column set (analyst-only) — same base fields as
+  // Pending Verification, plus AssignedTo and Review Remarks (verifyRemarks:
+  // the reviewer's comment recorded when the test was sent back), shared
+  // between the Me / By Me sub-tabs since neither screenshot shows a column
+  // difference between them — only the bottom toolbar differs.
+  const reworkColumns = [
+    {
+      title: 'Project Code', dataIndex: 'projectCode', render: (v: string) => v || '—',
+      ...getColumnSelectFilterProps((row) => row.projectCode),
+    },
+    {
+      title: 'Product Name', dataIndex: 'productName',
+      ...getColumnSelectFilterProps((row) => row.productName),
+    },
+    { title: 'Sample Code', dataIndex: 'sampleCode', render: renderSampleCode, ...getColumnSearchProps('sampleCode', 'Sample Code') },
+    { title: 'Form No.', dataIndex: 'formNo', render: renderFormNo, ...getColumnSearchProps('formNo', 'Form No.') },
+    { title: 'Batch No', dataIndex: 'batchNo', render: (v: string) => v || '—', ...getColumnSearchProps('batchNo', 'Batch No') },
+    { title: 'Storage Condition & Period', dataIndex: 'storageCondition', render: (v: string) => v || '—', ...getColumnSearchProps('storageCondition', 'Storage Condition') },
+    { title: 'Packing', dataIndex: 'packType', render: (v: string) => v || '—', ...getColumnSearchProps('packType', 'Packing') },
+    {
+      title: 'Test/SubType', dataIndex: 'testType', render: renderTestSubtype,
+      ...getColumnSelectFilterProps(
+        (row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}`,
+        (value, row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}` === value,
+      ),
+    },
+    { title: 'Priority', dataIndex: 'priority', render: renderPriority },
+    { title: 'Test No.', dataIndex: 'arNumber', render: (v: string | null) => v || '—', ...getColumnSearchProps('arNumber', 'Test Number') },
+    {
+      title: 'AssignedTo', dataIndex: 'assignedToName', render: (v: string | null) => v || '—',
+      ...getColumnSelectFilterProps((row) => row.assignedToName),
+    },
+    { title: 'Test Remarks', dataIndex: 'remarks', render: (v: string) => v || '—' },
+    { title: 'Review Remarks', dataIndex: 'verifyRemarks', render: (v: string | null) => v || '—' },
+    {
+      title: 'Raised On', dataIndex: 'requestedOn',
+      render: (v: string | null, row: TestRow) => {
+        const d = v || row.createdAt
+        return d ? dayjs(d).format('DD MMM YYYY (HH:mm)') : '—'
+      },
+      ...getColumnDateRangeProps((row) => row.requestedOn || row.createdAt),
+    },
+    {
+      title: 'Age',
+      dataIndex: 'createdAt',
+      width: 70,
+      render: renderAge,
+    },
+  ]
+
+  // Legacy "Verified Test" column set (analyst-only) — swaps AssignedTo/
+  // Priority/Test Remarks/Review Remarks/Raised On/Age for Analyzed By,
+  // Verified By(On) and a plain Status tag, matching the legacy screen's
+  // report-style layout (a settled record, not a workspace).
+  const verifiedColumns = [
+    {
+      title: 'Project Code', dataIndex: 'projectCode', render: (v: string) => v || '—',
+      ...getColumnSelectFilterProps((row) => row.projectCode),
+    },
+    {
+      title: 'Product Name', dataIndex: 'productName',
+      ...getColumnSelectFilterProps((row) => row.productName),
+    },
+    { title: 'Sample Code', dataIndex: 'sampleCode', render: renderSampleCode, ...getColumnSearchProps('sampleCode', 'Sample Code') },
+    { title: 'Batch No', dataIndex: 'batchNo', render: (v: string) => v || '—', ...getColumnSearchProps('batchNo', 'Batch No') },
+    { title: 'Storage Condition & Period', dataIndex: 'storageCondition', render: (v: string) => v || '—', ...getColumnSearchProps('storageCondition', 'Storage Condition') },
+    { title: 'Test No.', dataIndex: 'arNumber', render: (v: string | null) => v || '—', ...getColumnSearchProps('arNumber', 'Test Number') },
+    { title: 'Form No.', dataIndex: 'formNo', render: renderFormNo, ...getColumnSearchProps('formNo', 'Form No.') },
+    {
+      title: 'Test/SubType', dataIndex: 'testType', render: renderTestSubtype,
+      ...getColumnSelectFilterProps(
+        (row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}`,
+        (value, row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}` === value,
+      ),
+    },
+    {
+      title: 'Analyzed By', dataIndex: 'analyzedBy', render: (v: string | null) => v || '—',
+      ...getColumnSelectFilterProps((row) => row.analyzedBy),
+    },
+    {
+      title: 'Verified By(On)', dataIndex: 'verifiedBy',
+      render: (v: string | null, row: TestRow) => v ? (
+        <div className="leading-tight">
+          <div>{v}</div>
+          <div className="text-[11px] text-slate-400">{row.verifiedAt ? dayjs(row.verifiedAt).format('DD MMM YYYY (HH:mm)') : ''}</div>
+        </div>
+      ) : '—',
+      ...getColumnSelectFilterProps((row) => row.verifiedBy),
+    },
+    { title: 'Status Remarks', dataIndex: 'remarks', render: (v: string) => v || '—' },
+    {
+      title: 'Status', dataIndex: 'status',
+      render: (v: string) => <Tag color={statusColor(v)} className="font-medium text-xs whitespace-nowrap">{v.replace(/_/g, ' ')}</Tag>,
+    },
+  ]
+
   const isUnassignedTab = activeTab === 'unassigned'
   // "Assigned Tests" mirrors the legacy screen's own layout: one tab, two
   // inner views (Me / Others) with different trimmed column sets and action
@@ -1149,6 +1303,15 @@ export default function ArdTestsPage() {
   const isEnhancementMeTab = isEnhancementTab && enhancementSubTab === 'me'
   const isEnhancementOthersTab = isEnhancementTab && enhancementSubTab === 'others'
   const isTeamQueueTab = activeTab === 'team_queue'
+  // The enhanced 2-sub-tab Rework Tests view only applies to analysts —
+  // other roles keep today's plain flat "Rework Tests" list (defaultColumns,
+  // generic filter row/toolbar), unchanged.
+  const isAnalystReworkView = activeTab === 'rework' && isAnalyst
+  const isReworkMeTab = isAnalystReworkView && reworkSubTab === 'me'
+  const isReworkByMeTab = isAnalystReworkView && reworkSubTab === 'by_me'
+  // Same idea for Verified Tests — analyst-only "Select Frame" date view;
+  // other roles keep today's plain flat "Verified" list unchanged.
+  const isAnalystVerifiedView = activeTab === 'verified' && isAnalyst
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -1198,8 +1361,48 @@ export default function ArdTestsPage() {
           />
         )}
 
-        {/* Filter row — Unassigned, Assigned Tests and Enhancement Requested tabs drive selection through their own toolbar instead */}
-        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && (
+        {/* Rework Tests: analyst-only inner Assigned To Me / Assigned By Me switch */}
+        {isAnalystReworkView && (
+          <Tabs
+            activeKey={reworkSubTab}
+            onChange={(k) => { setReworkSubTab(k as 'me' | 'by_me'); clearSelection() }}
+            size="small"
+            type="card"
+            items={[
+              { key: 'me', label: `Assigned To Me (${countReworkMe})` },
+              { key: 'by_me', label: `Assigned By Me (${countReworkByMe})` },
+            ]}
+            style={{ marginTop: -4 }}
+          />
+        )}
+
+        {/* Verified Tests: analyst-only "Select Frame" date filter (on verifiedAt), replacing the generic search row for this tab. */}
+        {isAnalystVerifiedView && (
+          <div className="flex flex-wrap items-center gap-3 py-3 border-t border-slate-100">
+            <Radio.Group
+              optionType="button"
+              buttonStyle="solid"
+              size="small"
+              value={verifiedFrame}
+              onChange={(e) => setVerifiedFrame(e.target.value)}
+              options={[
+                { label: 'Current Month', value: 'current_month' },
+                { label: 'Last Month', value: 'last_month' },
+                { label: 'Choose Timeframe', value: 'custom' },
+              ]}
+            />
+            {verifiedFrame === 'custom' && (
+              <DatePicker.RangePicker
+                size="small"
+                value={verifiedCustomRange}
+                onChange={(range) => setVerifiedCustomRange(range && range[0] && range[1] ? [range[0], range[1]] : null)}
+              />
+            )}
+          </div>
+        )}
+
+        {/* Filter row — Unassigned, Assigned Tests, Enhancement Requested and the analyst Rework Tests / Verified Tests views drive selection through their own toolbar instead */}
+        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isAnalystReworkView && !isAnalystVerifiedView && (
           <div className="flex flex-wrap gap-2 py-3 border-t border-slate-100">
             <Input
               placeholder="Search all columns…"
@@ -1234,7 +1437,7 @@ export default function ArdTestsPage() {
           </div>
         )}
 
-        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isInProgressTab && selectedRowKeys.length > 0 && (() => {
+        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isInProgressTab && !isAnalystReworkView && !isAnalystVerifiedView && selectedRowKeys.length > 0 && (() => {
           const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
           const isRowUnassigned = !!selectedRow && (!selectedRow.assignedToName || ['UNASSIGNED', 'PENDING'].includes(selectedRow.status))
           const canTakeoverRow = !!selectedRow && ['IN_PROGRESS', 'ASSIGNED', 'DELEGATED', 'VERIFICATION_REWORK'].includes(selectedRow.status)
@@ -1320,7 +1523,7 @@ export default function ArdTestsPage() {
           rowSelection={{
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys as string[]),
-            hideSelectAll: isUnassignedTab || isMyAssignedTab || isAssignedOthersTab || isEnhancementTab || isTeamQueueTab,
+            hideSelectAll: isUnassignedTab || isMyAssignedTab || isAssignedOthersTab || isEnhancementTab || isTeamQueueTab || isReworkMeTab || isReworkByMeTab || isAnalystVerifiedView,
           }}
           loading={isLoading}
           dataSource={filteredItems}
@@ -1337,6 +1540,8 @@ export default function ArdTestsPage() {
               : isPendingVerifyTab ? pendingVerifyColumns
               : isEnhancementTab ? enhancementColumns
               : isTeamQueueTab ? teamQueueColumns
+              : (isReworkMeTab || isReworkByMeTab) ? reworkColumns
+              : isAnalystVerifiedView ? verifiedColumns
               : defaultColumns
           )}
         />
@@ -1526,6 +1731,92 @@ export default function ArdTestsPage() {
               <span className="text-sm font-medium text-slate-600 mr-2">
                 {selectedRowKeys.length} selected
               </span>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Rework Tests — Assigned To Me: Process (open the test to fix and
+            resubmit, one at a time), View Report, Events — matching the
+            legacy screen's own toolbar exactly. No Delegate/Takeover here;
+            those belong to tabs that deal with other people's tests. */}
+        {isReworkMeTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" type="primary" icon={<Eye size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) navigate(`/ard/tests/${selectedRow.atrId}/${selectedRow.id}`) }}>
+                Process
+              </Button>
+              <Button size="small" icon={<FileText size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleViewReportClick(selectedRow) }}>
+                View Report
+              </Button>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Rework Tests — Assigned By Me: view-only over tests tied to an ATR
+            I raised — View Report and Events only, no Process (it isn't my
+            test to open and fix). */}
+        {isReworkByMeTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" icon={<FileText size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleViewReportClick(selectedRow) }}>
+                View Report
+              </Button>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Verified Tests — analyst view: a settled record, not a workspace.
+            View Report, Download and Events, all single-row (matching the
+            legacy screen's own toolbar exactly). */}
+        {isAnalystVerifiedView && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" icon={<FileText size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleViewReportClick(selectedRow) }}>
+                View Report
+              </Button>
+              <Button size="small" icon={<Download size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleDownloadReportClick(selectedRow) }}>
+                Download
+              </Button>
               <Button size="small" icon={<History size={13} />}
                 disabled={selectedRowKeys.length !== 1}
                 onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>

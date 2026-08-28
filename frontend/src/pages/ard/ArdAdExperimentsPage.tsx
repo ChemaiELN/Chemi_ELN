@@ -141,10 +141,10 @@ function ReviewTable({
     {
       title: 'Experiment Code', dataIndex: 'code',
       render: (v: string) => <span className="font-mono text-xs font-semibold text-indigo-900">{v}</span>,
-      ...getColumnSearchProps((r) => r.code, 'Experiment Code'),
+      ...getColumnSearchProps((r: PendingReviewItem) => r.code, 'Experiment Code'),
     },
-    { title: 'Template Name', dataIndex: 'templateName', render: (v: string | null) => v || '—', ...getColumnSearchProps((r) => r.templateName, 'Template Name') },
-    { title: 'Experiment Aim', dataIndex: 'aim', render: (v: string | null) => stripHtml(v) || '—', ...getColumnSearchProps((r) => stripHtml(r.aim), 'Experiment Aim') },
+    { title: 'Template Name', dataIndex: 'templateName', render: (v: string | null) => v || '—', ...getColumnSearchProps((r: PendingReviewItem) => r.templateName, 'Template Name') },
+    { title: 'Experiment Aim', dataIndex: 'aim', render: (v: string | null) => stripHtml(v) || '—', ...getColumnSearchProps((r: PendingReviewItem) => stripHtml(r.aim), 'Experiment Aim') },
     { title: 'Request Count', dataIndex: 'requestCount', sorter: (a: PendingReviewItem, b: PendingReviewItem) => a.requestCount - b.requestCount },
     {
       title: 'Submitted By (On)',

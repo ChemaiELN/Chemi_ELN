@@ -436,10 +436,12 @@ export default function ArdTestsPage() {
   const countEnhancementOthers = items.filter(r => hasPendingEnhancement(r) && !!r.assignedToName && r.assignedToId !== user?.id && r.assignedToName !== user?.username).length
   const countTeamQueue = items.filter(r => ['ASSIGNED', 'IN_PROGRESS', 'DELEGATED', 'VERIFICATION_REWORK'].includes(r.status)).length
 
-  // Unassigned/Delegated/Verified/Unlocked aren't an analyst's own work queue
-  // (unassigned work hasn't been claimed yet, delegated/verified/unlocked all
-  // belong to someone else's review step) — hidden from the Analyst/Chem login.
-  const ANALYST_HIDDEN_TABS = ['unassigned', 'delegated', 'verified', 'unlocked']
+  // Unassigned/Delegated/Unlocked aren't an analyst's own work queue
+  // (unassigned work hasn't been claimed yet, delegated/unlocked both belong
+  // to someone else's review step) — hidden from the Analyst/Chem login.
+  // Verified stays visible to analysts too (isAnalystVerifiedView already
+  // gives them their own tailored columns/toolbar on it) — just relabeled.
+  const ANALYST_HIDDEN_TABS = ['unassigned', 'delegated', 'unlocked']
   const tabItems = [
     { key: 'unassigned', label: `Unassigned (${countUnassigned})` },
     { key: 'assigned_tests', label: `Assigned Tests (${countAssignedMe + countAssignedOthers})` },
@@ -449,7 +451,7 @@ export default function ArdTestsPage() {
     { key: 'rework', label: `Rework Tests (${countRework})` },
     { key: 'team_queue', label: `Team Queue (${countTeamQueue})` },
     { key: 'delegated', label: `Delegated (${countDelegated})` },
-    { key: 'verified', label: `Verified (${countVerified})` },
+    { key: 'verified', label: isAnalyst ? `Verified Tests (${countVerified})` : `Verified (${countVerified})` },
     { key: 'unlocked', label: `Unlocked (${countUnlocked})` },
   ].filter((t) => !isAnalyst || !ANALYST_HIDDEN_TABS.includes(t.key))
 

@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Table, Tag, Input, Select, Button, Tabs, Card, Modal, message, Popconfirm, Space, DatePicker, Checkbox } from 'antd'
+import { Table, Tag, Input, Select, Button, Tabs, Card, Modal, message, Popconfirm, Space, DatePicker, Checkbox, Segmented } from 'antd'
 import { Plus, FileText, Clock, ShieldCheck, Award, Download, CheckCircle2, Search, Repeat } from 'lucide-react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { ardAtrApi, ardOpsApi, type AtrStatus, type ArdTestRow, type AtrForm } from '../../api/ard'
@@ -42,17 +42,30 @@ export default function ArdAtrsPage() {
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
   // HOD no longer sees the "All ATRs" tab, so it can't land there by default —
-  // opens on the first tab in the HOD flow order instead.
-  const [activeTab, setActiveTab] = useState(() =>
-    ['HOD', 'HEAD_OF_DEPT', 'MANAGER'].includes(user?.role_code ?? '') ? 'verification_request' : 'all'
-  )
+  // opens on the first tab in the HOD flow order instead. Analyst/Chem also
+  // lost "All ATRs" (and QA Pre-Approval/Active In Lab/Pending Cert./
+  // Certified — none of those are theirs to review), so they land on "My
+  // ATR's" instead, the first tab still visible to them.
+  const [activeTab, setActiveTab] = useState(() => {
+    const rc = user?.role_code ?? ''
+    if (['HOD', 'HEAD_OF_DEPT', 'MANAGER'].includes(rc)) return 'verification_request'
+    if (['ANALYST', 'CHEMIST', 'CHEM'].includes(rc)) return 'my_raised'
+    return 'all'
+  })
   const [withdrawId, setWithdrawId] = useState<string | null>(null)
   const [withdrawRemarks, setWithdrawRemarks] = useState('')
+  // "My ATR's" own Mine/Team filter — previously hardcoded to 'self' (raised
+  // by me, and only me) with no way to widen it, which also meant an Analyst
+  // had no screen anywhere showing their team's ATRs. 'team' resolves via the
+  // same teamScopedAtrWhere() every other role's Team/My Team scope option
+  // already uses.
+  const [myRaisedScope, setMyRaisedScope] = useState<'mine' | 'team'>('mine')
 
   const isTl = user?.role_code === 'TL' || user?.role_code === 'TEAM_LEAD'
   const isQa = user?.department_code === 'QA' || user?.role_code === 'QA'
   const isHodUser = ['HOD', 'HEAD_OF_DEPT', 'MANAGER'].includes(user?.role_code ?? '')
   const isHodOrTl = isHodUser || isTl
+  const isAnalyst = ['ANALYST', 'CHEMIST', 'CHEM'].includes(user?.role_code ?? '')
 
   // ── Re-assign Test tab (HOD only) ─────────────────────────────────────
   const [reassignTeamTlId, setReassignTeamTlId] = useState<string | undefined>()
@@ -196,15 +209,22 @@ export default function ArdAtrsPage() {
 
   const isMyRaisedTab = activeTab === 'my_raised'
   const isFormApprovalTab = activeTab === 'form_pending_approval'
-  // "My Raised ATRs" is a hard override, not one more status filter — it
-  // replaces whatever the Scope dropdown says with 'self' (raised by me,
-  // and only me; unlike 'mine' this doesn't fold in the rest of the team).
-  const effectiveScope = isMyRaisedTab ? 'self' : scope
+  const isClarificationRequestsTab = activeTab === 'clarification_requests'
+  // "My ATR's" own Mine/Team toggle drives this tab's scope now — 'mine'
+  // keeps the original 'self' behavior (raised by me, and only me); 'team'
+  // widens it to the same teamScopedAtrWhere() every other Team/My Team
+  // scope option already uses.
+  const effectiveScope = isMyRaisedTab ? (myRaisedScope === 'mine' ? 'self' : 'team') : scope
   // "Form Pending Approval" shows a different column set/actions but is the
   // exact same underlying data as the existing "Verification Request" tab
   // (status PENDING_APPROVAL) — reuse that tab alias rather than adding a
-  // second backend status filter for the same thing.
-  const tabParam = isMyRaisedTab ? undefined : isFormApprovalTab ? 'verification_request' : activeTab !== 'all' ? activeTab : undefined
+  // second backend status filter for the same thing. Same idea for
+  // "Clarification Requests" (analyst) vs. "Pending Clarification" (QA) —
+  // both read PENDING_CLARIFICATION, just with different columns.
+  const tabParam = isMyRaisedTab ? undefined
+    : isFormApprovalTab ? 'verification_request'
+    : isClarificationRequestsTab ? 'pending_clarification'
+    : activeTab !== 'all' ? activeTab : undefined
 
   const { data, isLoading } = useQuery({
     queryKey: ['ard-atrs', statusParam, effectiveScope, q, page, pageSize, activeTab],
@@ -213,10 +233,11 @@ export default function ArdAtrsPage() {
 
   // Dedicated total for the tab badge — the /counts endpoint groups by
   // status, not a single figure, so a small pageSize=1 list call is the
-  // simplest way to read back just the total for this scope.
+  // simplest way to read back just the total for this scope. Tracks whichever
+  // of Mine/Team is currently selected, same as the table itself.
   const { data: myRaisedData } = useQuery({
-    queryKey: ['ard-atrs-my-raised-count', q],
-    queryFn: () => ardAtrApi.list({ scope: 'self', q: q || undefined, page: 1, pageSize: 1 }),
+    queryKey: ['ard-atrs-my-raised-count', q, myRaisedScope],
+    queryFn: () => ardAtrApi.list({ scope: myRaisedScope === 'mine' ? 'self' : 'team', q: q || undefined, page: 1, pageSize: 1 }),
     staleTime: 30_000,
   })
   const countMyRaised = myRaisedData?.total ?? 0
@@ -318,14 +339,18 @@ export default function ArdAtrsPage() {
     { key: 're_assign', label: 'Re-assign Tests', show: isHodUser },
     { key: 'unsatisfactory', label: 'Unsatisfactory Test', show: isHodUser },
     { key: 'queued', label: `Queued ATR (${countQueued})`, show: isTl || isUnscopedAdmin },
-    { key: 'all', label: `All ATRs (${data?.total ?? items.length})`, show: !isHodUser },
-    { key: 'qa_pre_approval', label: `QA Pre-Approval (${countPreApprove})`, show: true },
-    { key: 'in_lab', label: `Active In Lab (${countInLab})`, show: true },
-    { key: 'pending_certification', label: `Pending Cert. (${countCertReq})`, show: true },
-    { key: 'certified', label: `Certified (${countCertified})`, show: true },
+    { key: 'all', label: `All ATRs (${data?.total ?? items.length})`, show: !isHodUser && !isAnalyst },
+    { key: 'qa_pre_approval', label: `QA Pre-Approval (${countPreApprove})`, show: !isAnalyst },
+    { key: 'in_lab', label: `Active In Lab (${countInLab})`, show: !isAnalyst },
+    { key: 'pending_certification', label: `Pending Cert. (${countCertReq})`, show: !isAnalyst },
+    { key: 'certified', label: `Certified (${countCertified})`, show: !isAnalyst },
     { key: 'unassigned', label: `Un-assigned (${countUnassigned})`, show: isTl || isUnscopedAdmin },
     { key: 'cert_rework', label: `Cert. Rework (${countCertRework})`, show: isQa || isUnscopedAdmin },
     { key: 'pending_clarification', label: `Pending Clarification (${countPendingClar})`, show: isQa || isUnscopedAdmin },
+    // Analyst-only view of the same PENDING_CLARIFICATION queue QA sees above
+    // (as "Pending Clarification") — same status, but its own tab/column set
+    // since the two audiences want different columns (legacy screen).
+    { key: 'clarification_requests', label: `Clarification Requests (${countPendingClar})`, show: isAnalyst },
     { key: 'method_dev', label: `Method Development (${countMethodDev})`, show: true },
   ]
   const tabItems = allTabDescriptors.filter((t) => t.show).map(({ key, label }) => ({ key, label }))
@@ -333,7 +358,7 @@ export default function ArdAtrsPage() {
   const isReassignTab = activeTab === 're_assign'
   const isReassignFormsTab = activeTab === 're_assign_forms'
   const isUnsatisfactoryTab = activeTab === 'unsatisfactory'
-  const isCustomTab = isReassignTab || isReassignFormsTab || isUnsatisfactoryTab || isFormApprovalTab
+  const isCustomTab = isReassignTab || isReassignFormsTab || isUnsatisfactoryTab || isFormApprovalTab || isClarificationRequestsTab
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -391,7 +416,16 @@ export default function ArdAtrsPage() {
               options={STATUS_OPTIONS.map((s) => ({ value: s, label: s.replace(/_/g, ' ') }))}
               onChange={(v) => setParam('status', v)}
             />
-            {!isMyRaisedTab && (
+            {isMyRaisedTab ? (
+              <Segmented
+                value={myRaisedScope}
+                onChange={(v) => setMyRaisedScope(v as 'mine' | 'team')}
+                options={[
+                  { label: 'Mine', value: 'mine' },
+                  { label: 'Team', value: 'team' },
+                ]}
+              />
+            ) : (
               <Select
                 style={{ width: 110 }}
                 value={scopeOptions.some(o => o.value === scope) ? scope : scopeOptions[0]?.value}
@@ -458,6 +492,13 @@ export default function ArdAtrsPage() {
             onApprove={() => bulkApproveMut.mutate()}
             approving={bulkApproveMut.isPending}
             onEventsClick={() => setEventsModalRows(filteredItems.filter((r) => approvalSelectedIds.includes(r.id)))}
+          />
+        ) : isClarificationRequestsTab ? (
+          <ClarificationRequestsPanel
+            items={filteredItems}
+            loading={isLoading}
+            healthTagColor={healthTagColor}
+            onRowClick={(id) => navigate(`/ard/atrs/${id}`)}
           />
         ) : (
         <Table
@@ -909,9 +950,75 @@ function UnsatisfactoryTestsPanel() {
   )
 }
 
-function sampleField(r: AtrForm, key: 'sampleCode' | 'sampleType'): string {
+function sampleField(r: AtrForm, key: 'sampleCode' | 'sampleType' | 'batchNo' | 'storageCondition'): string {
   const vals = (r.samples ?? []).map((s) => s[key]).filter((v): v is string => !!v)
   return vals.length ? Array.from(new Set(vals)).join(', ') : '—'
+}
+
+// Analyst-only "Clarification Requests" view (legacy screen) — same
+// PENDING_CLARIFICATION queue QA sees under "Pending Clarification", but its
+// own column set: Requested By(On) and Request Remarks come from the ATR's
+// clarifications thread (POST /:atrId/clarifications) — the LATEST entry is
+// whichever comment actually triggered this clarification request. Read-only
+// (row click opens the ATR itself) — no bulk actions, matching the legacy
+// screen's own layout.
+function ClarificationRequestsPanel({
+  items, loading, healthTagColor, onRowClick,
+}: {
+  items: AtrForm[]
+  loading: boolean
+  healthTagColor: (days: number) => string
+  onRowClick: (id: string) => void
+}) {
+  return (
+    <Table
+      rowKey="id"
+      loading={loading}
+      dataSource={items}
+      size="small"
+      onRow={(row) => ({ onClick: () => onRowClick(row.id) })}
+      rowClassName={() => 'cursor-pointer hover:bg-indigo-50/40 transition-colors'}
+      pagination={{ pageSize: 10, showTotal: (t) => `${t} ATRs` }}
+      columns={[
+        { title: 'Sample Code', render: (_, r) => sampleField(r, 'sampleCode') },
+        { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+        { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+        {
+          title: 'Status', dataIndex: 'status',
+          render: (v: AtrStatus) => <Tag color={statusColor(v)} className="text-xs font-semibold">{v.replace(/_/g, ' ')}</Tag>,
+        },
+        { title: 'Form Number', dataIndex: 'formNo', render: (v) => <span className="font-mono font-semibold text-indigo-900">{v}</span> },
+        { title: 'Batch Number', render: (_, r) => sampleField(r, 'batchNo') },
+        { title: 'Storage Condition & Period', render: (_, r) => sampleField(r, 'storageCondition') },
+        {
+          title: 'Requested By(On)',
+          render: (_, r) => {
+            const latest = (r.clarifications ?? [])[r.clarifications.length - 1]
+            return latest ? (
+              <div className="text-xs">
+                <p className="font-medium text-slate-700">{latest.authorName || '—'}</p>
+                <p className="text-[11px] text-slate-400">{latest.createdAt ? dayjs(latest.createdAt).format('DD MMM YYYY (HH:mm)') : ''}</p>
+              </div>
+            ) : '—'
+          },
+        },
+        {
+          title: 'Request Remarks',
+          render: (_, r) => {
+            const latest = (r.clarifications ?? [])[r.clarifications.length - 1]
+            return latest?.message || '—'
+          },
+        },
+        {
+          title: 'Age', dataIndex: 'dateDiffForAge', render: (v) => (
+            v !== undefined && v !== null ? (
+              <Tag icon={<Clock size={11} />} color={healthTagColor(v)} className="text-xs">{v} d</Tag>
+            ) : '—'
+          ),
+        },
+      ]}
+    />
+  )
 }
 
 function FormPendingApprovalPanel({

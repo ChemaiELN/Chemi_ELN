@@ -193,7 +193,7 @@ export const techniqueRouter = Router();
 
 const saveTechniqueSchema = z.object({
   id: z.string().uuid().optional(),
-  name: z.string().min(1),
+  name: z.string().optional().default(''),
   code: z.string().min(1),
   description: z.string().optional(),
   active: z.boolean().optional(),

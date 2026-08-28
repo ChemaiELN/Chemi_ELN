@@ -1041,7 +1041,7 @@ export const ardApi = {
   lookupCategories: () => apiGet<string[]>(`${BASE}/lookup-categories`),
   settingsMap: () => apiGet<Record<string, { value: string | number | boolean; valueType: string }>>(`${BASE}/settings-map`),
 
-  saveTechnique: (body: Partial<ArdTechnique> & { code: string; name: string }) =>
+  saveTechnique: (body: Partial<ArdTechnique> & { code: string; name?: string }) =>
     apiPost<ArdTechnique>(`${BASE}/techniques`, body),
 
   saveTestConfig: (body: Record<string, unknown>) =>

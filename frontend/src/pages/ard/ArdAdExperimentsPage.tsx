@@ -1,13 +1,22 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Card, Tabs, Table, Button, Input, Space, Modal, message, Checkbox } from 'antd'
-import { FlaskConical, Search, ArrowRight, RotateCcw, ClipboardList } from 'lucide-react'
+import { Card, Tabs, Table, Button, Input, Space, Modal, message, Checkbox, Select } from 'antd'
+import { FlaskConical, Search, ArrowRight, RotateCcw, ClipboardList, Lock, UserCog } from 'lucide-react'
 import dayjs from 'dayjs'
-import { ardExperimentApi, type PendingReviewItem, type OngoingExperimentItem, type ReviewCommentItem } from '../../api/ard'
+import {
+  ardExperimentApi,
+  type PendingReviewItem,
+  type OngoingExperimentItem,
+  type ReviewCommentItem,
+  type ReviewRequestItem,
+  type UnlockRequestItem,
+  type ReassignReviewerItem,
+} from '../../api/ard'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import { useHealthIndicator } from '../../hooks/useHealthIndicator'
+import { userApi } from '../../api/adc'
 import { ApiError } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
 import { ESignatureModal } from '../../components/common/ESignatureModal'
@@ -147,7 +156,7 @@ function ReviewTable({
     { title: 'Experiment Aim', dataIndex: 'aim', render: (v: string | null) => stripHtml(v) || '—', ...getColumnSearchProps((r: PendingReviewItem) => stripHtml(r.aim), 'Experiment Aim') },
     { title: 'Request Count', dataIndex: 'requestCount', sorter: (a: PendingReviewItem, b: PendingReviewItem) => a.requestCount - b.requestCount },
     {
-      title: 'Submitted By (On)',
+      title: 'Submitted By / On',
       render: (_: unknown, r: PendingReviewItem) => (
         <div className="text-xs">
           <p className="font-medium text-slate-700">{r.submittedBy || '—'}</p>
@@ -301,7 +310,7 @@ function ReviewCommentsTable({ onCommentsClick }: { onCommentsClick: (thread: Re
       ),
     },
     {
-      title: 'Started By (On)',
+      title: 'Started By / On',
       render: (_: unknown, r: ReviewCommentItem) => (
         <div className="text-xs">
           <p className="font-medium text-slate-700">{r.createdByName || '—'}</p>
@@ -334,6 +343,467 @@ function ReviewCommentsTable({ onCommentsClick }: { onCommentsClick: (thread: Re
         pagination={{ pageSize: 10, showTotal: (t) => `${t} experiments` }}
         columns={columns as any}
         locale={{ emptyText: 'No experiments with review comments.' }}
+      />
+    </div>
+  )
+}
+
+function ReviewRequestsTable() {
+  const { tagColor } = useHealthIndicator()
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [perspective, setPerspective] = useState<'mine' | 'others'>('mine')
+  const [msg, ctx] = message.useMessage()
+  const qc = useQueryClient()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['ard-experiments-review-requests', perspective],
+    queryFn: () => ardExperimentApi.reviewRequests(perspective),
+  })
+  const items = data?.items ?? []
+
+  const initiateApprovalMut = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(
+        selectedIds.map((id) => ardExperimentApi.transition(id, { to: 'SUBMITTED' })),
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      return { ok: results.length - failed, failed }
+    },
+    onSuccess: ({ ok, failed }) => {
+      if (ok) msg.success(`Approval initiated for ${ok} experiment${ok !== 1 ? 's' : ''}.`)
+      if (failed) msg.warning(`${failed} experiment${failed !== 1 ? 's' : ''} could not be updated.`)
+      setSelectedIds([])
+      qc.invalidateQueries({ queryKey: ['ard-experiments-review-requests'] })
+    },
+    onError: () => msg.error('Failed to initiate approval.'),
+  })
+
+  const initiateVerificationMut = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(
+        selectedIds.map((id) => ardExperimentApi.transition(id, { to: 'VERIFICATION_REQUESTED' })),
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      return { ok: results.length - failed, failed }
+    },
+    onSuccess: ({ ok, failed }) => {
+      if (ok) msg.success(`Verification initiated for ${ok} experiment${ok !== 1 ? 's' : ''}.`)
+      if (failed) msg.warning(`${failed} experiment${failed !== 1 ? 's' : ''} could not be updated.`)
+      setSelectedIds([])
+      qc.invalidateQueries({ queryKey: ['ard-experiments-review-requests'] })
+    },
+    onError: () => msg.error('Failed to initiate verification.'),
+  })
+
+  const columns = [
+    {
+      title: 'Product', dataIndex: 'productName',
+      render: (v: string | null) => v || '—',
+      ...getColumnSelectFilterProps((r: ReviewRequestItem) => r.productName, items),
+    },
+    {
+      title: 'Experiment Code', dataIndex: 'code',
+      render: (v: string) => <span className="font-mono text-xs font-semibold text-indigo-900">{v}</span>,
+      ...getColumnSearchProps((r: ReviewRequestItem) => r.code, 'Experiment Code'),
+    },
+    {
+      title: 'Template Name', dataIndex: 'templateName',
+      render: (v: string | null) => v || '—',
+      ...getColumnSearchProps((r: ReviewRequestItem) => r.templateName, 'Template Name'),
+    },
+    {
+      title: 'Status', dataIndex: 'status',
+      render: (v: string) => <span className="text-xs font-semibold text-slate-600">{v}</span>,
+      ...getColumnSelectFilterProps((r: ReviewRequestItem) => r.status, items),
+    },
+    {
+      title: 'Experiment Aim', dataIndex: 'aim',
+      render: (v: string | null) => stripHtml(v) || '—',
+      ...getColumnSearchProps((r: ReviewRequestItem) => stripHtml(r.aim), 'Experiment Aim'),
+    },
+    {
+      title: 'Req Count', dataIndex: 'requestCount',
+      sorter: (a: ReviewRequestItem, b: ReviewRequestItem) => a.requestCount - b.requestCount,
+    },
+    {
+      title: 'Submitted By / On',
+      render: (_: unknown, r: ReviewRequestItem) => (
+        <div className="text-xs">
+          <p className="font-medium text-slate-700">{r.submittedBy || '—'}</p>
+          <p className="text-[11px] text-slate-400">
+            {r.submittedAt ? dayjs(r.submittedAt).format('DD MMM YYYY (HH:mm)') : '—'}
+          </p>
+        </div>
+      ),
+      ...getColumnSelectFilterProps((r: ReviewRequestItem) => r.submittedBy, items),
+    },
+    {
+      title: 'Age', dataIndex: 'ageDays',
+      sorter: (a: ReviewRequestItem, b: ReviewRequestItem) => (a.ageDays ?? 0) - (b.ageDays ?? 0),
+      render: (v: number | null) => <AgeDot days={v} tagColor={tagColor} />,
+    },
+  ]
+
+  return (
+    <div className="space-y-3">
+      {ctx}
+      <Tabs
+        size="small"
+        activeKey={perspective}
+        onChange={(k) => { setPerspective(k as 'mine' | 'others'); setSelectedIds([]) }}
+        items={[
+          { key: 'mine', label: 'Submitted to me' },
+          { key: 'others', label: 'Submitted to Others' },
+        ]}
+      />
+      <Table
+        rowKey="id"
+        loading={isLoading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} experiments` }}
+        columns={columns as any}
+        locale={{ emptyText: 'No review requests.' }}
+      />
+      <div className="flex gap-2">
+        <Button
+          type="primary"
+          disabled={selectedIds.length === 0}
+          loading={initiateApprovalMut.isPending}
+          onClick={() => initiateApprovalMut.mutate()}
+          icon={<ArrowRight size={14} />}
+          className="bg-indigo-600 hover:bg-indigo-700 border-none"
+        >
+          Initiate Approval
+        </Button>
+        <Button
+          disabled={selectedIds.length === 0}
+          loading={initiateVerificationMut.isPending}
+          onClick={() => initiateVerificationMut.mutate()}
+          icon={<ArrowRight size={14} />}
+        >
+          Initiate Verification
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function UnlockExperimentTable() {
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [returnModalOpen, setReturnModalOpen] = useState(false)
+  const [returnRemarks, setReturnRemarks] = useState('')
+  const [msg, ctx] = message.useMessage()
+  const qc = useQueryClient()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['ard-experiments-unlock-requests'],
+    queryFn: () => ardExperimentApi.unlockRequests(),
+  })
+  const items = data?.items ?? []
+
+  const processMut = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(
+        selectedIds.map((id) => ardExperimentApi.processUnlock(id)),
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      return { ok: results.length - failed, failed }
+    },
+    onSuccess: ({ ok, failed }) => {
+      if (ok) msg.success(`Unlock processed for ${ok} request${ok !== 1 ? 's' : ''}.`)
+      if (failed) msg.warning(`${failed} request${failed !== 1 ? 's' : ''} could not be processed.`)
+      setSelectedIds([])
+      qc.invalidateQueries({ queryKey: ['ard-experiments-unlock-requests'] })
+    },
+    onError: () => msg.error('Failed to process unlock.'),
+  })
+
+  const returnMut = useMutation({
+    mutationFn: async () => {
+      const results = await Promise.allSettled(
+        selectedIds.map((id) => ardExperimentApi.returnUnlock(id, { remarks: returnRemarks })),
+      )
+      const failed = results.filter((r) => r.status === 'rejected').length
+      return { ok: results.length - failed, failed }
+    },
+    onSuccess: ({ ok, failed }) => {
+      if (ok) msg.success(`Unlock returned for ${ok} request${ok !== 1 ? 's' : ''}.`)
+      if (failed) msg.warning(`${failed} request${failed !== 1 ? 's' : ''} could not be returned.`)
+      setSelectedIds([])
+      setReturnRemarks('')
+      setReturnModalOpen(false)
+      qc.invalidateQueries({ queryKey: ['ard-experiments-unlock-requests'] })
+    },
+    onError: () => msg.error('Failed to return unlock.'),
+  })
+
+  const columns = [
+    {
+      title: 'Product Name', dataIndex: 'productName',
+      render: (v: string | null) => v || '—',
+      ...getColumnSelectFilterProps((r: UnlockRequestItem) => r.productName, items),
+    },
+    {
+      title: 'Experiment Code', dataIndex: 'code',
+      render: (v: string) => <span className="font-mono text-xs font-semibold text-indigo-900">{v}</span>,
+      ...getColumnSearchProps((r: UnlockRequestItem) => r.code, 'Experiment Code'),
+    },
+    {
+      title: 'Approved By / On',
+      render: (_: unknown, r: UnlockRequestItem) => (
+        <div className="text-xs">
+          <p className="font-medium text-slate-700">{r.approvedBy || '—'}</p>
+          <p className="text-[11px] text-slate-400">
+            {r.approvedAt ? dayjs(r.approvedAt).format('DD MMM YYYY (HH:mm)') : '—'}
+          </p>
+        </div>
+      ),
+      ...getColumnSelectFilterProps((r: UnlockRequestItem) => r.approvedBy, items),
+      sorter: (a: UnlockRequestItem, b: UnlockRequestItem) =>
+        (a.approvedAt ?? '').localeCompare(b.approvedAt ?? ''),
+    },
+    {
+      title: 'Requested By / On',
+      render: (_: unknown, r: UnlockRequestItem) => (
+        <div className="text-xs">
+          <p className="font-medium text-slate-700">{r.requestedBy || '—'}</p>
+          <p className="text-[11px] text-slate-400">
+            {r.requestedAt ? dayjs(r.requestedAt).format('DD MMM YYYY (HH:mm)') : '—'}
+          </p>
+        </div>
+      ),
+    },
+    {
+      title: 'Reason for Unlock', dataIndex: 'unlockReason',
+      render: (v: string | null) => v || '—',
+      ...getColumnSearchProps((r: UnlockRequestItem) => r.unlockReason, 'Reason'),
+    },
+  ]
+
+  return (
+    <div className="space-y-3">
+      {ctx}
+      <Table
+        rowKey="id"
+        loading={isLoading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} requests` }}
+        columns={columns as any}
+        locale={{ emptyText: 'No unlock requests.' }}
+      />
+      <div className="flex gap-2">
+        <Button
+          type="primary"
+          disabled={selectedIds.length === 0}
+          loading={processMut.isPending}
+          onClick={() => processMut.mutate()}
+          icon={<Lock size={14} />}
+          className="bg-indigo-600 hover:bg-indigo-700 border-none"
+        >
+          Process
+        </Button>
+        <Button
+          disabled={selectedIds.length === 0}
+          loading={returnMut.isPending}
+          onClick={() => setReturnModalOpen(true)}
+          icon={<RotateCcw size={14} />}
+        >
+          Return
+        </Button>
+      </div>
+
+      <Modal
+        {...glassModalProps}
+        title="Return Unlock Request"
+        open={returnModalOpen}
+        onCancel={() => { setReturnModalOpen(false); setReturnRemarks('') }}
+        onOk={() => returnMut.mutate()}
+        okText="Confirm Return"
+        okButtonProps={{ loading: returnMut.isPending, disabled: !returnRemarks.trim() }}
+      >
+        <div className="space-y-2 py-2">
+          <p className="text-xs text-slate-600">Provide a reason for returning this unlock request.</p>
+          <Input.TextArea
+            rows={3}
+            placeholder="Remarks (required)"
+            value={returnRemarks}
+            onChange={(e) => setReturnRemarks(e.target.value)}
+          />
+        </div>
+      </Modal>
+    </div>
+  )
+}
+
+const REVIEWER_ROLE_CODES = ['TL', 'TEAM_LEAD', 'HOD', 'ADMIN', 'SUPER_ADMIN']
+
+function useReviewerOptions() {
+  const { data } = useQuery({
+    queryKey: ['ard-reviewer-options'],
+    queryFn: () => userApi.list({ limit: 200 }),
+    staleTime: 5 * 60 * 1000,
+  })
+  return (data?.items ?? [])
+    .filter((u) => REVIEWER_ROLE_CODES.includes(u.role_code ?? ''))
+    .map((u) => ({ label: `${u.username} (${u.role_code ?? ''})`, value: u.id }))
+}
+
+function ReassignReviewerTable() {
+  const user = useAppSelector(selectUser)
+  const { tagColor } = useHealthIndicator()
+  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  const [currentReviewerId, setCurrentReviewerId] = useState<string | undefined>(undefined)
+  const [newReviewerId, setNewReviewerId] = useState<string | undefined>(undefined)
+  const [esignOpen, setEsignOpen] = useState(false)
+  const [msg, ctx] = message.useMessage()
+  const qc = useQueryClient()
+  const reviewerOptions = useReviewerOptions()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['ard-experiments-pending-reassign', currentReviewerId],
+    queryFn: () => ardExperimentApi.pendingReassign(currentReviewerId!),
+    enabled: !!currentReviewerId,
+  })
+  const items = data?.items ?? []
+
+  const reassignMut = useMutation({
+    mutationFn: (payload: { password: string }) =>
+      ardExperimentApi.bulkReassignReviewer({
+        experimentIds: selectedIds,
+        newReviewerId: newReviewerId!,
+        password: payload.password,
+      }),
+    onSuccess: (res) => {
+      msg.success(`Reassigned ${res.updatedCount} experiment${res.updatedCount !== 1 ? 's' : ''}.`)
+      setSelectedIds([])
+      setNewReviewerId(undefined)
+      setEsignOpen(false)
+      qc.invalidateQueries({ queryKey: ['ard-experiments-pending-reassign'] })
+    },
+    onError: () => msg.error('Failed to reassign.'),
+  })
+
+  const columns = [
+    {
+      title: 'Product', dataIndex: 'productName',
+      render: (v: string | null) => v || '—',
+      ...getColumnSelectFilterProps((r: ReassignReviewerItem) => r.productName, items),
+    },
+    {
+      title: 'Experiment Code', dataIndex: 'code',
+      render: (v: string) => <span className="font-mono text-xs font-semibold text-indigo-900">{v}</span>,
+      ...getColumnSearchProps((r: ReassignReviewerItem) => r.code, 'Experiment Code'),
+    },
+    {
+      title: 'Template Name', dataIndex: 'templateName',
+      render: (v: string | null) => v || '—',
+      ...getColumnSearchProps((r: ReassignReviewerItem) => r.templateName, 'Template Name'),
+    },
+    {
+      title: 'Experiment Aim', dataIndex: 'aim',
+      render: (v: string | null) => stripHtml(v) || '—',
+      ...getColumnSearchProps((r: ReassignReviewerItem) => stripHtml(r.aim), 'Experiment Aim'),
+    },
+    {
+      title: 'Stage', dataIndex: 'stage',
+      render: (v: string | null) => v || '—',
+      ...getColumnSelectFilterProps((r: ReassignReviewerItem) => r.stage, items),
+    },
+    {
+      title: 'Submitted By / On',
+      render: (_: unknown, r: ReassignReviewerItem) => (
+        <div className="text-xs">
+          <p className="font-medium text-slate-700">{r.submittedBy || '—'}</p>
+          <p className="text-[11px] text-slate-400">
+            {r.submittedAt ? dayjs(r.submittedAt).format('DD MMM YYYY (HH:mm)') : '—'}
+          </p>
+        </div>
+      ),
+      ...getColumnSelectFilterProps((r: ReassignReviewerItem) => r.submittedBy, items),
+    },
+    {
+      title: 'Age', dataIndex: 'ageDays',
+      sorter: (a: ReassignReviewerItem, b: ReassignReviewerItem) => (a.ageDays ?? 0) - (b.ageDays ?? 0),
+      render: (v: number | null) => <AgeDot days={v} tagColor={tagColor} />,
+    },
+  ]
+
+  return (
+    <div className="space-y-3">
+      {ctx}
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-medium text-slate-600">Current Reviewer / Approver</span>
+        <Select
+          showSearch
+          allowClear
+          style={{ minWidth: 220 }}
+          placeholder="Select reviewer…"
+          options={reviewerOptions}
+          value={currentReviewerId}
+          onChange={(v) => { setCurrentReviewerId(v); setSelectedIds([]) }}
+          filterOption={(input, opt) =>
+            (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
+          }
+        />
+      </div>
+      <Table
+        rowKey="id"
+        loading={isLoading}
+        dataSource={items}
+        size="small"
+        rowSelection={{
+          selectedRowKeys: selectedIds,
+          onChange: (keys) => setSelectedIds(keys as string[]),
+          getCheckboxProps: () => ({ disabled: !currentReviewerId }),
+        }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} experiments` }}
+        columns={columns as any}
+        locale={{
+          emptyText: currentReviewerId
+            ? 'No experiments assigned to this reviewer.'
+            : 'Select a reviewer above to load experiments.',
+        }}
+      />
+      <div className="flex items-center gap-3 flex-wrap">
+        <span className="text-xs font-medium text-slate-600">Re-assign To</span>
+        <Select
+          showSearch
+          allowClear
+          style={{ minWidth: 220 }}
+          placeholder="Select new reviewer…"
+          options={reviewerOptions.filter((o) => o.value !== currentReviewerId)}
+          value={newReviewerId}
+          onChange={setNewReviewerId}
+          filterOption={(input, opt) =>
+            (opt?.label ?? '').toLowerCase().includes(input.toLowerCase())
+          }
+        />
+        <Button
+          type="primary"
+          disabled={selectedIds.length === 0 || !newReviewerId}
+          loading={reassignMut.isPending}
+          onClick={() => setEsignOpen(true)}
+          icon={<UserCog size={14} />}
+          className="bg-indigo-600 hover:bg-indigo-700 border-none"
+        >
+          Re-assign
+        </Button>
+      </div>
+
+      <ESignatureModal
+        open={esignOpen}
+        title="Re-assign Reviewer (E-Signature)"
+        description="Re-authenticate to confirm bulk reassignment of experiment reviewers."
+        userName={user?.username || 'Current User'}
+        loading={reassignMut.isPending}
+        onCancel={() => setEsignOpen(false)}
+        onConfirm={async (payload) => {
+          await reassignMut.mutateAsync({ password: payload.password })
+        }}
       />
     </div>
   )
@@ -386,6 +856,21 @@ export default function ArdAdExperimentsPage() {
               key: 'review_comments',
               label: 'Review Comments',
               children: <ReviewCommentsTable onCommentsClick={setCommentsThread} />,
+            },
+            {
+              key: 'review_requests',
+              label: 'Review Requests',
+              children: <ReviewRequestsTable />,
+            },
+            {
+              key: 'unlock_experiment',
+              label: 'Unlock Experiment',
+              children: <UnlockExperimentTable />,
+            },
+            {
+              key: 'reassign_reviewer',
+              label: 'Re-assign Reviewer',
+              children: <ReassignReviewerTable />,
             },
           ]}
         />

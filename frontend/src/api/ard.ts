@@ -800,6 +800,45 @@ export interface PendingReviewItem {
   history: { action?: string; from?: string; to?: string; by?: string; byName?: string; at?: string; remarks?: string }[]
 }
 
+export interface ReviewRequestItem {
+  id: string
+  code: string
+  templateName: string | null
+  status: string
+  aim: string | null
+  productName: string | null
+  projectCode: string | null
+  requestCount: number
+  submittedBy: string | null
+  submittedAt: string | null
+  ageDays: number | null
+}
+
+export interface UnlockRequestItem {
+  id: string
+  code: string
+  productName: string | null
+  approvedBy: string | null
+  approvedAt: string | null
+  unlockReason: string | null
+  requestedBy: string | null
+  requestedAt: string | null
+}
+
+export interface ReassignReviewerItem {
+  id: string
+  code: string
+  templateName: string | null
+  aim: string | null
+  productName: string | null
+  projectCode: string | null
+  submittedBy: string | null
+  submittedAt: string | null
+  currentReviewerName: string | null
+  stage: string | null
+  ageDays: number | null
+}
+
 const EXPERIMENT_BASE = '/api/ard/experiments'
 
 export const ardExperimentApi = {
@@ -862,6 +901,29 @@ export const ardExperimentApi = {
     apiPost<{ ok: boolean; rowsImported: number; sectionId: string }>(`${EXPERIMENT_BASE}/${id}/stp/import-empower`, { csvData, sectionId }),
   stpPushResults: (id: string, results: Record<string, unknown>[], testId?: string) =>
     apiPost<{ ok: boolean; testId: string; resultsCount: number }>(`${EXPERIMENT_BASE}/${id}/stp/push-results`, { results, testId }),
+  reviewRequests: (perspective: 'mine' | 'others') =>
+    apiGet<{ items: ReviewRequestItem[]; total: number }>(
+      `${EXPERIMENT_BASE}/review-requests`,
+      { perspective },
+    ),
+  unlockRequests: () =>
+    apiGet<{ items: UnlockRequestItem[]; total: number }>(
+      `${EXPERIMENT_BASE}/unlock-requests`,
+    ),
+  processUnlock: (id: string) =>
+    apiPost<{ ok: boolean }>(`${EXPERIMENT_BASE}/${id}/process-unlock`, {}),
+  returnUnlock: (id: string, body: { remarks: string }) =>
+    apiPost<{ ok: boolean }>(`${EXPERIMENT_BASE}/${id}/return-unlock`, body),
+  pendingReassign: (reviewerId: string) =>
+    apiGet<{ items: ReassignReviewerItem[]; total: number }>(
+      `${EXPERIMENT_BASE}/pending-reassign`,
+      { reviewer_id: reviewerId },
+    ),
+  bulkReassignReviewer: (body: { experimentIds: string[]; newReviewerId: string; password?: string }) =>
+    apiPost<{ updatedCount: number }>(
+      `${EXPERIMENT_BASE}/bulk-reassign-reviewer`,
+      { experiment_ids: body.experimentIds, new_reviewer_id: body.newReviewerId, password: body.password },
+    ),
 }
 
 // ── QC-TRF ───────────────────────────────────────────────────────────────

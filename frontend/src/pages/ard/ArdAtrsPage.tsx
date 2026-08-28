@@ -183,6 +183,33 @@ export default function ArdAtrsPage() {
     },
   })
 
+  // ── Clarification Requests tab (Analyst) — same underlying data as the
+  // existing generic query above (tabParam aliases it to pending_clarification,
+  // see below); just this tab's own selection state + bulk Clarify action.
+  // Clarify posts a reply to the ATR's clarifications thread, then transitions
+  // PENDING_CLARIFICATION -> CLARIFIED (ATR_TRANSITIONS already allows this).
+  const [clarificationSelectedIds, setClarificationSelectedIds] = useState<string[]>([])
+  const [clarifyModalOpen, setClarifyModalOpen] = useState(false)
+  const [clarifyMessage, setClarifyMessage] = useState('')
+
+  const bulkClarifyMut = useMutation({
+    mutationFn: async () => {
+      for (const id of clarificationSelectedIds) {
+        await ardAtrApi.addClarification(id, { message: clarifyMessage })
+        await ardAtrApi.transition(id, { to: 'CLARIFIED' })
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-atrs'] })
+      qc.invalidateQueries({ queryKey: ['ard-atrs-counts'] })
+      msg.success(`Clarified ${clarificationSelectedIds.length} form${clarificationSelectedIds.length !== 1 ? 's' : ''}.`)
+      setClarifyModalOpen(false)
+      setClarifyMessage('')
+      setClarificationSelectedIds([])
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to submit clarification for one or more forms.'),
+  })
+
   const withdrawMut = useMutation({
     mutationFn: (id: string) => ardAtrApi.transition(id, { to: 'WITHDRAWN', remarks: withdrawRemarks }),
     onSuccess: () => {
@@ -350,7 +377,7 @@ export default function ArdAtrsPage() {
     // Analyst-only view of the same PENDING_CLARIFICATION queue QA sees above
     // (as "Pending Clarification") — same status, but its own tab/column set
     // since the two audiences want different columns (legacy screen).
-    { key: 'clarification_requests', label: `Clarification Requests (${countPendingClar})`, show: isAnalyst },
+    { key: 'clarification_requests', label: `Form Pending Clarification (${countPendingClar})`, show: isAnalyst },
     { key: 'method_dev', label: `Method Development (${countMethodDev})`, show: true },
   ]
   const tabItems = allTabDescriptors.filter((t) => t.show).map(({ key, label }) => ({ key, label }))
@@ -499,6 +526,10 @@ export default function ArdAtrsPage() {
             loading={isLoading}
             healthTagColor={healthTagColor}
             onRowClick={(id) => navigate(`/ard/atrs/${id}`)}
+            selectedIds={clarificationSelectedIds}
+            setSelectedIds={setClarificationSelectedIds}
+            onClarifyClick={() => { setClarifyMessage(''); setClarifyModalOpen(true) }}
+            onEventsClick={() => setEventsModalRows(filteredItems.filter((r) => clarificationSelectedIds.includes(r.id)))}
           />
         ) : (
         <Table
@@ -665,6 +696,30 @@ export default function ArdAtrsPage() {
           await bulkReassignFormsMut.mutateAsync(payload.password)
         }}
       />
+
+      {/* Clarify Modal — Form Pending Clarification tab: reply to the ATR's
+          clarifications thread and move it on to CLARIFIED */}
+      <Modal
+        {...glassModalProps}
+        title={`Clarify ${clarificationSelectedIds.length} Form${clarificationSelectedIds.length !== 1 ? 's' : ''}`}
+        open={clarifyModalOpen}
+        onCancel={() => { setClarifyModalOpen(false); setClarifyMessage('') }}
+        onOk={() => bulkClarifyMut.mutate()}
+        confirmLoading={bulkClarifyMut.isPending}
+        okText="Submit Clarification"
+        okButtonProps={{ disabled: !clarifyMessage.trim() }}
+        destroyOnClose
+      >
+        <div className="py-2 space-y-3">
+          <p className="text-xs text-slate-600">Reply to the clarification request. The form moves to CLARIFIED once submitted.</p>
+          <Input.TextArea
+            rows={4}
+            value={clarifyMessage}
+            onChange={(e) => setClarifyMessage(e.target.value)}
+            placeholder="Enter your response..."
+          />
+        </div>
+      </Modal>
 
       {/* Events — workflow history for the selected ATR(s) on Form Pending Approval */}
       <Modal
@@ -955,27 +1010,33 @@ function sampleField(r: AtrForm, key: 'sampleCode' | 'sampleType' | 'batchNo' | 
   return vals.length ? Array.from(new Set(vals)).join(', ') : '—'
 }
 
-// Analyst-only "Clarification Requests" view (legacy screen) — same
+// Analyst-only "Form Pending Clarification" view (legacy screen) — same
 // PENDING_CLARIFICATION queue QA sees under "Pending Clarification", but its
 // own column set: Requested By(On) and Request Remarks come from the ATR's
 // clarifications thread (POST /:atrId/clarifications) — the LATEST entry is
-// whichever comment actually triggered this clarification request. Read-only
-// (row click opens the ATR itself) — no bulk actions, matching the legacy
-// screen's own layout.
+// whichever comment actually triggered this clarification request. Row
+// checkboxes + Clarify (reply and move the form on to CLARIFIED) / Events,
+// matching the legacy screen's own toolbar; row click still opens the ATR.
 function ClarificationRequestsPanel({
-  items, loading, healthTagColor, onRowClick,
+  items, loading, healthTagColor, onRowClick, selectedIds, setSelectedIds, onClarifyClick, onEventsClick,
 }: {
   items: AtrForm[]
   loading: boolean
   healthTagColor: (days: number) => string
   onRowClick: (id: string) => void
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onClarifyClick: () => void
+  onEventsClick: () => void
 }) {
   return (
+    <div className="space-y-3">
     <Table
       rowKey="id"
       loading={loading}
       dataSource={items}
       size="small"
+      rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
       onRow={(row) => ({ onClick: () => onRowClick(row.id) })}
       rowClassName={() => 'cursor-pointer hover:bg-indigo-50/40 transition-colors'}
       pagination={{ pageSize: 10, showTotal: (t) => `${t} ATRs` }}
@@ -1018,6 +1079,16 @@ function ClarificationRequestsPanel({
         },
       ]}
     />
+      <div className="flex gap-2" onClick={(e) => e.stopPropagation()}>
+        <Button type="primary" disabled={selectedIds.length === 0} onClick={onClarifyClick}
+          className="bg-emerald-600 hover:bg-emerald-700 border-none">
+          Clarify
+        </Button>
+        <Button disabled={selectedIds.length === 0} onClick={onEventsClick}>
+          Events
+        </Button>
+      </div>
+    </div>
   )
 }
 

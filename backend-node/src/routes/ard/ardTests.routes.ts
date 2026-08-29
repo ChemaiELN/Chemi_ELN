@@ -4,7 +4,7 @@ import { Op } from 'sequelize'
 import { v4 as uuidv4 } from 'uuid'
 import { authenticate } from '../../middleware/auth.middleware'
 import { successResponse, listResponse, parsePagination, buildPagination } from '../../utils/response'
-import { NotFoundError, BadRequestError, ForbiddenError } from '../../utils/errors'
+import { NotFoundError, BadRequestError, ForbiddenError, ConflictError } from '../../utils/errors'
 import { verifyPassword } from '../../utils/auth.utils'
 import {
   ArdTestRequest,
@@ -17,7 +17,9 @@ import {
   Role,
   Department,
 } from '../../models/index'
-import { generateArTestNumber } from '../../utils/idSequence'
+import { sequelize } from '../../database/connection'
+import { resolveExperimentCreationPlan } from './ardExperiments.routes'
+import { generateArTestNumber, generateArdExperimentCode } from '../../utils/idSequence'
 import { enforceEsignature, ESIGN_FLAGS } from '../../shared/ardSettings'
 import { canReadAllTests, teammateTlIds, ledTeamMemberIds } from '../../shared/ardRbac'
 import {
@@ -877,7 +879,20 @@ ardTestRouter.post(
 
       await recordTestHistory((test as any).id, 'WITHDRAWN', user.id, user.username)
 
-      await test.update({ status: 'WITHDRAWN' })
+      // A withdrawn test is dead — leaving its experiment-side link intact
+      // would let the experiment keep showing it as an active ATR-sourced
+      // sample, and resolveExpectedVerifier would still route verification
+      // through whoever the dead test was assigned to. Run the same de-link
+      // cleanup link-notebook's free-text branch uses.
+      const priorExperimentId = (test as any).experimentId as string | null
+      await test.update({ status: 'WITHDRAWN', experimentId: null, notebookRefLink: false })
+      if (priorExperimentId) {
+        await removeAtrFromExperimentLinkedIdsIfUnreferenced(priorExperimentId, req.params.atrId as string, req.params.testId as string)
+        const priorExperiment = await ArdExperiment.findByPk(priorExperimentId)
+        if (priorExperiment) {
+          await recordExperimentHistory(priorExperiment, 'ATR_TEST_DELINKED', user, 'ATR test withdrawn')
+        }
+      }
       return res.json(successResponse('Test withdrawn', test))
     } catch (err) {
       next(err)
@@ -931,6 +946,10 @@ async function buildSampleRowsFromAtr(atrId: string): Promise<any[]> {
       qty,
       status: s.status || 'UNASSIGNED',
       remarks: s.additionalRemarks || '',
+      // Mirrors legacy's ADExperimentSampleBean.isAtrSample — marks this row
+      // as ATR-sourced explicitly, rather than callers having to infer it
+      // from `atrId` being truthy.
+      isAtrSample: true,
       tests,
     }
   })
@@ -942,6 +961,158 @@ async function buildSampleRowsFromAtr(atrId: string): Promise<any[]> {
 // experiment with no sample_details section, or any failure building the
 // rows, must never block the link itself — this is a convenience side
 // effect, not the source of truth (the test's own experimentId is).
+// Mirrors legacy's ATR_TEST_LINKED/ATR_TEST_DELINKED paired event — the
+// test's own history already records NOTEBOOK_LINKED/NOTEBOOK_DELINKED, but
+// legacy also logged the same event on the experiment side so its own
+// History view shows which ATR tests came and went. Best-effort, same as
+// the other link-notebook side effects.
+async function recordExperimentHistory(
+  experiment: InstanceType<typeof ArdExperiment>,
+  action: string,
+  user: { id: string; username: string },
+  detail: string,
+): Promise<void> {
+  try {
+    const entry = { action, by: user.id, byName: user.username, at: new Date(), detail }
+    await experiment.update({ history: [...((experiment as any).history || []), entry] })
+  } catch {
+    // best-effort — the notebook link itself already succeeded
+  }
+}
+
+// Mirrors legacy's workflow advance on createNewExperimentFromTest — linking
+// a test to an experiment is the point analytical work is considered to
+// have actually started, so a test still sitting in ASSIGNED (never
+// "Start Test"-ed) advances the same way /start does. A test already past
+// that point (IN_PROGRESS or later) is left alone — this only fills the gap
+// for tests that skipped straight to linking a notebook.
+async function advanceTestWorkflowOnLink(test: InstanceType<typeof ArdTestRequest>, atrId: string, user: { id: string; username: string }): Promise<void> {
+  if ((test as any).status !== 'ASSIGNED') return
+  try {
+    await recordTestHistory((test as any).id, 'IN_PROGRESS', user.id, user.username, 'auto-started on notebook link')
+    let arNumber = (test as any).arNumber
+    if (!arNumber) {
+      arNumber = await generateArTestNumber((test as any).techniqueCode || 'GEN')
+    }
+    await test.update({ status: 'IN_PROGRESS', startedAt: new Date(), arNumber })
+    const atr = await ArdAtrForm.findByPk(atrId)
+    if (atr && shouldMoveAtrToPartialOnTestStart((atr as any).status)) {
+      await (atr as any).update({ status: 'PARTIAL', updatedAt: new Date() })
+    }
+  } catch {
+    // best-effort — the notebook link itself already succeeded
+  }
+}
+
+// Scenario C1a/b/c — only for create-and-link-experiment (creating a BRAND
+// NEW experiment directly from this test), not the generic link-notebook
+// (linking to an arbitrary existing experiment, which stays conservative —
+// see advanceTestWorkflowOnLink above — since auto-flipping an in-progress
+// test's status just because its notebook reference was corrected/re-linked
+// would be a surprising side effect). Also appends a version snapshot to the
+// test's own `versions` array and records AD_EXP_CREATED, mirroring legacy's
+// ArdAtrresultversions snapshot + paired audit event.
+async function advanceTestWorkflowOnCreateFromTest(
+  test: InstanceType<typeof ArdTestRequest>,
+  atrId: string,
+  experiment: InstanceType<typeof ArdExperiment>,
+  user: { id: string; username: string },
+): Promise<void> {
+  try {
+    const priorStatus = (test as any).status
+    const versionEntry = {
+      hash: uuidv4(),
+      priorStatus,
+      notebookReference: (experiment as any).code,
+      notebookRefLink: true,
+      by: user.id,
+      byName: user.username,
+      at: new Date(),
+    }
+    const versions = [...(((test as any).versions as any[]) || []), versionEntry]
+
+    if (priorStatus === 'ASSIGNED') {
+      // C1a: fresh/unassigned -> ANALYSIS REQUEST equivalent
+      let arNumber = (test as any).arNumber
+      if (!arNumber) arNumber = await generateArTestNumber((test as any).techniqueCode || 'GEN')
+      await test.update({ status: 'IN_PROGRESS', startedAt: new Date(), arNumber, versions })
+      await recordTestHistory((test as any).id, 'IN_PROGRESS', user.id, user.username, 'ANALYSIS_REQUEST — started on experiment creation')
+      const atr = await ArdAtrForm.findByPk(atrId)
+      if (atr && shouldMoveAtrToPartialOnTestStart((atr as any).status)) {
+        await (atr as any).update({ status: 'PARTIAL', updatedAt: new Date() })
+      }
+    } else if (['IN_PROGRESS', 'VERIFICATION_REWORK'].includes(priorStatus)) {
+      // C1b: mid-review -> VERIFICATION REQUEST equivalent
+      await test.update({ status: 'VERIFICATION_REQUESTED', submittedAt: new Date(), versions })
+      await recordTestHistory((test as any).id, 'VERIFICATION_REQUESTED', user.id, user.username, 'VERIFICATION_REQUEST — submitted on experiment creation')
+    } else if (((test as any).enhancementRequests ?? []).some((r: any) => r.status === 'PENDING')) {
+      // C1c: flagged for rework — this app tracks that via a pending entry
+      // in `enhancementRequests`, not a distinct test.status value (nothing
+      // ever sets status to 'ENHANCEMENT_REQUESTED' — see the enhancement-
+      // request route's own comment on why). Status is left alone (same
+      // reasoning: nothing moves a test back out of it), just record the
+      // version + event.
+      await test.update({ versions })
+      await recordTestHistory((test as any).id, 'ENHANCEMENT_REQUESTED', user.id, user.username, 'ENHANCEMENT_REQUEST — experiment created while enhancement pending')
+    } else {
+      // Any other prior status (VERIFIED/ACCEPTED/etc.) is left untouched —
+      // linking a fresh experiment shouldn't reopen an already-finalized test.
+      await test.update({ versions })
+    }
+
+    await recordTestHistory((test as any).id, 'AD_EXP_CREATED', user.id, user.username, (experiment as any).code)
+  } catch {
+    // best-effort — the create-and-link itself already succeeded
+  }
+}
+
+// Keeps ArdExperiment.linkedAtrIds (the co-submit list) in sync with the
+// test-level experimentId pointer set by link-notebook. Best-effort, same as
+// attachAtrToExperimentSampleDetails — this is a denormalized convenience
+// list, not the source of truth (the test's own experimentId is).
+async function addAtrToExperimentLinkedIds(experiment: InstanceType<typeof ArdExperiment>, atrId: string): Promise<void> {
+  try {
+    const current: string[] = Array.isArray((experiment as any).linkedAtrIds) ? (experiment as any).linkedAtrIds : []
+    if (current.includes(atrId)) return
+    await experiment.update({ linkedAtrIds: [...current, atrId] })
+  } catch {
+    // best-effort — the notebook link itself already succeeded
+  }
+}
+
+// Removes atrId from the previously-linked experiment's linkedAtrIds, but
+// only if no other test on that same ATR form still points at it (mirrors
+// legacy's reference-count check before stripping atrformnumber).
+async function removeAtrFromExperimentLinkedIdsIfUnreferenced(
+  experimentId: string,
+  atrId: string,
+  excludeTestId: string,
+): Promise<void> {
+  try {
+    const stillLinked = await ArdTestRequest.findOne({
+      where: { experimentId, id: { [Op.ne]: excludeTestId } },
+      include: [{
+        model: ArdAtrSample,
+        as: 'sample',
+        attributes: ['id', 'atrFormId'],
+        where: { atrFormId: atrId },
+        required: true,
+      }],
+    })
+    if (stillLinked) return
+
+    const experiment = await ArdExperiment.findByPk(experimentId)
+    if (!experiment) return
+    const current: string[] = Array.isArray((experiment as any).linkedAtrIds) ? (experiment as any).linkedAtrIds : []
+    if (current.includes(atrId)) {
+      await experiment.update({ linkedAtrIds: current.filter((id) => id !== atrId) })
+    }
+    await removeAtrFromExperimentSampleDetails(experiment, atrId)
+  } catch {
+    // best-effort — the notebook link itself already succeeded
+  }
+}
+
 async function attachAtrToExperimentSampleDetails(experiment: InstanceType<typeof ArdExperiment>, atrId: string): Promise<void> {
   try {
     const sectionDefs = Array.isArray((experiment as any).sectionDefs) ? (experiment as any).sectionDefs as any[] : []
@@ -959,6 +1130,29 @@ async function attachAtrToExperimentSampleDetails(experiment: InstanceType<typeo
     await experiment.update({ sections })
   } catch {
     // best-effort — the notebook link itself already succeeded
+  }
+}
+
+// Strips the rows attachAtrToExperimentSampleDetails added for this ATR out
+// of the (now stale) previously-linked experiment's sample_details section.
+// Only called once removeAtrFromExperimentLinkedIdsIfUnreferenced has
+// already confirmed no other test on this ATR form still points at that
+// experiment — otherwise this would delete rows another linked test still
+// needs.
+async function removeAtrFromExperimentSampleDetails(experiment: InstanceType<typeof ArdExperiment>, atrId: string): Promise<void> {
+  try {
+    const sectionDefs = Array.isArray((experiment as any).sectionDefs) ? (experiment as any).sectionDefs as any[] : []
+    const sampleSection = sectionDefs.find((s) => (s?.type || '').toLowerCase().replace(/-/g, '_') === 'sample_details')
+    if (!sampleSection?.id) return
+
+    const sections = { ...((experiment as any).sections as Record<string, any> ?? {}) }
+    const existingRows: any[] = Array.isArray(sections[sampleSection.id]) ? sections[sampleSection.id] : []
+    if (!existingRows.some((r) => r?.atrId === atrId)) return
+
+    sections[sampleSection.id] = existingRows.filter((r) => r?.atrId !== atrId)
+    await experiment.update({ sections })
+  } catch {
+    // best-effort — the de-link itself already succeeded
   }
 }
 
@@ -981,26 +1175,146 @@ ardTestRouter.post(
       const test = await findTest(req.params.atrId as string, req.params.testId as string)
       const body = linkNotebookSchema.parse(req.body)
       const user = req.user as any
+      const atrId = req.params.atrId as string
+      const testId = req.params.testId as string
+      const prevExperimentId = (test as any).experimentId as string | null
 
       if (body.experimentId) {
         const experiment = await ArdExperiment.findByPk(body.experimentId)
         if (!experiment) throw new NotFoundError('Experiment not found')
+
+        // Mirrors legacy's checkForExpEditLock — refuse to link/re-link a
+        // test onto an experiment someone else currently has open for
+        // editing, matching the same lock ArdExperimentWorkspacePage's
+        // acquire-lock/check-lock endpoints already enforce for direct edits.
+        const lockUserId = (experiment as any).editorLockUserId
+        const lockExpiresAt = (experiment as any).editorLockExpiresAt
+        if (lockUserId && lockUserId !== user.id && lockExpiresAt && new Date(lockExpiresAt) > new Date()) {
+          throw new ConflictError(
+            `Experiment ${(experiment as any).code} is currently locked for editing by ${(experiment as any).editorLockUsername ?? 'another user'}.`,
+          )
+        }
+
         await test.update({
           experimentId: experiment.id,
           notebookRefLink: true,
           notebookReference: (experiment as any).code,
         })
-        await attachAtrToExperimentSampleDetails(experiment, req.params.atrId as string)
+        await attachAtrToExperimentSampleDetails(experiment, atrId)
+        await addAtrToExperimentLinkedIds(experiment, atrId)
+        await advanceTestWorkflowOnLink(test, atrId, user)
+        // C2 (link an EXISTING experiment) fires AD_EXP_LINKED — distinct
+        // from C1's ATR_TEST_LINKED (create-and-link-experiment, a brand
+        // new experiment), matching legacy's two differently-named events
+        // for what's otherwise the same underlying write-back.
+        await recordExperimentHistory(experiment, 'AD_EXP_LINKED', user, (test as any).testType ? `${(test as any).testType} test linked` : 'ATR test linked')
+        if (prevExperimentId && prevExperimentId !== experiment.id) {
+          await removeAtrFromExperimentLinkedIdsIfUnreferenced(prevExperimentId, atrId, testId)
+          const prevExperiment = await ArdExperiment.findByPk(prevExperimentId)
+          if (prevExperiment) {
+            await recordExperimentHistory(prevExperiment, 'ATR_TEST_DELINKED', user, 'ATR test re-linked to a different experiment')
+          }
+        }
       } else {
+        const prevExperiment = prevExperimentId ? await ArdExperiment.findByPk(prevExperimentId) : null
         await test.update({
           experimentId: null,
           notebookRefLink: false,
           notebookReference: body.notebookReference ?? null,
         })
+        if (prevExperimentId) {
+          await removeAtrFromExperimentLinkedIdsIfUnreferenced(prevExperimentId, atrId, testId)
+          if (prevExperiment) {
+            await recordExperimentHistory(prevExperiment, 'ATR_TEST_DELINKED', user, 'ATR test delinked')
+          }
+        }
       }
 
-      await recordTestHistory((test as any).id, 'NOTEBOOK_LINKED', user.id, user.username, (test as any).notebookReference ?? undefined)
+      // Mirrors legacy's ATR_TEST_DELINKED vs the link-side event — a bare
+      // free-text/null notebookReference is a de-link, not a link, and the
+      // audit trail should say so.
+      const action = body.experimentId ? 'NOTEBOOK_LINKED' : 'NOTEBOOK_DELINKED'
+      await recordTestHistory((test as any).id, action, user.id, user.username, (test as any).notebookReference ?? undefined)
       return res.json(successResponse('Notebook reference updated', test))
+    } catch (err) {
+      next(err)
+    }
+  },
+)
+
+// POST /:atrId/:testId/create-and-link-experiment
+// The "New Experiment" mode of ArdTestExecutePage's notebook-reference picker
+// previously did this as two separate API calls (POST /api/ard/experiments,
+// then this router's own /link-notebook) — a failure between the two left an
+// orphaned experiment with no link and no test-side trace of it. The actual
+// atomicity gap is only in "create the experiment" + "point the test at it";
+// the sample-row copy / linkedAtrIds / workflow-advance / audit-log side
+// effects below are already best-effort (same as link-notebook), so they run
+// after the transaction commits, same as before.
+const createAndLinkExperimentSchema = z.object({
+  templateId: z.string().optional(),
+  projectStpId: z.string().optional(),
+  notebookId: z.string().uuid().nullable().optional(),
+  projectId: z.string().uuid().nullable().optional(),
+  name: z.string().optional(),
+})
+ardTestRouter.post(
+  '/:atrId/:testId/create-and-link-experiment',
+  authenticate,
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const test = await findTest(req.params.atrId as string, req.params.testId as string)
+      const body = createAndLinkExperimentSchema.parse(req.body)
+      const user = req.user as any
+      const atrId = req.params.atrId as string
+
+      const { templateName, sectionDefs } = await resolveExperimentCreationPlan({
+        templateId: body.templateId,
+        projectStpId: body.projectStpId,
+        projectId: body.projectId,
+        notebookId: body.notebookId,
+        forceSampleDetails: true,
+      })
+      const code = await generateArdExperimentCode()
+
+      const experiment = await sequelize.transaction(async (t) => {
+        const exp = await (ArdExperiment as any).create({
+          code,
+          name: body.name || null,
+          templateId: body.projectStpId ? null : body.templateId,
+          templateName,
+          projectStpId: body.projectStpId || null,
+          sectionDefs,
+          sections: {},
+          notebookId: body.notebookId ?? null,
+          projectId: body.projectId ?? null,
+          createdById: user.id,
+          status: 'NEW',
+          history: [],
+          linkedSamples: [],
+          referenceExperiments: [],
+          clarifications: [],
+          sectionComments: [],
+          postAnalytical: [],
+          versionSnapshots: [],
+        }, { transaction: t })
+
+        await test.update({
+          experimentId: exp.id,
+          notebookRefLink: true,
+          notebookReference: (exp as any).code,
+        }, { transaction: t })
+
+        return exp
+      })
+
+      await attachAtrToExperimentSampleDetails(experiment, atrId)
+      await addAtrToExperimentLinkedIds(experiment, atrId)
+      await advanceTestWorkflowOnCreateFromTest(test, atrId, experiment, user)
+      await recordExperimentHistory(experiment, 'ATR_TEST_LINKED', user, (test as any).testType ? `${(test as any).testType} test linked` : 'ATR test linked')
+      await recordExperimentHistory(experiment, 'AD_EXP_CREATED', user, 'Created directly from ATR test')
+
+      res.status(201).json(successResponse('Experiment created and linked', experiment))
     } catch (err) {
       next(err)
     }
@@ -1023,7 +1337,17 @@ ardTestRouter.post(
       const user = req.user as any
       await recordTestHistory((test as any).id, 'CANCELLED', user.id, user.username)
 
-      await test.update({ status: 'CANCELLED' })
+      // Same dangling-reference concern as withdraw — a cancelled test must
+      // not keep an experiment believing it's still ATR-linked.
+      const priorExperimentId = (test as any).experimentId as string | null
+      await test.update({ status: 'CANCELLED', experimentId: null, notebookRefLink: false })
+      if (priorExperimentId) {
+        await removeAtrFromExperimentLinkedIdsIfUnreferenced(priorExperimentId, req.params.atrId as string, req.params.testId as string)
+        const priorExperiment = await ArdExperiment.findByPk(priorExperimentId)
+        if (priorExperiment) {
+          await recordExperimentHistory(priorExperiment, 'ATR_TEST_DELINKED', user, 'ATR test cancelled')
+        }
+      }
       return res.json(successResponse('Test cancelled', test))
     } catch (err) {
       next(err)

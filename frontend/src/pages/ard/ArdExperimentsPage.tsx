@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { Table, Tag, Button, Modal, Form, Input, Select, Radio, message, Tabs } from 'antd'
@@ -50,7 +50,7 @@ export default function ArdExperimentsPage() {
   const { textColor: healthTextColor } = useHealthIndicator()
   const [open, setOpen] = useState(false)
   const [q, setQ] = useState('')
-  const [listTab, setListTab] = useState<'active' | 'inactive' | 'delayed'>('active')
+  const [listTab, setListTab] = useState<'active' | 'inactive' | 'delayed' | 'approval'>('active')
   const [form] = Form.useForm()
   const [creationMode, setCreationMode] = useState<'template' | 'stp'>('template')
   const [selectedProjectId, setSelectedProjectId] = useState<string | undefined>()
@@ -72,6 +72,16 @@ export default function ArdExperimentsPage() {
     if (typeof val === 'boolean') return val
     return String(val).toLowerCase() !== 'false'
   }, [settingsMap])
+  // Approval tab — queried directly by status rather than derived from the
+  // general (createdAt-ordered, capped at 100) `data` list above: an
+  // experiment can be old but only just submitted, so it may not be in that
+  // list's top 100 most-recently-CREATED rows even though it's awaiting
+  // approval right now.
+  const { data: approvalData } = useQuery({
+    queryKey: ['ard-experiments-approval'],
+    queryFn: () => ardExperimentApi.list({ status: 'SUBMITTED', pageSize: 100 }),
+    enabled: isUnscopedAdmin,
+  })
   // B-82: delayed experiments for analyst
   const isAnalystRole = ['ANALYST', 'CHEMIST', 'CHEM'].includes(user?.role_code ?? '')
   const { data: delayedData } = useQuery({
@@ -128,10 +138,19 @@ export default function ArdExperimentsPage() {
 
   const activeExperiments = useMemo(() => scopedExperiments.filter(e => e.status !== 'DEACTIVATED'), [scopedExperiments])
   const inactiveExperiments = useMemo(() => scopedExperiments.filter(e => e.status === 'DEACTIVATED'), [scopedExperiments])
+  // Experiments actually awaiting an approval decision (status SUBMITTED,
+  // i.e. "Submit for Approval" was clicked) — unscoped to the current user's
+  // own projects/notebooks, since an approver reviews other people's work,
+  // not their own. Gated to the roles that can act on it (TL/HOD/QA/Admin).
+  const approvalExperiments = useMemo(
+    () => (isUnscopedAdmin ? (approvalData?.items ?? []) : []),
+    [approvalData?.items, isUnscopedAdmin],
+  )
 
   const filteredExperiments = useMemo(() => {
     const base = listTab === 'inactive' ? inactiveExperiments
       : listTab === 'delayed' ? (delayedData?.items ?? [])
+      : listTab === 'approval' ? approvalExperiments
       : activeExperiments
     const term = q.trim().toLowerCase()
     if (!term) return base
@@ -140,7 +159,7 @@ export default function ArdExperimentsPage() {
       exp.templateName?.toLowerCase().includes(term) ||
       exp.status?.toLowerCase().includes(term)
     )
-  }, [activeExperiments, inactiveExperiments, delayedData, listTab, q])
+  }, [activeExperiments, inactiveExperiments, delayedData, approvalExperiments, listTab, q])
 
   const templateOptions = useMemo(() => {
     const pub = published?.items ?? []
@@ -185,6 +204,19 @@ export default function ArdExperimentsPage() {
       }))
   }, [selectedProjectDetail])
 
+  // Completes the Routine-Analysis auto-clone: once the project (inferred
+  // from the chosen notebook) resolves to exactly one approved STP, select
+  // it automatically rather than making the user pick from a list of one.
+  useEffect(() => {
+    if (creationMode !== 'stp' || stpOptions.length !== 1) return
+    if (form.getFieldValue('projectStpId')) return
+    const only = stpOptions[0]
+    form.setFieldsValue({ projectStpId: only.value })
+    if (only.stp?.title && !form.getFieldValue('name')) {
+      form.setFieldsValue({ name: only.stp.title })
+    }
+  }, [creationMode, stpOptions, form])
+
   const create = useMutation({
     mutationFn: ardExperimentApi.create,
     onSuccess: (e) => {
@@ -227,12 +259,13 @@ export default function ArdExperimentsPage() {
 
       <Tabs
         activeKey={listTab}
-        onChange={k => setListTab(k as 'active' | 'inactive' | 'delayed')}
+        onChange={k => setListTab(k as 'active' | 'inactive' | 'delayed' | 'approval')}
         className="mb-2"
         items={[
           { key: 'active', label: `Active (${activeExperiments.length})` },
           { key: 'inactive', label: `Inactive / Deactivated (${inactiveExperiments.length})` },
           ...(isAnalystRole ? [{ key: 'delayed', label: `Delayed (${delayedData?.items?.length ?? 0})` }] : []),
+          ...(isUnscopedAdmin ? [{ key: 'approval', label: `Approval (${approvalExperiments.length})` }] : []),
         ]}
       />
 
@@ -344,6 +377,19 @@ export default function ArdExperimentsPage() {
               optionFilterProp="label"
               placeholder="Select notebook..."
               options={notebookOptions}
+              onChange={(nbId) => {
+                // Mirrors legacy's auto-clone-from-STP behavior: a Routine
+                // Analysis notebook always runs a pre-approved STP, so
+                // picking one shouldn't require the user to also know to
+                // flip "Creation Mode" to Via Project STP themselves — only
+                // kicks in while still on the default template mode with no
+                // STP already chosen, so it never overrides a deliberate choice.
+                if (creationMode !== 'template' || form.getFieldValue('projectStpId')) return
+                const nb = scopedNotebooks.find(n => n.id === nbId)
+                if (nb?.notebookType?.toUpperCase() !== 'ROUTINE_ANALYSIS' || !stpEnabled) return
+                setCreationMode('stp')
+                if (nb.projectId) setSelectedProjectId(nb.projectId)
+              }}
             />
           </Form.Item>
           {creationMode === 'stp' && (

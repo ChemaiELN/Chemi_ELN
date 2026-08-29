@@ -21,6 +21,7 @@ import {
   Role,
   Department,
   ArdTeam,
+  ArdExperiment,
 } from '../../models/index';
 import { generateAtrNumber, generateAtrSampleCode } from '../../utils/idSequence';
 import { deductQty } from '../../utils/qtyLedger';
@@ -38,6 +39,8 @@ import {
 } from '../../shared/ardRbac';
 import {
   CERTIFICATION_INCOMPLETE_TEST_STATUSES,
+  ATR_CERT_COMPLETED_TEST_STATUSES,
+  ATR_VERIFIED_COMPLETED_TEST_STATUSES,
   normalizeAtrTransitionAction,
 } from '../../shared/ardWorkflowGuards';
 
@@ -920,11 +923,55 @@ atrRouter.post('/:atrId/request-certification', authenticate, async (req: Reques
 });
 
 // POST /:atrId/certify
+// Mirrors legacy's approveCertificationAction / FETCHATRRESULTIDSFORCERTIFY
+// (or …FORVERIFIED) guard: before letting QA certify, every active test
+// under this ATR form must have reached a terminal status — which terminal
+// set applies is picked by the CertificationAfterApproval setting. A linked
+// AD Experiment currently reopened (UNLOCK_REQUESTED/UNLOCKED) is called out
+// with its own message rather than the generic "not yet complete" one,
+// since that's specifically recoverable by re-running the experiment's own
+// approval cycle (S5->S14->S16) rather than by finishing lab work.
 atrRouter.post('/:atrId/certify', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user;
-    await enforceEsignature(user, ESIGN_FLAGS.QA_CERTIFY_AUTH, req.body.password);
     const atr = await findAtr((req.params.atrId as string));
+
+    const atrSampleRows = await (ArdAtrSample as any).findAll({
+      where: { atrFormId: (req.params.atrId as string) },
+      attributes: ['id'],
+    });
+    const atrSampleIds = atrSampleRows.map((r: any) => r.id);
+    const activeTests = atrSampleIds.length === 0 ? [] : await (ArdTestRequest as any).findAll({
+      where: { sampleId: { [Op.in]: atrSampleIds } },
+      attributes: ['id', 'status', 'experimentId'],
+    });
+
+    const certificationAfterApproval = await settingEnabled('CertificationAfterApproval');
+    const terminalStatuses: readonly string[] = certificationAfterApproval
+      ? ATR_CERT_COMPLETED_TEST_STATUSES
+      : ATR_VERIFIED_COMPLETED_TEST_STATUSES;
+    const nonTerminal = activeTests.filter((t: any) => !terminalStatuses.includes(t.status));
+
+    if (nonTerminal.length > 0) {
+      const experimentIds = Array.from(new Set(nonTerminal.map((t: any) => t.experimentId).filter(Boolean)));
+      const reopenedExperiments = experimentIds.length ? await (ArdExperiment as any).findAll({
+        where: { id: { [Op.in]: experimentIds }, status: { [Op.in]: ['UNLOCK_REQUESTED', 'UNLOCKED'] } },
+        attributes: ['id'],
+      }) : [];
+
+      if (reopenedExperiments.length > 0) {
+        throw new BadRequestError(
+          'Linked Experiment has been unlocked, Can not Certify the ATR Form!!.',
+          'LINKED_EXPERIMENT_UNLOCKED',
+        );
+      }
+      throw new BadRequestError(
+        `${nonTerminal.length} linked test result(s) have not reached a terminal status yet`,
+        'CERTIFICATION_NOT_TERMINAL',
+      );
+    }
+
+    await enforceEsignature(user, ESIGN_FLAGS.QA_CERTIFY_AUTH, req.body.password);
     await (atr as any).update({
       certifiedAt: new Date(),
       certifiedBy: user.username,

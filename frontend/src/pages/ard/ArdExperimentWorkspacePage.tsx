@@ -57,15 +57,38 @@ const STATUS_LABEL: Record<string, string> = {
 // Verification step is optional (controlled by VerificationRequestFlow ARD setting).
 // Both VERIFICATION_REQUESTED and SUBMITTED are offered from IN_PROGRESS; backend enforces the setting.
 const EXPERIMENT_TRANSITIONS: Record<ExperimentStatus, ExperimentStatus[]> = {
-  NEW: ['DEACTIVATED'],
+  // NEW normally auto-flips to IN_PROGRESS on its first save (PATCH
+  // /:experimentId), but the same submit options must be reachable even
+  // before that first save happens — a NEW experiment with nothing yet
+  // touched previously offered nothing but Discontinue.
+  NEW: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
   IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
   VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK', 'DEACTIVATED'],
-  VERIFICATION_REWORK: ['VERIFICATION_REQUESTED'],
-  VERIFIED: ['SUBMITTED'],
+  // Backend previously had no exit from VERIFICATION_REWORK at all — every
+  // transition attempt 400'd, leaving the experiment permanently stuck.
+  // Fixed alongside ardExperiments.routes.ts's EXPERIMENT_TRANSITIONS: same
+  // two exits REWORK gets — edit further, or go straight back to review.
+  VERIFICATION_REWORK: ['IN_PROGRESS', 'VERIFICATION_REQUESTED', 'DEACTIVATED'],
+  VERIFIED: ['SUBMITTED', 'DEACTIVATED'],
   SUBMITTED: ['APPROVED', 'REWORK', 'DEACTIVATED'],
-  REWORK: ['SUBMITTED'],
-  APPROVED: ['UNLOCK_REQUESTED'],
-  UNLOCK_REQUESTED: ['UNLOCKED'],
+  // Was ['SUBMITTED'] — the backend only ever allowed REWORK -> IN_PROGRESS
+  // (the owner has to actually re-enter editing before resubmitting), so this
+  // showed a "Submit for Approval" button that 400'd every time it was
+  // clicked directly from REWORK. Verified live: SUBMITTED->REWORK->SUBMITTED
+  // hit "Transition 'SUBMITTED' not allowed from status 'REWORK'".
+  REWORK: ['IN_PROGRESS', 'DEACTIVATED'],
+  // DEACTIVATED added to every remaining non-terminal state below — legacy's
+  // Discontinue is an administrative override reachable from "most
+  // non-terminal states", but this map previously only allowed it from
+  // NEW/IN_PROGRESS/VERIFICATION_REQUESTED/SUBMITTED.
+  APPROVED: ['UNLOCK_REQUESTED', 'DEACTIVATED'],
+  // Backend previously only allowed UNLOCK_REQUESTED -> UNLOCKED — an
+  // approver could grant an unlock request but never decline one, leaving it
+  // stuck in UNLOCK_REQUESTED forever. 'APPROVED' here is the reject path
+  // (stays/returns to Approved unchanged), distinguished from a normal
+  // SUBMITTED->APPROVED by its `from` in history and by the dedicated label
+  // below.
+  UNLOCK_REQUESTED: ['UNLOCKED', 'APPROVED', 'DEACTIVATED'],
   UNLOCKED: ['IN_PROGRESS', 'DEACTIVATED'],
   DEACTIVATED: [],
 }
@@ -85,7 +108,7 @@ const TRANSITION_ROLE: Partial<Record<ExperimentStatus, 'analyst' | 'reviewer' |
 }
 
 const TRANSITION_LABEL: Record<string, string> = {
-  VERIFICATION_REQUESTED: 'Submit for Peer Verification',
+  VERIFICATION_REQUESTED: 'Submit for Review',
   VERIFIED: 'Mark Verified',
   VERIFICATION_REWORK: 'Return for Verification Rework',
   SUBMITTED: 'Submit for Approval',
@@ -94,6 +117,7 @@ const TRANSITION_LABEL: Record<string, string> = {
   REWORK: 'Return for Rework',
   UNLOCK_REQUESTED: 'Request Unlock',
   UNLOCKED: 'Approve Unlock',
+  APPROVED_FROM_UNLOCK_REQUESTED: 'Reject Unlock Request',
   DEACTIVATED: 'Discontinue Experiment',
   IN_PROGRESS: 'Resume Experiment',
 }
@@ -877,7 +901,9 @@ function ArdExperimentWorkspacePage() {
   const [takeoverOpen, setTakeoverOpen] = useState(false)
   const [takeoverAnalystId, setTakeoverAnalystId] = useState<string | undefined>()
   const [takeoverRemarks, setTakeoverRemarks] = useState('')
+  const [takeoverPassword, setTakeoverPassword] = useState('')
   const [qaComment, setQaComment] = useState('')
+  const [qaRemarkDraft, setQaRemarkDraft] = useState('')
   const [sectionCommentTarget, setSectionCommentTarget] = useState<{ id: string; label: string } | null>(null)
   const [sectionCommentDraft, setSectionCommentDraft] = useState('')
   const [lockedByOther, setLockedByOther] = useState<string | null>(null)
@@ -888,11 +914,21 @@ function ArdExperimentWorkspacePage() {
   const [reviewerOpen, setReviewerOpen] = useState(false)
   const [reviewerSelectedId, setReviewerSelectedId] = useState<string | undefined>()
   const [reviewerRemarks, setReviewerRemarks] = useState('')
+  const [reviewerPassword, setReviewerPassword] = useState('')
   // B-76: reviewer picker on SUBMITTED transition
   const [submitReviewerOpen, setSubmitReviewerOpen] = useState(false)
   const [submitReviewerId, setSubmitReviewerId] = useState<string | undefined>()
+  const [submitRemarks, setSubmitRemarks] = useState('')
+  const [submitVerifierOpen, setSubmitVerifierOpen] = useState(false)
+  const [submitVerifierId, setSubmitVerifierId] = useState<string | undefined>()
+  const [submitVerifierRemarks, setSubmitVerifierRemarks] = useState('')
   // B-77: linked ATR IDs for co-submission
   const [linkedAtrIds, setLinkedAtrIds] = useState<string[]>([])
+  // "ATR Submission Alert" — Sample Details' "Send for Verif." checkbox marks
+  // which linked ATRs should ride along with this experiment's submission;
+  // clicking Submit asks Yes/No before opening the approver picker.
+  const [atrAlertOpen, setAtrAlertOpen] = useState(false)
+  const [checkedAtrIds, setCheckedAtrIds] = useState<string[]>([])
   // B-80: skip verification if disabled
   const [verificationFlowActive, setVerificationFlowActive] = useState(true)
   // B-44: aim achieved pre-modal before approval
@@ -910,8 +946,23 @@ function ArdExperimentWorkspacePage() {
   const { data: reviewerUsers } = useQuery({
     queryKey: ['ard-reviewer-users'],
     queryFn: () => userApi.list({ limit: 200 }),
-    enabled: reviewerOpen,
+    enabled: reviewerOpen || submitVerifierOpen,
   })
+
+  // Resolves who the linked ATR test's assignee actually is, so the modal
+  // can pre-fill and lock the verifier picker instead of making the analyst
+  // guess and only finding out from a VERIFIER_MISMATCH 400 afterward.
+  const { data: expectedVerifier } = useQuery({
+    queryKey: ['ard-expected-verifier', experimentId],
+    queryFn: () => ardExperimentApi.expectedVerifier(experimentId!),
+    enabled: submitVerifierOpen && !!experimentId,
+  })
+
+  useEffect(() => {
+    if (submitVerifierOpen && expectedVerifier?.userId) {
+      setSubmitVerifierId(expectedVerifier.userId)
+    }
+  }, [submitVerifierOpen, expectedVerifier])
 
   const { data: exp, isLoading, error } = useQuery({
     queryKey: ['ard-experiment', experimentId],
@@ -1035,26 +1086,28 @@ function ArdExperimentWorkspacePage() {
   })
 
   const takeover = useMutation({
-    mutationFn: ({ newAnalystId, remarks }: { newAnalystId: string; remarks: string }) =>
-      ardExperimentApi.takeover(experimentId!, { newAnalystId, remarks }),
+    mutationFn: ({ analystId, analystName, password }: { analystId: string; analystName?: string; password: string }) =>
+      ardExperimentApi.takeover(experimentId!, { analyst_id: analystId, analyst_name: analystName, password }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
       setTakeoverOpen(false)
       setTakeoverAnalystId(undefined)
       setTakeoverRemarks('')
+      setTakeoverPassword('')
       msg.success('Experiment reassigned.')
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Takeover failed.'),
   })
 
   const reassignReviewer = useMutation({
-    mutationFn: ({ reviewerId }: { reviewerId: string }) =>
-      ardExperimentApi.reassignReviewer(experimentId!, { reviewerId }),
+    mutationFn: ({ reviewerId, reviewerName, password }: { reviewerId: string; reviewerName?: string; password: string }) =>
+      ardExperimentApi.reassignReviewer(experimentId!, { reviewerId, reviewerName, password }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-experiment', experimentId] })
       setReviewerOpen(false)
       setReviewerSelectedId(undefined)
       setReviewerRemarks('')
+      setReviewerPassword('')
       msg.success('Reviewer reassigned.')
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Reassign reviewer failed.'),
@@ -1112,6 +1165,31 @@ function ArdExperimentWorkspacePage() {
       msg.success('QA comment added.')
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to add comment.'),
+  })
+
+  // Scenario 25 (persistQaComment) — QA annotations independent of workflow
+  // stage, distinct from the clarifications-backed "QA Comments" above.
+  const { data: qaRemarks } = useQuery({
+    queryKey: ['ard-experiment-qa-remarks', experimentId],
+    queryFn: () => ardExperimentApi.getQaRemarks(experimentId!),
+    enabled: !!experimentId,
+  })
+  const addQaRemark = useMutation({
+    mutationFn: (remark: string) => ardExperimentApi.addQaRemark(experimentId!, { remark }),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment-qa-remarks', experimentId] })
+      setQaRemarkDraft('')
+      msg.success('QA remark added.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to add QA remark.'),
+  })
+  const deleteQaRemark = useMutation({
+    mutationFn: (remarkId: string) => ardExperimentApi.deleteQaRemark(experimentId!, remarkId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-experiment-qa-remarks', experimentId] })
+      msg.success('QA remark removed.')
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to remove QA remark.'),
   })
 
   const addSectionComment = useMutation({
@@ -1209,6 +1287,10 @@ function ArdExperimentWorkspacePage() {
   // read-only rendering regardless of status/role too — see the action bar
   // below, which also drops everything except Clone/Download PDF in this mode.
   const editable = (exp.status === 'NEW' || exp.status === 'IN_PROGRESS' || exp.status === 'REWORK') && !lockedByOther && !viewOnly
+  // 'APPROVED' is a reused target here — from UNLOCK_REQUESTED it means
+  // reject the unlock request, not a normal approval. Needed by the button
+  // label/style above and the e-signature modal further below.
+  const isRejectUnlockPending = pendingTargetStatus === 'APPROVED' && exp.status === 'UNLOCK_REQUESTED'
 
   // B-08: ModifyAfterRework — when setting is 'sections_with_comments_only', only sections
   // that have a reviewer/QA comment attached may be edited during REWORK.
@@ -1237,10 +1319,10 @@ function ArdExperimentWorkspacePage() {
     // B-80: hide peer-verification step when disabled at app or notebook level
     if (s === 'VERIFICATION_REQUESTED' && !verificationEnabled) return false
     // Mirror image of the line above: when verification IS required, the
-    // direct IN_PROGRESS -> SUBMITTED shortcut must not be offered either —
-    // otherwise an analyst could just click "Submit for Approval" and skip
-    // the mandatory peer-verification step entirely.
-    if (s === 'SUBMITTED' && exp.status === 'IN_PROGRESS' && verificationEnabled) return false
+    // direct NEW/IN_PROGRESS -> SUBMITTED shortcut must not be offered
+    // either — otherwise an analyst could just click "Submit for Approval"
+    // and skip the mandatory peer-verification step entirely.
+    if (s === 'SUBMITTED' && ['NEW', 'IN_PROGRESS'].includes(exp.status) && verificationEnabled) return false
     // After TL verifies, only TL/HOD sends the experiment to HOD for approval (not analyst)
     if (s === 'SUBMITTED' && exp.status === 'VERIFIED') return !isAnalyst
     const category = TRANSITION_ROLE[s as ExperimentStatus] ?? 'any'
@@ -1301,19 +1383,53 @@ function ArdExperimentWorkspacePage() {
       }
     }
 
-    // B-44: for APPROVED, show "Is aim achieved?" modal first
-    if (to === 'APPROVED') {
+    // B-44: for APPROVED, show "Is aim achieved?" modal first — except when
+    // 'APPROVED' is being used as the reject-unlock target (see
+    // isRejectUnlockPending), which isn't an approval at all and shouldn't
+    // ask about aim achievement.
+    if (to === 'APPROVED' && exp.status !== 'UNLOCK_REQUESTED') {
       setAimAchieved(null)
       setAimRemarks('')
       setAimModalOpen(true)
       return
     }
 
-    // B-76/B-77: for SUBMITTED (by analyst), show pre-submit modal to pick reviewer + linked ATRs
+    // B-76/B-77: for SUBMITTED (by analyst), show pre-submit modal to pick reviewer + linked ATRs.
+    // First check whether Sample Details has any rows checked "Send for
+    // Verif." — if so, ask via the ATR Submission Alert whether those ATRs
+    // should ride along; only their ATRs (not every ATR touched in the
+    // experiment) are eligible for co-submission.
     if (to === 'SUBMITTED' && isAnalyst) {
       setSubmitReviewerId(undefined)
-      setLinkedAtrIds([])
-      setSubmitReviewerOpen(true)
+      setSubmitRemarks('')
+      const sampleSectionIds = (Array.isArray(exp.sectionDefs) ? (exp.sectionDefs as SectionDef[]) : [])
+        .filter(s => s.type === 'sample')
+        .map(s => s.id)
+      const checked = Array.from(new Set(
+        sampleSectionIds
+          .flatMap(sid => (data[sid] as { atrId?: string; sendForVerification?: boolean }[] | undefined) ?? [])
+          .filter(r => r?.sendForVerification && r?.atrId)
+          .map(r => String(r.atrId))
+      ))
+      if (checked.length > 0) {
+        setCheckedAtrIds(checked)
+        setAtrAlertOpen(true)
+      } else {
+        setLinkedAtrIds([])
+        setSubmitReviewerOpen(true)
+      }
+      return
+    }
+
+    // Pre-submit modal to pick a verifier before signing. The backend
+    // resolves the "real" verifier from the linked ATR test's assignee and
+    // will reject a mismatched pick — this picker just lets the analyst see
+    // and confirm who that's going to, or fall back to a manual choice when
+    // nothing's linked.
+    if (to === 'VERIFICATION_REQUESTED' && isAnalyst) {
+      setSubmitVerifierId(undefined)
+      setSubmitVerifierRemarks('')
+      setSubmitVerifierOpen(true)
       return
     }
 
@@ -1520,9 +1636,9 @@ function ArdExperimentWorkspacePage() {
               Restore Experiment
             </Button>
           )}
-          {editable && isDirty && (
+          {editable && (
             <Button type="primary" icon={<Save size={14} />}
-              loading={patch.isPending} onClick={handleSave}>
+              disabled={!isDirty} loading={patch.isPending} onClick={handleSave}>
               Save
             </Button>
           )}
@@ -1530,11 +1646,13 @@ function ArdExperimentWorkspacePage() {
             <Button
               key={s}
               loading={transition.isPending}
-              type={['SUBMITTED', 'VERIFIED', 'APPROVED', 'UNLOCKED', 'VERIFICATION_REQUESTED'].includes(s) ? 'primary' : 'default'}
-              danger={['DEACTIVATED', 'REWORK', 'VERIFICATION_REWORK'].includes(s)}
+              type={['SUBMITTED', 'VERIFIED', 'APPROVED', 'UNLOCKED', 'VERIFICATION_REQUESTED'].includes(s) && !(s === 'APPROVED' && exp.status === 'UNLOCK_REQUESTED') ? 'primary' : 'default'}
+              danger={['DEACTIVATED', 'REWORK', 'VERIFICATION_REWORK'].includes(s) || (s === 'APPROVED' && exp.status === 'UNLOCK_REQUESTED')}
               onClick={() => handleTransitionClick(s)}
             >
-              {s === 'SUBMITTED' && exp.status === 'VERIFIED' ? TRANSITION_LABEL['SUBMITTED_FROM_VERIFIED'] : (TRANSITION_LABEL[s] ?? (s ? s.replace(/_/g, ' ') : '—'))}
+              {s === 'SUBMITTED' && exp.status === 'VERIFIED' ? TRANSITION_LABEL['SUBMITTED_FROM_VERIFIED']
+                : s === 'APPROVED' && exp.status === 'UNLOCK_REQUESTED' ? TRANSITION_LABEL['APPROVED_FROM_UNLOCK_REQUESTED']
+                : (TRANSITION_LABEL[s] ?? (s ? s.replace(/_/g, ' ') : '—'))}
             </Button>
           ))}
         </Space>
@@ -1804,6 +1922,61 @@ function ArdExperimentWorkspacePage() {
         )
       })()}
 
+      {/* QA Remarks (Scenario 25) — independent of workflow stage, distinct from QA Comments/clarifications above */}
+      {(() => {
+        const remarks = Array.isArray(qaRemarks) ? qaRemarks : []
+        const canWrite = ['QA', 'HOD', 'SUPER_ADMIN', 'ADMIN'].includes(role)
+        if (!canWrite && remarks.length === 0) return null
+        return (
+          <Card
+            title={<span className="text-sm font-semibold text-slate-700">QA Remarks</span>}
+            size="small"
+            className="rounded-lg"
+          >
+            <div className="space-y-2 mb-3 max-h-60 overflow-y-auto">
+              {remarks.length === 0 ? (
+                <p className="text-xs text-slate-400 italic">No QA remarks yet.</p>
+              ) : (
+                remarks.map(r => (
+                  <div key={r.id} className="bg-violet-50 border border-violet-100 rounded-lg px-3 py-2 text-xs">
+                    <div className="flex justify-between items-center mb-0.5">
+                      <span className="font-semibold text-violet-700">{r.byName || 'QA'}</span>
+                      <div className="flex items-center gap-2">
+                        <span className="text-slate-400">{r.at ? dayjs(r.at).format('DD MMM YYYY HH:mm') : ''}</span>
+                        {canWrite && (
+                          <a onClick={() => deleteQaRemark.mutate(r.id)} className="text-red-500 hover:text-red-600">Remove</a>
+                        )}
+                      </div>
+                    </div>
+                    <p className="text-slate-700">{r.remark}</p>
+                  </div>
+                ))
+              )}
+            </div>
+            {canWrite && (
+              <div className="flex gap-2 mt-2">
+                <Input.TextArea
+                  rows={2}
+                  placeholder="Add a QA remark..."
+                  value={qaRemarkDraft}
+                  onChange={e => setQaRemarkDraft(e.target.value)}
+                  style={{ flex: 1 }}
+                />
+                <Button
+                  type="primary"
+                  loading={addQaRemark.isPending}
+                  disabled={!qaRemarkDraft.trim()}
+                  onClick={() => addQaRemark.mutate(qaRemarkDraft)}
+                  style={{ alignSelf: 'flex-end' }}
+                >
+                  Post
+                </Button>
+              </div>
+            )}
+          </Card>
+        )
+      })()}
+
       {/* Bottom save bar when dirty */}
       {editable && isDirty && (
         <>
@@ -1823,11 +1996,13 @@ function ArdExperimentWorkspacePage() {
         {...glassModalProps}
         title="Reassign Experiment Analyst"
         open={takeoverOpen}
-        onCancel={() => { setTakeoverOpen(false); setTakeoverAnalystId(undefined); setTakeoverRemarks('') }}
+        onCancel={() => { setTakeoverOpen(false); setTakeoverAnalystId(undefined); setTakeoverRemarks(''); setTakeoverPassword('') }}
         onOk={() => {
           if (!takeoverAnalystId) { msg.warning('Select an analyst.'); return }
           if (!takeoverRemarks.trim()) { msg.warning('Remarks are required.'); return }
-          takeover.mutate({ newAnalystId: takeoverAnalystId, remarks: takeoverRemarks })
+          if (!takeoverPassword) { msg.warning('Electronic signature password is required.'); return }
+          const analystName = (analystUsers?.items ?? []).find(u => u.id === takeoverAnalystId)?.username
+          takeover.mutate({ analystId: takeoverAnalystId, analystName, password: takeoverPassword })
         }}
         confirmLoading={takeover.isPending}
         okText="Reassign"
@@ -1852,6 +2027,14 @@ function ArdExperimentWorkspacePage() {
               placeholder="Business justification required…"
               value={takeoverRemarks}
               onChange={e => setTakeoverRemarks(e.target.value)}
+            />
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Electronic Signature Password</label>
+            <Input.Password
+              placeholder="Enter your password to confirm"
+              value={takeoverPassword}
+              onChange={e => setTakeoverPassword(e.target.value)}
             />
           </div>
         </div>
@@ -1906,10 +2089,12 @@ function ArdExperimentWorkspacePage() {
         {...glassModalProps}
         title="Reassign Experiment Reviewer"
         open={reviewerOpen}
-        onCancel={() => { setReviewerOpen(false); setReviewerSelectedId(undefined); setReviewerRemarks('') }}
+        onCancel={() => { setReviewerOpen(false); setReviewerSelectedId(undefined); setReviewerRemarks(''); setReviewerPassword('') }}
         onOk={() => {
           if (!reviewerSelectedId) { msg.warning('Select a reviewer.'); return }
-          reassignReviewer.mutate({ reviewerId: reviewerSelectedId })
+          if (!reviewerPassword) { msg.warning('Electronic signature password is required.'); return }
+          const reviewerName = ((reviewerUsers?.items ?? []) as any[]).find((u: any) => u.id === reviewerSelectedId)?.username
+          reassignReviewer.mutate({ reviewerId: reviewerSelectedId, reviewerName, password: reviewerPassword })
         }}
         confirmLoading={reassignReviewer.isPending}
         okText="Reassign"
@@ -1938,15 +2123,46 @@ function ArdExperimentWorkspacePage() {
               onChange={e => setReviewerRemarks(e.target.value)}
             />
           </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Electronic Signature Password</label>
+            <Input.Password
+              placeholder="Enter your password to confirm"
+              value={reviewerPassword}
+              onChange={e => setReviewerPassword(e.target.value)}
+            />
+          </div>
         </div>
       </Modal>
 
-      {/* B-76/B-77: Pre-Submit modal — pick reviewer + optional linked ATRs */}
+      {/* "ATR Submission Alert" — shown only when Sample Details has rows
+          checked "Send for Verif."; Yes co-submits exactly those linked
+          ATRs alongside the experiment, No submits the experiment only. */}
+      <Modal
+        {...glassModalProps}
+        title="ATR Submission Alert"
+        open={atrAlertOpen}
+        closable
+        onCancel={() => setAtrAlertOpen(false)}
+        footer={[
+          <Button key="no" danger onClick={() => { setLinkedAtrIds([]); setAtrAlertOpen(false); setSubmitReviewerOpen(true) }}>
+            No
+          </Button>,
+          <Button key="yes" type="primary" onClick={() => { setLinkedAtrIds(checkedAtrIds); setAtrAlertOpen(false); setSubmitReviewerOpen(true) }}>
+            Yes
+          </Button>,
+        ]}
+      >
+        <p className="text-sm text-slate-700">
+          ATRs are linked to this experiment. Do you want to submit ATR(s) for verification along with this experiment?
+        </p>
+      </Modal>
+
+      {/* B-76/B-77: Pre-Submit modal — pick approver + remarks + optional linked ATRs */}
       <Modal
         {...glassModalProps}
         title="Submit Experiment for Approval"
         open={submitReviewerOpen}
-        onCancel={() => { setSubmitReviewerOpen(false); setSubmitReviewerId(undefined); setLinkedAtrIds([]) }}
+        onCancel={() => { setSubmitReviewerOpen(false); setSubmitReviewerId(undefined); setLinkedAtrIds([]); setSubmitRemarks('') }}
         onOk={() => {
           setSubmitReviewerOpen(false)
           setPendingTargetStatus('SUBMITTED')
@@ -1957,11 +2173,11 @@ function ArdExperimentWorkspacePage() {
         <div className="space-y-4 pt-2">
           <div>
             <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Assign Reviewer <span className="text-red-500">*</span>
+              Select Approver <span className="text-red-500">*</span>
             </label>
             <Select
               className="w-full"
-              placeholder={notebookMemberOptions.length > 0 ? 'Select a notebook member as reviewer…' : 'No notebook members — type to search all users'}
+              placeholder={notebookMemberOptions.length > 0 ? 'Select a notebook member as approver…' : 'No notebook members — type to search all users'}
               showSearch
               optionFilterProp="label"
               value={submitReviewerId}
@@ -1975,22 +2191,92 @@ function ArdExperimentWorkspacePage() {
               <p className="text-xs text-slate-400 mt-1">Notebook has no assigned members — showing all TL/HOD users.</p>
             )}
           </div>
+
+          {checkedAtrIds.length > 0 ? (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Linked ATRs</label>
+              <p className="text-xs text-slate-500">
+                {linkedAtrIds.length > 0
+                  ? `Co-submitting ${linkedAtrIds.length} ATR${linkedAtrIds.length !== 1 ? 's' : ''} checked "Send for Verif." in Sample Details.`
+                  : 'Not co-submitting the linked ATR(s) — only this experiment will be submitted.'}
+                {' '}
+                <a onClick={() => setAtrAlertOpen(true)}>Change</a>
+              </p>
+            </div>
+          ) : (
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">
+                Co-submit ATRs (optional)
+              </label>
+              <Select
+                className="w-full"
+                mode="multiple"
+                placeholder="Select ATRs to co-submit with this experiment…"
+                showSearch
+                optionFilterProp="label"
+                value={linkedAtrIds}
+                onChange={setLinkedAtrIds}
+                options={coSubmitAtrOptions}
+                allowClear
+              />
+              <p className="text-xs text-slate-400 mt-1">Only DRAFT or SAVED ATRs are listed. Selected ATRs will be moved to REQUESTED together with this experiment.</p>
+            </div>
+          )}
+
           <div>
-            <label className="block text-xs font-semibold text-slate-600 mb-1">
-              Co-submit ATRs (optional)
-            </label>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Remarks</label>
+            <Input.TextArea
+              rows={3}
+              placeholder="Remarks for the approver…"
+              value={submitRemarks}
+              onChange={(e) => setSubmitRemarks(e.target.value)}
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Pre-Submit modal for VERIFICATION_REQUESTED — pick verifier + remarks */}
+      <Modal
+        {...glassModalProps}
+        title="Submit Experiment for Verification"
+        open={submitVerifierOpen}
+        onCancel={() => { setSubmitVerifierOpen(false); setSubmitVerifierId(undefined); setSubmitVerifierRemarks('') }}
+        onOk={() => {
+          setSubmitVerifierOpen(false)
+          setPendingTargetStatus('VERIFICATION_REQUESTED')
+        }}
+        okText="Proceed to Sign"
+      >
+        <div className="space-y-4 pt-2">
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Select Verifier</label>
             <Select
               className="w-full"
-              mode="multiple"
-              placeholder="Select ATRs to co-submit with this experiment…"
+              placeholder="Select a verifier (TL/HOD)…"
               showSearch
               optionFilterProp="label"
-              value={linkedAtrIds}
-              onChange={setLinkedAtrIds}
-              options={coSubmitAtrOptions}
-              allowClear
+              value={submitVerifierId}
+              onChange={setSubmitVerifierId}
+              disabled={!!expectedVerifier?.userId}
+              options={((reviewerUsers?.items ?? []) as any[])
+                .filter((u: any) => ['TL', 'TEAM_LEAD', 'HOD', 'ADMIN', 'SUPER_ADMIN'].includes(u.role_code ?? u.roleCode ?? ''))
+                .map((u: any) => ({ value: u.id, label: `${u.username} (${u.role_code ?? u.roleCode ?? ''})` }))}
+              allowClear={!expectedVerifier?.userId}
             />
-            <p className="text-xs text-slate-400 mt-1">Only DRAFT or SAVED ATRs are listed. Selected ATRs will be moved to REQUESTED together with this experiment.</p>
+            <p className="text-xs text-slate-400 mt-1">
+              {expectedVerifier?.userId
+                ? `This experiment's linked ATR test is assigned to ${expectedVerifier.username} — verification is locked to them.`
+                : "If this experiment has a linked ATR test, verification is routed to whoever that test is actually assigned to — this selection is only used when nothing's linked."}
+            </p>
+          </div>
+          <div>
+            <label className="block text-xs font-semibold text-slate-600 mb-1">Remarks</label>
+            <Input.TextArea
+              rows={3}
+              placeholder="Remarks for the verifier…"
+              value={submitVerifierRemarks}
+              onChange={(e) => setSubmitVerifierRemarks(e.target.value)}
+            />
           </div>
         </div>
       </Modal>
@@ -1999,9 +2285,9 @@ function ArdExperimentWorkspacePage() {
       <ESignatureModal
         open={pendingTargetStatus !== null}
         userName={user?.username ?? ''}
-        title={`Electronic Signature — ${TRANSITION_LABEL[pendingTargetStatus ?? ''] ?? pendingTargetStatus}`}
-        reasonLabel={`Reason for ${TRANSITION_LABEL[pendingTargetStatus ?? ''] ?? 'action'}`}
-        requireReason={['REWORK', 'VERIFICATION_REWORK', 'UNLOCK_REQUESTED', 'DEACTIVATED'].includes(pendingTargetStatus ?? '')}
+        title={`Electronic Signature — ${isRejectUnlockPending ? TRANSITION_LABEL['APPROVED_FROM_UNLOCK_REQUESTED'] : (TRANSITION_LABEL[pendingTargetStatus ?? ''] ?? pendingTargetStatus)}`}
+        reasonLabel={`Reason for ${isRejectUnlockPending ? TRANSITION_LABEL['APPROVED_FROM_UNLOCK_REQUESTED'] : (TRANSITION_LABEL[pendingTargetStatus ?? ''] ?? 'action')}`}
+        requireReason={isRejectUnlockPending || ['REWORK', 'VERIFICATION_REWORK', 'UNLOCK_REQUESTED', 'DEACTIVATED'].includes(pendingTargetStatus ?? '')}
         loading={transition.isPending}
         onCancel={() => setPendingTargetStatus(null)}
         onConfirm={async ({ password, reason }) => {
@@ -2030,10 +2316,13 @@ function ArdExperimentWorkspacePage() {
             await transition.mutateAsync({
               to: pendingTargetStatus,
               password,
-              remarks: reason,
+              remarks: pendingTargetStatus === 'SUBMITTED'
+                ? submitRemarks
+                : pendingTargetStatus === 'VERIFICATION_REQUESTED' ? submitVerifierRemarks : reason,
               reason,
-              ...(pendingTargetStatus === 'APPROVED' ? { aimAchieved, aimRemarks } : {}),
+              ...(pendingTargetStatus === 'APPROVED' && !isRejectUnlockPending ? { aimAchieved, aimRemarks } : {}),
               ...(pendingTargetStatus === 'SUBMITTED' ? { reviewerId: submitReviewerId, linkedAtrIds } : {}),
+              ...(pendingTargetStatus === 'VERIFICATION_REQUESTED' && submitVerifierId ? { reviewerId: submitVerifierId } : {}),
             })
           }
         }}

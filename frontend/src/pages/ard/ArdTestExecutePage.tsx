@@ -134,6 +134,10 @@ function NotebookReferencePicker({
   const [experimentId, setExperimentId] = useState<string | undefined>()
   const [newName, setNewName] = useState('')
   const [newTemplateId, setNewTemplateId] = useState<string | undefined>()
+  // C1 (create-from-ATR-test) must support STP-clone creation, not just
+  // Via-Template — mirrors ArdExperimentsPage's own "Creation Mode" toggle.
+  const [newCreationMode, setNewCreationMode] = useState<'template' | 'stp'>('template')
+  const [newProjectStpId, setNewProjectStpId] = useState<string | undefined>()
 
   const isUnscopedAdmin = ['ADMIN', 'SUPER_ADMIN', 'HOD', 'QA', 'QC_MANAGER', 'TL', 'TEAM_LEAD'].includes(user?.role_code ?? '')
 
@@ -150,8 +154,19 @@ function NotebookReferencePicker({
   const { data: templatesData } = useQuery({
     queryKey: ['ard-templates-published'],
     queryFn: () => ardTemplateApi.published(),
-    enabled: mode === 'new',
+    enabled: mode === 'new' && newCreationMode === 'template',
   })
+  const { data: newProjectDetail } = useQuery({
+    queryKey: ['ard-project-detail-newexp', projectId],
+    queryFn: () => ardProjectsApi.get(projectId!),
+    enabled: mode === 'new' && newCreationMode === 'stp' && !!projectId,
+  })
+  const stpOptions = useMemo(() => {
+    const docs = (newProjectDetail as any)?.stpDocuments ?? []
+    return docs
+      .filter((s: any) => s.status === 'APPROVED')
+      .map((s: any) => ({ value: s.id, label: `${s.documentNo} v${s.version} — ${s.title}` }))
+  }, [newProjectDetail])
 
   // Same "am I on this project's team" check ArdNotebooksPage uses — keeps
   // this picker's notion of "my projects" consistent with the rest of ARD.
@@ -197,16 +212,20 @@ function NotebookReferencePicker({
   })
 
   const createAndLinkMut = useMutation({
-    mutationFn: async () => {
-      const exp = await apiPost<{ id: string }>('/api/ard/experiments', {
-        templateId: newTemplateId, notebookId, projectId, name: newName || undefined,
-      })
-      return apiPost(`/api/ard/tests/${atrId}/${testId}/link-notebook`, { experimentId: exp.id })
-    },
+    // Single atomic call — previously two separate requests (create the
+    // experiment, then link-notebook), so a failure in between left an
+    // orphaned, unlinked experiment behind with no trace on the test side.
+    mutationFn: () => apiPost(`/api/ard/tests/${atrId}/${testId}/create-and-link-experiment`, {
+      ...(newCreationMode === 'stp'
+        ? { projectStpId: newProjectStpId }
+        : { templateId: newTemplateId }),
+      notebookId, projectId, name: newName || undefined,
+    }),
     onSuccess: () => {
       msgApi.success('Experiment created and linked.')
       setNewName('')
       setNewTemplateId(undefined)
+      setNewProjectStpId(undefined)
       onLinked()
     },
     onError: (e: any) => msgApi.error(e?.detail || e?.message || 'Failed to create experiment.'),
@@ -286,36 +305,59 @@ function NotebookReferencePicker({
           )}
 
           {mode === 'new' && (
-            <div className="flex flex-wrap gap-2">
-              <Select
-                size="small" style={{ minWidth: 160 }} placeholder="Project"
-                allowClear showSearch optionFilterProp="label"
-                value={projectId}
-                onChange={(v) => { setProjectId(v); setNotebookId(undefined) }}
-                options={accessibleProjects.map((p) => ({ value: p.id, label: `${p.code} — ${p.productName}` }))}
+            <div className="flex flex-col gap-2">
+              <Segmented
+                size="small"
+                value={newCreationMode}
+                onChange={(v) => { setNewCreationMode(v as 'template' | 'stp'); setNewTemplateId(undefined); setNewProjectStpId(undefined) }}
+                options={[{ label: 'Via Template', value: 'template' }, { label: 'Via Project STP', value: 'stp' }]}
               />
-              <Select
-                size="small" style={{ minWidth: 160 }} placeholder="Notebook"
-                allowClear showSearch optionFilterProp="label"
-                value={notebookId}
-                onChange={setNotebookId}
-                options={accessibleNotebooks.map((nb) => ({ value: nb.id, label: nb.name }))}
-              />
-              <Input
-                size="small" style={{ minWidth: 160, width: 200 }} placeholder="Experiment name"
-                value={newName} onChange={(e) => setNewName(e.target.value)}
-              />
-              <Select
-                size="small" style={{ minWidth: 180 }} placeholder="Template"
-                showSearch optionFilterProp="label"
-                value={newTemplateId}
-                onChange={setNewTemplateId}
-                options={(templatesData?.items ?? []).map((t) => ({ value: t.id, label: t.name }))}
-              />
-              <Button size="small" type="primary" loading={createAndLinkMut.isPending} disabled={busy || !notebookId || !newTemplateId}
-                onClick={() => createAndLinkMut.mutate()}>
-                Create &amp; Link
-              </Button>
+              <div className="flex flex-wrap gap-2">
+                <Select
+                  size="small" style={{ minWidth: 160 }} placeholder="Project"
+                  allowClear showSearch optionFilterProp="label"
+                  value={projectId}
+                  onChange={(v) => { setProjectId(v); setNotebookId(undefined); setNewProjectStpId(undefined) }}
+                  options={accessibleProjects.map((p) => ({ value: p.id, label: `${p.code} — ${p.productName}` }))}
+                />
+                <Select
+                  size="small" style={{ minWidth: 160 }} placeholder="Notebook"
+                  allowClear showSearch optionFilterProp="label"
+                  value={notebookId}
+                  onChange={setNotebookId}
+                  options={accessibleNotebooks.map((nb) => ({ value: nb.id, label: nb.name }))}
+                />
+                <Input
+                  size="small" style={{ minWidth: 160, width: 200 }} placeholder="Experiment name"
+                  value={newName} onChange={(e) => setNewName(e.target.value)}
+                />
+                {newCreationMode === 'template' ? (
+                  <Select
+                    size="small" style={{ minWidth: 180 }} placeholder="Template"
+                    showSearch optionFilterProp="label"
+                    value={newTemplateId}
+                    onChange={setNewTemplateId}
+                    options={(templatesData?.items ?? []).map((t) => ({ value: t.id, label: t.name }))}
+                  />
+                ) : (
+                  <Select
+                    size="small" style={{ minWidth: 220 }}
+                    placeholder={!projectId ? 'Select a project first' : stpOptions.length === 0 ? 'No approved STPs for this project' : 'Project STP'}
+                    showSearch optionFilterProp="label"
+                    disabled={!projectId || stpOptions.length === 0}
+                    value={newProjectStpId}
+                    onChange={setNewProjectStpId}
+                    options={stpOptions}
+                  />
+                )}
+                <Button
+                  size="small" type="primary" loading={createAndLinkMut.isPending}
+                  disabled={busy || !notebookId || (newCreationMode === 'template' ? !newTemplateId : !newProjectStpId)}
+                  onClick={() => createAndLinkMut.mutate()}
+                >
+                  Create &amp; Link
+                </Button>
+              </div>
             </div>
           )}
         </div>

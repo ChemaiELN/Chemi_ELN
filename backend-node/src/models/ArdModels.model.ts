@@ -675,6 +675,7 @@ export class ArdExperiment extends Model<InferAttributes<ArdExperiment>, InferCr
   declare clarifications: object | null
   declare sectionComments: object | null
   declare postAnalytical: object | null
+  declare qaRemarks: object | null
   declare notebookId: string | null
   declare projectId: string | null
   declare projectStpId: string | null
@@ -720,6 +721,7 @@ ArdExperiment.init({
   clarifications: { type: DataTypes.JSONB, allowNull: true },
   sectionComments: { type: DataTypes.JSONB, allowNull: true, field: 'section_comments' },
   postAnalytical: { type: DataTypes.JSONB, allowNull: true, field: 'post_analytical' },
+  qaRemarks: { type: DataTypes.JSONB, allowNull: true, field: 'qa_remarks' },
   notebookId: { type: DataTypes.UUID, allowNull: true, field: 'notebook_id' },
   projectId: { type: DataTypes.UUID, allowNull: true, field: 'project_id' },
   projectStpId: { type: DataTypes.STRING(100), allowNull: true, field: 'project_stp_id' },

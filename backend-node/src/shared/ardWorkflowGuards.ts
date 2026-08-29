@@ -8,9 +8,19 @@ export const ATR_PENDING_APPROVAL_DONE_TEST_STATUSES = [
   'REJECTED',
 ] as const
 
+// The two terminal-status sets certify checks against, gated by the
+// CertificationAfterApproval setting: the stricter "for certify" set when
+// true (formal ATR acceptance required), the looser "for verified" set when
+// false (verification-level stability is enough).
 export const ATR_CERT_COMPLETED_TEST_STATUSES = [
   'ACCEPTED',
   'UNSATISFACTORY',
+  'WITHDRAWN',
+  'CANCELLED',
+] as const
+
+export const ATR_VERIFIED_COMPLETED_TEST_STATUSES = [
+  'VERIFIED',
   'PUBLISHED',
   'WITHDRAWN',
   'CANCELLED',

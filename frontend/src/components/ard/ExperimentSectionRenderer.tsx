@@ -8,19 +8,18 @@ import { useState, useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import {
-  Table, Input, Button, Select, Tag, DatePicker, Popconfirm, Empty, Alert, Modal, Spin, Tooltip, message, Checkbox, Radio, Divider,
+  Table, Input, Button, Select, Tag, DatePicker, Popconfirm, Alert, Modal, Tooltip, message, Checkbox, Radio, Divider,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { Plus, Trash2, Package, ShieldAlert, FileText, Edit2, ClipboardCheck, Save } from 'lucide-react'
+import { Plus, Trash2, Package, ShieldAlert, FileText, Edit2, ClipboardCheck, Save, CheckCircle2, XCircle } from 'lucide-react'
 import dayjs from 'dayjs'
 import RichEditor from '../RichEditor'
 import { inventoryApi } from '../../api/inventory'
 import SpreadsheetFieldRuntime from '../../pages/admin/templateBuilder/SpreadsheetFieldRuntime'
 import type { TemplateField } from '../../pages/admin/templateBuilder/types'
-import { ardApi } from '../../api/ard'
+import { ardApi, ardAtrApi } from '../../api/ard'
 import { adminApi } from '../../api/admin'
-import { apiPost, apiPatch, apiUpload, apiGet, BASE_URL } from '../../api/client'
-import { glassModalProps } from '../../utils/modalStyles'
+import { apiPost, apiUpload, apiGet, BASE_URL } from '../../api/client'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 
@@ -212,6 +211,10 @@ interface AtrTestRow {
   resultValue?: string
   resultUom?: string
   resultStatus?: string
+  // Master-data test configuration this test was raised against — used to
+  // auto-seed the result-parameter table (Parameter/Specification/UOM) the
+  // first time the analyst opens results entry for it.
+  testConfigId?: string
 }
 
 interface TestReport {
@@ -237,6 +240,7 @@ interface AtrResultParam {
 interface SampleRow {
   id: string
   atrId?: string
+  isAtrSample?: boolean
   atrFormNo: string
   projectCode: string
   sampleCode: string
@@ -253,6 +257,14 @@ interface SampleRow {
   resultRemarks?: string
   adRemarks?: string
   sendForVerification?: boolean
+  // acceptTestResultsInExp equivalent — the experiment editor's own local
+  // accept/reject decision on an ATR-pulled-in sample row. Purely local to
+  // the experiment (doesn't write back to the ATR test/sample), matching
+  // legacy's testStatusAction/testStatusActionRemarks on ArdAdexpsampledetails.
+  testStatusAction?: 'ACCEPT' | 'REJECT' | null
+  testStatusActionRemarks?: string
+  testStatusActionBy?: string
+  testStatusActionAt?: string
 }
 const SAMPLE_TYPES = ['Raw Material', 'Intermediate', 'Finished Product', 'Reference Standard', 'Reagent', 'Other'].map(v => ({ value: v, label: v }))
 
@@ -264,11 +276,24 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
   const currentUser = useAppSelector(selectUser)
   const isAnalyst = ['ANALYST', 'CHEMIST', 'CHEM'].includes(currentUser?.role_code ?? '')
   const [atrModalOpen, setAtrModalOpen] = useState(false)
+  const [atrSearch, setAtrSearch] = useState('')
+  const [atrStatusFilter, setAtrStatusFilter] = useState<string | undefined>()
+  // Selection is per TEST, not per ATR/sample — two analysts can pick
+  // different tests off the same ATR without stepping on each other.
+  const [selectedTestRows, setSelectedTestRows] = useState<{ rowKey: string; atrId: string; sampleId: string; testId?: string }[]>([])
+  const [addingSelectedAtrs, setAddingSelectedAtrs] = useState(false)
   const [msgApi, msgCtx] = message.useMessage()
   const [testReports, setTestReports] = useState<Record<string, TestReport[]>>({})
 
+  // Accept/Reject an ATR-pulled-in sample row (acceptTestResultsInExp) —
+  // captured via a small modal so remarks can be recorded alongside the
+  // decision, same pattern as the result-submission modal below.
+  const [statusActionModal, setStatusActionModal] = useState<{ idx: number; action: 'ACCEPT' | 'REJECT' } | null>(null)
+  const [statusActionRemarks, setStatusActionRemarks] = useState('')
+
   // ATR result submission modal
   const [submissionOpen, setSubmissionOpen] = useState(false)
+  const [seedingSubmission, setSeedingSubmission] = useState(false)
   const [submissionIdx, setSubmissionIdx] = useState<number>(0)
   const [submForm, setSubmForm] = useState<{
     resultParams: AtrResultParam[]
@@ -291,11 +316,57 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
     } catch { /* ignore */ }
   }
 
+  // Full-page picker shows every ATR raised for the analyst's team (not just
+  // their own), matching the legacy "Add ATR Test" screen.
   const { data: atrsData, isLoading: atrsLoading } = useQuery({
     queryKey: ['sample-sec-atrs'],
-    queryFn: () => import('../../api/client').then(m => m.apiGet<{ items: any[]; total: number }>('/api/ard/atrs', { pageSize: 100 })),
+    queryFn: () => ardAtrApi.list({ scope: 'team', pageSize: 500 }),
     enabled: atrModalOpen,
   })
+
+  // One row per ATR TEST (not per sample, not per form) — flattened out of
+  // every fetched ATR's samples, mirroring the legacy "Add ATR Test" grid.
+  // A sample with no tests yet still gets a single placeholder row so it
+  // isn't dropped from the list entirely.
+  const atrSampleRows = (() => {
+    const items = atrsData?.items ?? []
+    const rows = items.flatMap((atr: any) =>
+      (atr.samples ?? []).flatMap((s: any) => {
+        const tests = s.tests ?? []
+        const base = {
+          atrId: String(atr.id),
+          sampleId: String(s.id),
+          formNo: atr.formNo || atr.code || '',
+          projectCode: atr.projectCode || '',
+          status: atr.status || '',
+          sampleCode: s.sampleCode || s.internalSampleNo || '',
+          sampleType: s.sampleType || '',
+          batchNo: s.batchNo || '',
+          storageCondition: s.storageCondition || '',
+          qty: [s.quantity, s.uom].filter(Boolean).join(' '),
+        }
+        if (tests.length === 0) {
+          return [{ ...base, testId: undefined as string | undefined, rowKey: `${atr.id}::${s.id}`, testTypes: '', testNos: '' }]
+        }
+        return tests.map((t: any, ti: number) => ({
+          ...base,
+          testId: String(t.id ?? ti),
+          rowKey: `${atr.id}::${s.id}::${t.id ?? ti}`,
+          testTypes: [t.testType || t.techniqueCode, t.testSubtype].filter(Boolean).join(' / '),
+          testNos: t.arNumber || '',
+        }))
+      })
+    )
+    const needle = atrSearch.trim().toLowerCase()
+    return rows.filter(r => {
+      if (atrStatusFilter && r.status !== atrStatusFilter) return false
+      if (!needle) return true
+      return [r.formNo, r.projectCode, r.sampleCode, r.sampleType, r.testTypes, r.batchNo, r.testNos]
+        .some(v => (v ?? '').toLowerCase().includes(needle))
+    })
+  })()
+  const atrStatusOptions = Array.from(new Set((atrsData?.items ?? []).map((a: any) => a.status).filter(Boolean)))
+    .map(s => ({ value: s, label: String(s).replace(/_/g, ' ') }))
 
   const { data: projectData } = useQuery({
     queryKey: ['ard-project', projectId],
@@ -326,11 +397,42 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
     return allAnalysts.map((u: any) => ({ value: u.id, label: u.username }))
   })()
 
-  const openSubmission = (idx: number) => {
+  // Master-data result-param defs (name/dataType/uom/limits/specification) ->
+  // the AtrResultParam shape the submission table edits.
+  const mapMasterParams = (params: { id: string; name: string; dataType: string; uom?: string | null; lowerLimit?: number | null; upperLimit?: number | null; specification?: string | null; placeholder?: string | null }[]): AtrResultParam[] =>
+    params.map(p => ({
+      id: uid(),
+      paramName: p.name,
+      resultType: p.dataType === 'number' ? 'NUMBER' : 'TEXT',
+      textSpec: p.specification || p.placeholder || '',
+      lowerLimit: p.lowerLimit != null ? String(p.lowerLimit) : '',
+      upperLimit: p.upperLimit != null ? String(p.upperLimit) : '',
+      paramValue: '',
+      paramUom: p.uom || '',
+      complies: '',
+    }))
+
+  const openSubmission = async (idx: number) => {
     const row = rows[idx]
     setSubmissionIdx(idx)
+    let resultParams = row.resultParams ?? []
+    // First time entering results for this test — seed the parameter table
+    // from its ArdTestConfiguration master data (Parameter/Specification/UOM)
+    // instead of leaving the analyst to type each one in by hand.
+    const testConfigId = row.tests?.[0]?.testConfigId
+    if (resultParams.length === 0 && testConfigId) {
+      setSeedingSubmission(true)
+      try {
+        const config = await ardApi.getTestConfig(testConfigId)
+        resultParams = mapMasterParams(config.resultParams ?? [])
+      } catch {
+        msgApi.warning('Could not load result parameters from master data — add them manually.')
+      } finally {
+        setSeedingSubmission(false)
+      }
+    }
     setSubmForm({
-      resultParams: row.resultParams ?? [],
+      resultParams,
       resultRemarks: row.resultRemarks ?? '',
       adRemarks: row.adRemarks ?? '',
       sendForVerification: row.sendForVerification ?? false,
@@ -387,73 +489,116 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
     onChange(next)
   }
 
-  const handleAddAtr = async (atr: any) => {
-    // Fetch the full ATR detail so result_params (LL/UL/UOM) are always present
-    let fullAtr = atr
+  // Batch add for the full-page picker — selection is per TEST, so two
+  // analysts can each pick a different test off the same sample/ATR without
+  // stepping on each other. Fetches every distinct ATR involved once, then
+  // builds one SampleRow per selected sample containing only its selected
+  // tests, and commits everything in a single onChange (sequential awaits
+  // would otherwise clobber each other off a stale `rows` closure).
+  const handleAddSelectedAtrs = async (selected: { atrId: string; sampleId: string; testId?: string }[]) => {
+    if (selected.length === 0) return
+    setAddingSelectedAtrs(true)
     try {
-      fullAtr = await import('../../api/client').then(m => m.apiGet<any>(`/api/ard/atrs/${atr.id}`))
-    } catch { /* fall back to list item data */ }
+      const atrIds = Array.from(new Set(selected.map(r => r.atrId)))
+      const fullAtrs = await Promise.all(atrIds.map(id =>
+        apiGet<any>(`/api/ard/atrs/${id}`).catch(() => null)
+      ))
+      const atrById = new Map(atrIds.map((id, i) => [id, fullAtrs[i]]))
 
-    const newRows: SampleRow[] = (fullAtr.samples ?? []).map((s: any) => {
-      const tests: AtrTestRow[] = (s.tests ?? []).map((t: any) => {
-        const firstResult = (t.results ?? [])[0] ?? {}
-        return {
-          id: String(t.id ?? uid()),
-          atrId: String(fullAtr.id ?? ''),
-          testType: t.testType || '',
-          testSubtype: t.testSubtype || '',
-          arNumber: t.arNumber || '',
-          status: t.status || 'UNASSIGNED',
-          techniqueName: t.techniqueName || '',
-          techniqueCode: t.techniqueCode || '',
-          instrumentCode: t.instrumentCode || '',
-          assignedToName: t.assignedToName || '',
-          lowerLimit: t.lowerLimit || firstResult.lower_limit || '',
-          upperLimit: t.upperLimit || firstResult.upper_limit || '',
-          limitsUom: t.limitsUom || firstResult.uom || '',
-          resultValue: t.resultValue || '',
-          resultUom: t.resultUom || '',
-          resultStatus: t.resultStatus || '',
-        }
-      })
-      const qty = [s.quantity, s.uom].filter(Boolean).join(' ')
-      return {
-        id: uid(),
-        atrId: String(fullAtr.id ?? ''),
-        atrFormNo: fullAtr.formNo || '',
-        projectCode: fullAtr.projectCode || '',
-        sampleCode: s.sampleCode || s.internalSampleNo || '',
-        sampleType: s.sampleType || '',
-        testSubtype: fullAtr.formTypeName || '',
-        batchNo: s.batchNo || '',
-        sampleCondition: s.storageCondition || s.sampleIntegrity || '',
-        qty,
-        status: s.status || 'UNASSIGNED',
-        remarks: s.additionalRemarks || '',
-        tests,
+      // Group selections by (atrId, sampleId) — multiple tests picked off the
+      // same sample become one SampleRow with just those tests.
+      const bySample = new Map<string, { atrId: string; sampleId: string; testIds: Set<string> }>()
+      for (const r of selected) {
+        const key = `${r.atrId}::${r.sampleId}`
+        if (!bySample.has(key)) bySample.set(key, { atrId: r.atrId, sampleId: r.sampleId, testIds: new Set() })
+        if (r.testId) bySample.get(key)!.testIds.add(r.testId)
       }
-    })
-    onChange([...rows, ...newRows])
-    setAtrModalOpen(false)
-    const allTests = newRows.flatMap(r => r.tests ?? [])
-    if (fullAtr.id && allTests.some((t: AtrTestRow) => !t.arNumber)) {
-      try {
-        const res: any = await apiPost(`/api/ard/atrs/${fullAtr.id}/generate-ar`, {})
-        const arMap: Record<string, string> = {}
-        for (const item of (res.items ?? [])) {
-          if (item.testId && item.arNumber) arMap[item.testId] = item.arNumber
+
+      const newRowsByAtr: { atrId: string; rows: SampleRow[] }[] = []
+      for (const { atrId, sampleId, testIds } of bySample.values()) {
+        const fullAtr = atrById.get(atrId)
+        if (!fullAtr) continue
+        const s = (fullAtr.samples ?? []).find((x: any) => String(x.id) === sampleId)
+        if (!s) continue
+        const chosenTests = testIds.size > 0
+          ? (s.tests ?? []).filter((t: any) => testIds.has(String(t.id)))
+          : (s.tests ?? [])
+
+        const tests: AtrTestRow[] = chosenTests.map((t: any) => {
+          const firstResult = (t.results ?? [])[0] ?? {}
+          return {
+            id: String(t.id ?? uid()),
+            atrId,
+            testType: t.testType || '',
+            testSubtype: t.testSubtype || '',
+            arNumber: t.arNumber || '',
+            status: t.status || 'UNASSIGNED',
+            techniqueName: t.techniqueName || '',
+            techniqueCode: t.techniqueCode || '',
+            instrumentCode: t.instrumentCode || '',
+            assignedToName: t.assignedToName || '',
+            lowerLimit: t.lowerLimit || firstResult.lower_limit || '',
+            upperLimit: t.upperLimit || firstResult.upper_limit || '',
+            limitsUom: t.limitsUom || firstResult.uom || '',
+            resultValue: t.resultValue || '',
+            resultUom: t.resultUom || '',
+            resultStatus: t.resultStatus || '',
+            testConfigId: t.testConfigId || undefined,
+          }
+        })
+        const qty = [s.quantity, s.uom].filter(Boolean).join(' ')
+        const newRow: SampleRow = {
+          id: uid(),
+          atrId,
+          atrFormNo: fullAtr.formNo || '',
+          projectCode: fullAtr.projectCode || '',
+          sampleCode: s.sampleCode || s.internalSampleNo || '',
+          sampleType: s.sampleType || '',
+          testSubtype: fullAtr.formTypeName || '',
+          batchNo: s.batchNo || '',
+          sampleCondition: s.storageCondition || s.sampleIntegrity || '',
+          qty,
+          arNumber: '',
+          status: s.status || 'UNASSIGNED',
+          remarks: s.additionalRemarks || '',
+          tests,
         }
-        if (Object.keys(arMap).length > 0) {
-          const patchedRows = newRows.map(r => ({
-            ...r,
-            tests: r.tests?.map((t: AtrTestRow) => arMap[t.id] ? { ...t, arNumber: arMap[t.id] } : t),
+        const group = newRowsByAtr.find(g => g.atrId === atrId)
+        if (group) group.rows.push(newRow); else newRowsByAtr.push({ atrId, rows: [newRow] })
+      }
+
+      const allNewRows = newRowsByAtr.flatMap(g => g.rows)
+      onChange([...rows, ...allNewRows])
+      setAtrModalOpen(false)
+      setSelectedTestRows([])
+
+      // Generate AR numbers for any test that doesn't already have one, per ATR.
+      const needsAr = newRowsByAtr.filter(g => g.rows.some(r => (r.tests ?? []).some(t => !t.arNumber)))
+      if (needsAr.length > 0) {
+        try {
+          const arMap: Record<string, string> = {}
+          await Promise.all(needsAr.map(async g => {
+            const res: any = await apiPost(`/api/ard/atrs/${g.atrId}/generate-ar`, {})
+            for (const item of (res.items ?? [])) {
+              if (item.testId && item.arNumber) arMap[item.testId] = item.arNumber
+            }
           }))
-          onChange([...rows, ...patchedRows])
+          if (Object.keys(arMap).length > 0) {
+            const patchedNewRows = allNewRows.map(r => ({
+              ...r,
+              tests: r.tests?.map((t: AtrTestRow) => arMap[t.id] ? { ...t, arNumber: arMap[t.id] } : t),
+            }))
+            onChange([...rows, ...patchedNewRows])
+          }
+          msgApi.success('AR numbers generated for each test')
+        } catch {
+          msgApi.warning('ATR test(s) added — AR number generation failed, generate manually from ATR')
         }
-        msgApi.success('AR numbers generated for each test')
-      } catch {
-        msgApi.warning('ATR added — AR number generation failed, generate manually from ATR')
+      } else {
+        msgApi.success(`Added ${allNewRows.length} sample${allNewRows.length !== 1 ? 's' : ''} from ${atrIds.length} ATR${atrIds.length !== 1 ? 's' : ''}.`)
       }
+    } finally {
+      setAddingSelectedAtrs(false)
     }
   }
 
@@ -479,7 +624,7 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
                 const atrId = testRow.atrId || rowAtrId
                 if (!atrId) { msgApi.error('ATR ID missing — cannot assign'); return }
                 try {
-                  const res: any = await apiPost(`/api/ard/atrs/${atrId}/tests/${testRow.id}/assign`, {})
+                  const res: any = await apiPost(`/api/ard/tests/${atrId}/${testRow.id}/claim`, {})
                   updateTest(sampleIdx, testRow.id, { assignedToName: res.assignedToName, status: res.status })
                   msgApi.success('Test claimed')
                 } catch {
@@ -502,8 +647,8 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
               if (!atrId) { msgApi.error('ATR ID missing — cannot assign'); return }
               const opt = analystOptions.find((o: any) => o.value === val)
               try {
-                const res: any = await apiPost(`/api/ard/atrs/${atrId}/tests/${testRow.id}/assign`, {
-                  assignedToId: val, assignedToName: opt?.label,
+                const res: any = await apiPost(`/api/ard/tests/${atrId}/${testRow.id}/assign`, {
+                  analystId: val, analystName: opt?.label,
                 })
                 updateTest(sampleIdx, testRow.id, { assignedToName: res.assignedToName, status: res.status })
                 msgApi.success(`Assigned to ${res.assignedToName}`)
@@ -530,6 +675,41 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
     { title: 'Status', dataIndex: 'status', width: 110, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { status: val })} readOnly={readOnly} /> },
     { title: 'Remarks', dataIndex: 'remarks', width: 140, render: (v, _, i) => <Cell value={v} onChange={val => upd(i, { remarks: val })} readOnly={readOnly} /> },
     {
+      title: 'Test Status',
+      key: 'testStatusAction',
+      width: 140,
+      render: (_: unknown, row: SampleRow, i: number) => {
+        if (!row.atrId) return <span className="text-slate-300 text-xs">—</span>
+        if (row.testStatusAction) {
+          const tag = (
+            <Tag color={row.testStatusAction === 'ACCEPT' ? 'green' : 'red'}>
+              {row.testStatusAction === 'ACCEPT' ? 'Accepted' : 'Rejected'}
+            </Tag>
+          )
+          return (
+            <Tooltip title={row.testStatusActionRemarks || (readOnly ? undefined : 'Click to change')}>
+              {readOnly
+                ? tag
+                : <span className="cursor-pointer" onClick={() => { setStatusActionRemarks(row.testStatusActionRemarks || ''); setStatusActionModal({ idx: i, action: row.testStatusAction! }) }}>{tag}</span>}
+            </Tooltip>
+          )
+        }
+        if (readOnly) return <span className="text-slate-400 text-xs">Pending</span>
+        return (
+          <div className="flex items-center gap-1">
+            <Tooltip title="Accept">
+              <Button size="small" type="text" icon={<CheckCircle2 size={14} className="text-green-600" />}
+                onClick={() => { setStatusActionRemarks(''); setStatusActionModal({ idx: i, action: 'ACCEPT' }) }} />
+            </Tooltip>
+            <Tooltip title="Reject">
+              <Button size="small" type="text" icon={<XCircle size={14} className="text-red-600" />}
+                onClick={() => { setStatusActionRemarks(''); setStatusActionModal({ idx: i, action: 'REJECT' }) }} />
+            </Tooltip>
+          </div>
+        )
+      },
+    },
+    {
       title: 'Tests', key: 'tests', width: 70,
       render: (_: unknown, row: SampleRow) => {
         const unassigned = (row.tests ?? []).filter(t => !t.assignedToName)
@@ -554,6 +734,7 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
               type={hasParams ? 'primary' : 'default'}
               ghost={hasParams}
               icon={<Edit2 size={12} />}
+              loading={seedingSubmission && submissionIdx === i}
               onClick={() => openSubmission(i)}
             >
               {hasParams ? 'View' : 'Enter'}
@@ -622,69 +803,18 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
             const assignedTests = allTests.filter(t => t.assignedToName)
             const unassignedTests = allTests.filter(t => !t.assignedToName)
             const testCols = makeTestCols(sampleIdx, row.atrId)
-            const saveResult = async (testRow: AtrTestRow, patch: Partial<AtrTestRow>) => {
-              const atrId = testRow.atrId || row.atrId
-              if (!atrId) return
-              const merged = { ...testRow, ...patch }
-              updateTest(sampleIdx, testRow.id, patch)
-              try {
-                await apiPatch(`/api/ard/atrs/${atrId}/tests/${testRow.id}`, {
-                  lowerLimit: merged.lowerLimit || '',
-                  upperLimit: merged.upperLimit || '',
-                  limitsUom: merged.limitsUom || '',
-                  resultValue: merged.resultValue || '',
-                  resultUom: merged.resultUom || '',
-                  resultStatus: merged.resultStatus || '',
-                })
-              } catch { /* ignore — local state already updated */ }
-            }
+            // Result entry (Parameter/Specification/Value/UOM/P-F) lives in the
+            // "ATR Test Results" modal (Enter/View, seeded from the test's
+            // master-data config) — this table used to duplicate it with its
+            // own Lower Limit/Value/Upper Limit/UOM/Result columns patching
+            // the raw test record directly, which let the two go out of sync
+            // and confused which one was the real entry point. Only Final
+            // Report (a raw-data attachment, not a result value) stays here.
             const assignedCols: ColumnsType<AtrTestRow> = [
               { title: 'Test Type', dataIndex: 'testType', key: 'testType', width: 110 },
               { title: 'Test Sub-type', dataIndex: 'testSubtype', key: 'testSubtype', width: 120 },
               { title: 'AR Number', dataIndex: 'arNumber', key: 'arNumber', width: 130, render: (v: string) => <span className="font-mono text-xs text-slate-700">{v || '—'}</span> },
               { title: 'Assigned To', dataIndex: 'assignedToName', key: 'assignedToName', width: 110, render: (v: string) => <span className="text-xs font-medium text-slate-700">{v}</span> },
-              {
-                title: 'Lower Limit', key: 'lowerLimit', width: 90,
-                render: (_: unknown, r: AtrTestRow) => readOnly
-                  ? <span className="text-xs text-slate-700">{r.lowerLimit || '—'}</span>
-                  : <Input size="small" value={r.lowerLimit || ''} placeholder="LL"
-                      onChange={e => updateTest(sampleIdx, r.id, { lowerLimit: e.target.value })}
-                      onBlur={e => saveResult(r, { lowerLimit: e.target.value })} style={{ width: 80 }} />,
-              },
-              {
-                title: 'Value', key: 'resultValue', width: 100,
-                render: (_: unknown, r: AtrTestRow) => readOnly
-                  ? <span className="text-xs text-slate-700">{r.resultValue || '—'}</span>
-                  : <Input size="small" value={r.resultValue || ''} placeholder="Value"
-                      onChange={e => updateTest(sampleIdx, r.id, { resultValue: e.target.value })}
-                      onBlur={e => saveResult(r, { resultValue: e.target.value })} style={{ width: 88 }} />,
-              },
-              {
-                title: 'Upper Limit', key: 'upperLimit', width: 90,
-                render: (_: unknown, r: AtrTestRow) => readOnly
-                  ? <span className="text-xs text-slate-700">{r.upperLimit || '—'}</span>
-                  : <Input size="small" value={r.upperLimit || ''} placeholder="UL"
-                      onChange={e => updateTest(sampleIdx, r.id, { upperLimit: e.target.value })}
-                      onBlur={e => saveResult(r, { upperLimit: e.target.value })} style={{ width: 80 }} />,
-              },
-              {
-                title: 'UOM', key: 'limitsUom', width: 70,
-                render: (_: unknown, r: AtrTestRow) => readOnly
-                  ? <span className="text-xs text-slate-700">{r.limitsUom || '—'}</span>
-                  : <Input size="small" value={r.limitsUom || ''} placeholder="UOM"
-                      onChange={e => updateTest(sampleIdx, r.id, { limitsUom: e.target.value })}
-                      onBlur={e => saveResult(r, { limitsUom: e.target.value })} style={{ width: 60 }} />,
-              },
-              {
-                title: 'Result', key: 'resultStatus', width: 110,
-                render: (_: unknown, r: AtrTestRow) => readOnly
-                  ? <span className="text-xs text-slate-700">{r.resultStatus || '—'}</span>
-                  : <Select size="small" value={r.resultStatus || undefined} placeholder="Pass/Fail"
-                      style={{ width: 100 }}
-                      options={[{ value: 'Pass', label: '✓ Pass' }, { value: 'Fail', label: '✗ Fail' }, { value: 'NA', label: 'N/A' }]}
-                      onChange={val => saveResult(r, { resultStatus: val })}
-                    />,
-              },
               {
                 title: 'Final Report', key: 'report', width: 200,
                 render: (_: unknown, r: AtrTestRow) => {
@@ -802,75 +932,81 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
         )}
       />
 
+      {/* Full-page ATR picker — every ATR raised for the analyst's team, not
+          just their own, with per-field search/filter and multi-select
+          (legacy "Add ATR Test" screen). Replaces the old card-list modal. */}
       <Modal
-        {...glassModalProps}
-        title="Add ATR to Sample Details"
+        title="Add ATR Test"
         open={atrModalOpen}
-        onCancel={() => setAtrModalOpen(false)}
+        onCancel={() => { setAtrModalOpen(false); setSelectedTestRows([]); setAtrSearch(''); setAtrStatusFilter(undefined) }}
         footer={null}
         destroyOnClose
-        width={680}
+        width="100vw"
+        style={{ top: 0, maxWidth: '100vw', paddingBottom: 0 }}
+        styles={{ body: { height: 'calc(100vh - 55px)', overflow: 'auto' }, container: { borderRadius: 0 } }}
       >
         <div className="space-y-3 pt-2">
-          {atrsLoading ? (
-            <div className="flex justify-center py-6"><Spin /></div>
-          ) : (atrsData?.items ?? []).length === 0 ? (
-            <Empty description="No ATR forms available" />
-          ) : (
-            <div className="max-h-[520px] overflow-y-auto space-y-3">
-              {(atrsData?.items ?? []).map((atr: any) => {
-                const allTests = (atr.samples ?? []).flatMap((s: any) => s.tests ?? [])
-                const unassignedCount = allTests.filter((t: any) => !t.assignedToName).length
-                return (
-                  <div key={atr.id} className="rounded-lg border border-slate-200 hover:border-violet-400 hover:shadow-sm transition overflow-hidden">
-                    <div className="flex items-start justify-between px-3 py-2.5 bg-slate-50">
-                      <div className="flex-1 min-w-0">
-                        <div className="flex items-center gap-2 flex-wrap">
-                          <span className="font-mono font-bold text-sm text-indigo-700">{atr.formNo || atr.code}</span>
-                          <Tag color="default" className="text-xs !m-0">{atr.formTypeName || atr.testSubtype || 'ATR'}</Tag>
-                          {atr.status && <Tag color={atr.status === 'CERTIFIED' ? 'green' : atr.status === 'NEW' ? 'orange' : 'blue'} className="text-xs !m-0">{atr.status}</Tag>}
-                        </div>
-                        <div className="mt-0.5 flex gap-3 text-xs text-slate-500 flex-wrap">
-                          {atr.projectCode && <span>Project: <span className="font-mono">{atr.projectCode}</span></span>}
-                          {atr.productName && <span>{atr.productName}</span>}
-                          {atr.qcRef && <span>QC Ref: {atr.qcRef}</span>}
-                        </div>
-                      </div>
-                      <Button size="small" type="primary" icon={<Plus size={12} />} onClick={() => handleAddAtr(atr)} className="ml-2 shrink-0">
-                        Add
-                      </Button>
-                    </div>
-                    {allTests.length > 0 && (
-                      <div className="px-3 py-2 border-t border-slate-100">
-                        <p className="text-xs font-semibold text-slate-500 mb-1.5">
-                          Tests ({allTests.length}) — {unassignedCount} unassigned
-                        </p>
-                        <div className="divide-y divide-slate-100 rounded-md border border-slate-100 overflow-hidden">
-                          {allTests.map((t: any, ti: number) => (
-                            <div key={ti} className="flex items-center justify-between gap-3 text-xs bg-white px-2 py-1.5">
-                              <div className="flex items-center gap-1.5 min-w-0">
-                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 shrink-0" />
-                                <span className="font-medium text-slate-700 truncate">
-                                  {t.testType || t.techniqueCode || `Test ${ti + 1}`}
-                                </span>
-                                {t.testSubtype && <span className="text-slate-400 truncate">· {t.testSubtype}</span>}
-                              </div>
-                              <div className="flex items-center gap-2 shrink-0">
-                                {t.assignedToName && <span className="text-slate-400">→ {t.assignedToName}</span>}
-                                {t.arNumber
-                                  ? <span className="font-mono text-violet-700 bg-violet-50 px-1.5 py-0.5 rounded">{t.arNumber}</span>
-                                  : <span className="text-amber-600 bg-amber-50 px-1.5 py-0.5 rounded">No AR#</span>}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
+          <div className="flex flex-wrap items-center gap-2">
+            <Input
+              allowClear
+              placeholder="Search ATR / Project / Sample / Batch / Test No..."
+              value={atrSearch}
+              onChange={(e) => setAtrSearch(e.target.value)}
+              style={{ width: 320 }}
+            />
+            <Select
+              allowClear
+              placeholder="Filter Status"
+              style={{ width: 180 }}
+              value={atrStatusFilter}
+              options={atrStatusOptions}
+              onChange={setAtrStatusFilter}
+            />
+            <span className="text-xs text-slate-400">Showing your team's ATRs — select individual tests</span>
+            <Button
+              type="primary"
+              className="ml-auto"
+              disabled={selectedTestRows.length === 0}
+              loading={addingSelectedAtrs}
+              onClick={() => handleAddSelectedAtrs(selectedTestRows)}
+            >
+              Add Selected ({selectedTestRows.length})
+            </Button>
+          </div>
+
+          <Table
+            rowKey="rowKey"
+            loading={atrsLoading}
+            dataSource={atrSampleRows}
+            size="small"
+            pagination={{ pageSize: 20, showTotal: (t) => `${t} tests` }}
+            rowSelection={{
+              // Per-test selection — each row (one ATR test) can be picked
+              // independently, so different analysts can split up the tests
+              // on the same ATR/sample between themselves.
+              selectedRowKeys: selectedTestRows.map(r => r.rowKey),
+              onChange: (_keys, selectedRows) => {
+                setSelectedTestRows((selectedRows as typeof atrSampleRows).filter(Boolean).map(r => ({
+                  rowKey: r.rowKey, atrId: r.atrId, sampleId: r.sampleId, testId: r.testId,
+                })))
+              },
+            }}
+            columns={[
+              { title: 'ATR Form No.', dataIndex: 'formNo', render: (v) => <span className="font-mono font-semibold text-indigo-900">{v}</span> },
+              { title: 'Project Code', dataIndex: 'projectCode' },
+              { title: 'Sample Code', dataIndex: 'sampleCode' },
+              { title: 'Sample Type', dataIndex: 'sampleType' },
+              { title: 'Test / Sub Type', dataIndex: 'testTypes', render: (v) => v || '—' },
+              { title: 'Batch No.', dataIndex: 'batchNo' },
+              { title: 'Storage Condition', dataIndex: 'storageCondition', render: (v) => v || '—' },
+              { title: 'Qty / UOM', dataIndex: 'qty', render: (v) => v || '—' },
+              { title: 'Test No.', dataIndex: 'testNos', render: (v) => v || '—' },
+              {
+                title: 'Status', dataIndex: 'status',
+                render: (v: string) => <Tag color={v === 'CERTIFIED' ? 'green' : v === 'NEW' ? 'orange' : 'blue'} className="text-xs">{v?.replace(/_/g, ' ')}</Tag>,
+              },
+            ]}
+          />
         </div>
       </Modal>
 
@@ -1074,6 +1210,37 @@ function SampleSection({ value, onChange, readOnly, projectId }: {
               </div>
             )}
           </div>
+        </div>
+      </Modal>
+
+      {/* ── Accept/Reject ATR-pulled-in sample row (local to the experiment) ── */}
+      <Modal
+        title={statusActionModal?.action === 'ACCEPT' ? 'Accept Sample' : 'Reject Sample'}
+        open={statusActionModal !== null}
+        onCancel={() => setStatusActionModal(null)}
+        onOk={() => {
+          if (!statusActionModal) return
+          upd(statusActionModal.idx, {
+            testStatusAction: statusActionModal.action,
+            testStatusActionRemarks: statusActionRemarks,
+            testStatusActionBy: currentUser?.username,
+            testStatusActionAt: new Date().toISOString(),
+          })
+          setStatusActionModal(null)
+        }}
+        okText={statusActionModal?.action === 'ACCEPT' ? 'Accept' : 'Reject'}
+        okButtonProps={{ danger: statusActionModal?.action === 'REJECT' }}
+        destroyOnClose
+        width={420}
+      >
+        <div className="pt-2">
+          <label className="text-xs font-semibold text-slate-500 block mb-1">Remarks</label>
+          <Input.TextArea
+            rows={3}
+            placeholder="Reason / observation for this decision…"
+            value={statusActionRemarks}
+            onChange={e => setStatusActionRemarks(e.target.value)}
+          />
         </div>
       </Modal>
     </>

@@ -2,10 +2,11 @@ import { useState, useEffect, useMemo } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Button, Tabs, Input, Select, Tag, Spin, Alert, Modal, Table, Form, Radio, Popconfirm, message, Switch, Tooltip,
+  Button, Tabs, Input, Select, Tag, Spin, Alert, Modal, Table, Form, Radio, Popconfirm, message, Switch, Tooltip, Space, Dropdown,
 } from 'antd'
 import type { ColumnsType } from 'antd/es/table'
-import { ArrowLeft, BookOpen, Plus, Trash2, FileText, Star, Edit2, Eye, Activity, History } from 'lucide-react'
+import type { MenuProps } from 'antd'
+import { ArrowLeft, BookOpen, Plus, Trash2, FileText, Star, Edit2, Eye, Activity, History, MoreHorizontal } from 'lucide-react'
 import dayjs from 'dayjs'
 import { ardNotebooksApi, type Notebook, type ResultParameter, type AssignedUser, type ExperimentSummary } from '../../api/ard-notebooks'
 import { ardProjectsApi, type ProjectStp } from '../../api/ard-projects'
@@ -37,6 +38,12 @@ const NOTEBOOK_TYPES = [
 ]
 
 function newId() { return crypto.randomUUID ? crypto.randomUUID() : Math.random().toString(36).slice(2) }
+
+// Aim is edited via RichEditor (Quill), so it's stored as HTML — the
+// Experiments tab's table cell needs the plain-text gist, not raw <p> tags.
+function stripHtml(html: string | null | undefined): string {
+  return (html ?? '').replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+}
 
 // ── Summary tab ───────────────────────────────────────────────────────────────
 function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Partial<Notebook>) => void; saving: boolean }) {
@@ -387,9 +394,8 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
   const [selectedStp, setSelectedStp] = useState<ProjectStp | null>(null)
   const [selectedTemplateType, setSelectedTemplateType] = useState<string | undefined>(undefined)
   const [selectedTestType, setSelectedTestType] = useState<string | undefined>(undefined)
-  // Row-level action toolbar (Edit/View/Events/History) — Make STP Worksheet
-  // isn't needed here for now, per product review 2026-08-28.
-  const [selectedIds, setSelectedIds] = useState<string[]>([])
+  // Per-row Actions column state (Edit/View/Events/History) — see the
+  // Actions column in `cols` below.
   const [eventsRow, setEventsRow] = useState<ExperimentSummary | null>(null)
 
   const { data, isLoading } = useQuery({
@@ -553,7 +559,7 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
       render: v => <span className="font-mono text-xs font-semibold text-slate-700">{v}</span>,
     },
     { title: 'Template', dataIndex: 'templateName', key: 'templateName', render: v => v ?? '—' },
-    { title: 'Aim', dataIndex: 'aim', key: 'aim', ellipsis: true, render: v => v || '—' },
+    { title: 'Aim', dataIndex: 'aim', key: 'aim', ellipsis: true, render: (v: string | null) => stripHtml(v) || '—' },
     {
       title: 'Aim Achieved', dataIndex: 'aimAchieved', key: 'aimAchieved', width: 110,
       render: (v: boolean | null) => v == null ? '—' : (v ? <Tag color="green">Yes</Tag> : <Tag color="red">No</Tag>),
@@ -586,19 +592,45 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
       title: 'Storage Condition & Period', dataIndex: 'storageConditions', key: 'storageConditions',
       render: (v: string[]) => v?.length ? v.join(', ') : '—',
     },
+    {
+      title: 'Actions', key: 'actions', width: 70, fixed: 'right', align: 'center',
+      render: (_: unknown, row: ExperimentSummary) => {
+        const menuItems: MenuProps['items'] = [
+          { key: 'edit', label: 'Edit', icon: <Edit2 size={13} />, onClick: () => navigate(`/ard/experiments/${row.id}`) },
+          // Read-only mode: ArdExperimentWorkspacePage.tsx shows only Export
+          // PDF + Clone when opened with ?view=1, regardless of status/role.
+          { key: 'view', label: 'View', icon: <Eye size={13} />, onClick: () => navigate(`/ard/experiments/${row.id}?view=1`) },
+          { key: 'events', label: 'Events', icon: <Activity size={13} />, onClick: () => setEventsRow(row) },
+          // Full version comparison is a later feature — this just reserves
+          // the action for now, per product review 2026-08-28.
+          { key: 'history', label: 'History', icon: <History size={13} />, onClick: () => message.info('Version comparison is coming soon.') },
+        ]
+        return (
+          <div onClick={e => e.stopPropagation()}>
+            <Dropdown menu={{ items: menuItems }} trigger={['click']}>
+              <Button type="text" size="small" icon={<MoreHorizontal size={16} />} />
+            </Dropdown>
+          </div>
+        )
+      },
+    },
   ]
 
   const items = data?.items ?? []
-  const selectedRow = selectedIds.length === 1 ? items.find(r => r.id === selectedIds[0]) : undefined
 
   return (
     <div className="space-y-3">
+      {/* Add Experiment lives in the table's own title slot now — sits flush
+          against the table instead of on its own full-width row above it.
+          Everything else (Edit/View/Events/History) is in the table's
+          Actions column so each icon acts on its own row directly. Make STP
+          Worksheet dropped, and HighLight is just the per-row star toggle
+          again (no separate comment modal), per product review 2026-08-28. */}
       <Table
         rowKey="id"
         columns={cols}
         dataSource={items}
         loading={isLoading}
-        rowSelection={{ type: 'checkbox', selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
         onRow={r => ({
           onClick: () => navigate(`/ard/experiments/${r.id}`),
           className: `cursor-pointer${r.highlighted ? ' bg-amber-50 hover:bg-amber-100/70' : ''}`,
@@ -606,39 +638,17 @@ function ExperimentsTab({ notebookId, notebookProjectId, notebookStatus }: { not
         pagination={false}
         locale={{ emptyText: 'No experiments in this notebook.' }}
         size="small"
+        scroll={{ x: 'max-content' }}
+        title={() => (
+          <div className="flex justify-end">
+            <Tooltip title={notebookStatus !== 'ACTIVE' ? 'Notebook must be Active to add experiments' : ''}>
+              <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen} disabled={notebookStatus !== 'ACTIVE'}>
+                Add Experiment
+              </Button>
+            </Tooltip>
+          </div>
+        )}
       />
-
-      {/* Row action toolbar — Edit/View/Events/HighLight/History all need
-          exactly one experiment selected; Add Experiment doesn't. Make STP
-          Worksheet dropped per product review 2026-08-28 (not needed for now). */}
-      <div className="flex flex-wrap items-center gap-2">
-        <Tooltip title={notebookStatus !== 'ACTIVE' ? 'Notebook must be Active to add experiments' : ''}>
-          <Button type="primary" icon={<Plus size={14} />} onClick={handleOpen} disabled={notebookStatus !== 'ACTIVE'}
-            className="bg-emerald-600 hover:!bg-emerald-700 border-none">
-            Add Experiment
-          </Button>
-        </Tooltip>
-        <Button icon={<Edit2 size={14} />} disabled={!selectedRow}
-          onClick={() => { if (selectedRow) navigate(`/ard/experiments/${selectedRow.id}`) }}>
-          Edit
-        </Button>
-        {/* Read-only mode: ArdExperimentWorkspacePage.tsx shows only Export
-            PDF + Clone when opened with ?view=1, regardless of status/role. */}
-        <Button icon={<Eye size={14} />} disabled={!selectedRow}
-          onClick={() => { if (selectedRow) navigate(`/ard/experiments/${selectedRow.id}?view=1`) }}>
-          View
-        </Button>
-        <Button icon={<Activity size={14} />} disabled={!selectedRow}
-          onClick={() => { if (selectedRow) setEventsRow(selectedRow) }}>
-          Events
-        </Button>
-        {/* Full version comparison is a later feature — this just reserves
-            the action for now, per product review 2026-08-28. */}
-        <Button icon={<History size={14} />} disabled={!selectedRow}
-          onClick={() => message.info('Version comparison is coming soon.')}>
-          History
-        </Button>
-      </div>
 
       {/* Events — this experiment's own audit trail */}
       <Modal

@@ -5,12 +5,43 @@ import { Table, Tag, Input, Select, Button, Tabs, Card, Modal, message, Popconfi
 import { Plus, FileText, Clock, ShieldCheck, Award, Download, CheckCircle2, Search, Repeat } from 'lucide-react'
 import dayjs, { type Dayjs } from 'dayjs'
 import { ardAtrApi, ardOpsApi, type AtrStatus, type ArdTestRow, type AtrForm } from '../../api/ard'
+import { ardUploadsApi } from '../../api/ard-uploads'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import { useHealthIndicator } from '../../hooks/useHealthIndicator'
-import { ApiError } from '../../api/client'
+import { ApiError, apiGet } from '../../api/client'
 import { glassModalProps } from '../../utils/modalStyles'
 import { ESignatureModal } from '../../components/common/ESignatureModal'
+
+// Test-level row (not ATR-form level) — same shape /api/ard/tests returns,
+// used by the HOD-only "Test Pending Verification" tab below.
+interface TestPendingVerifyRow {
+  id: string
+  atrId: string
+  projectCode: string | null
+  productName: string | null
+  sampleCode: string
+  formNo: string
+  batchNo: string | null
+  storageCondition: string | null
+  packType: string | null
+  testType: string
+  testSubtype: string | null
+  priority: string | null
+  arNumber: string | null
+  analyzedBy: string | null
+  results: unknown[] | null
+  remarks: string | null
+  resultRemarks: string | null
+  createdAt: string | null
+  assignedToName?: string | null
+  assignedToId?: string | null
+  enhancementRequests?: { id: string; status: 'PENDING' | 'APPROVED' | 'REJECTED' }[] | null
+}
+
+function hasPendingEnhancement(row: TestPendingVerifyRow): boolean {
+  return (row.enhancementRequests ?? []).some((r) => r.status === 'PENDING')
+}
 
 const STATUS_OPTIONS: AtrStatus[] = [
   'DRAFT', 'SAVED', 'REQUESTED', 'NEW', 'QA_PRE_APPROVAL', 'PRE_APPROVAL_REWORK',
@@ -50,6 +81,7 @@ export default function ArdAtrsPage() {
     const rc = user?.role_code ?? ''
     if (['HOD', 'HEAD_OF_DEPT', 'MANAGER'].includes(rc)) return 'verification_request'
     if (['ANALYST', 'CHEMIST', 'CHEM'].includes(rc)) return 'my_raised'
+    if (['TL', 'TEAM_LEAD'].includes(rc)) return 'certification_atrs'
     return 'all'
   })
   const [withdrawId, setWithdrawId] = useState<string | null>(null)
@@ -151,9 +183,227 @@ export default function ArdAtrsPage() {
       setReassignFormsTargetTl(undefined)
       setReassignFormsRemarks('')
       setReassignFormsSelectedIds([])
+      setCertificationSelectedIds([])
+      setNewClarifiedSelectedIds([])
       qc.invalidateQueries({ queryKey: ['ard-reassign-forms'] })
+      qc.invalidateQueries({ queryKey: ['ard-certification-atrs'] })
+      qc.invalidateQueries({ queryKey: ['ard-new-clarified-atrs'] })
+      qc.invalidateQueries({ queryKey: ['ard-atrs'] })
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to reassign forms.'),
+  })
+
+  // ── Certification ATRs tab (TL only) — every ATR of the TL's team
+  // currently past approval and moving through the certification workflow
+  // (VERIFIED / CERTIFICATION_REQUESTED / CERTIFICATION_REWORK / CERTIFIED),
+  // with Reassign (reuses the same Re-assign Forms modal/mutation above) and
+  // Events actions.
+  const [certificationSelectedIds, setCertificationSelectedIds] = useState<string[]>([])
+  const CERTIFICATION_STATUSES = 'VERIFIED,CERTIFICATION_REQUESTED,CERTIFICATION_REWORK,CERTIFIED'
+  const { data: certificationAtrsData, isLoading: certificationAtrsLoading } = useQuery({
+    queryKey: ['ard-certification-atrs'],
+    queryFn: () => ardAtrApi.list({ statuses: CERTIFICATION_STATUSES, scope: 'team', pageSize: 200 }),
+    enabled: isTl,
+  })
+  const certificationAtrs = certificationAtrsData?.items ?? []
+
+  // ── New/Clarified Forms tab (TL only) — every ATR of the TL's team still
+  // sitting in NEW or CLARIFIED (not yet moved into the QA pre-approval
+  // cycle), with Reassign (same Re-assign Forms modal/mutation) and Events.
+  const [newClarifiedSelectedIds, setNewClarifiedSelectedIds] = useState<string[]>([])
+  const { data: newClarifiedAtrsData, isLoading: newClarifiedAtrsLoading } = useQuery({
+    queryKey: ['ard-new-clarified-atrs'],
+    queryFn: () => ardAtrApi.list({ statuses: 'NEW,CLARIFIED', scope: 'team', pageSize: 200 }),
+    enabled: isTl,
+  })
+  const newClarifiedAtrs = newClarifiedAtrsData?.items ?? []
+
+  // ── Clarification Requests tab (TL only) — same PENDING_CLARIFICATION
+  // queue/columns as the analyst's own "Form Pending Clarification" tab
+  // below, but scoped to the TL's whole team rather than just "mine".
+  const [tlClarificationSelectedIds, setTlClarificationSelectedIds] = useState<string[]>([])
+  const { data: tlClarificationData, isLoading: tlClarificationLoading } = useQuery({
+    queryKey: ['ard-tl-clarification-requests'],
+    queryFn: () => ardAtrApi.list({ tab: 'pending_clarification', scope: 'team', pageSize: 200 }),
+    enabled: isTl,
+  })
+  const tlClarificationAtrs = tlClarificationData?.items ?? []
+
+  // ── Method Development tab (TL only) — same tab/status the shared
+  // "Method Development" tab uses (formCategory METHOD_DEV) below, but its
+  // own team-scoped query and column set/toolbar (Process + Events) instead
+  // of the generic table every other role sees on this tab.
+  const [tlMethodDevSelectedIds, setTlMethodDevSelectedIds] = useState<string[]>([])
+  const { data: tlMethodDevData, isLoading: tlMethodDevLoading } = useQuery({
+    queryKey: ['ard-tl-method-dev'],
+    queryFn: () => ardAtrApi.list({ tab: 'method_dev', scope: 'team', pageSize: 200 }),
+    enabled: isTl,
+  })
+  const tlMethodDevAtrs = tlMethodDevData?.items ?? []
+
+  // ── My ATR's tab (TL only) — same "raised by me" data every role's My
+  // ATR's tab shows, but its own fuller column set (ATR Form No./Sample
+  // Code/Batch No./Submitted To) and a New ATR/Withdraw/Events toolbar
+  // instead of the generic table + per-row View/Withdraw links.
+  const [tlMyAtrSelectedIds, setTlMyAtrSelectedIds] = useState<string[]>([])
+  const { data: tlMyAtrData, isLoading: tlMyAtrLoading } = useQuery({
+    queryKey: ['ard-tl-my-atrs'],
+    queryFn: () => ardAtrApi.list({ scope: 'self', pageSize: 200 }),
+    enabled: isTl,
+  })
+  const tlMyAtrs = tlMyAtrData?.items ?? []
+
+  // ── Team ATRs tab (TL only) — the whole team's ATRs with a From/To raised-
+  // date filter (toggled by "Include Date"), a Current Owner filter, and a
+  // Change Owner action.
+  const [teamAtrsIncludeDate, setTeamAtrsIncludeDate] = useState(true)
+  const [teamAtrsFrom, setTeamAtrsFrom] = useState<Dayjs | null>(dayjs().subtract(1, 'month'))
+  const [teamAtrsTo, setTeamAtrsTo] = useState<Dayjs | null>(dayjs())
+  const [teamAtrsOwnerId, setTeamAtrsOwnerId] = useState<string | undefined>()
+  const [teamAtrsSelectedIds, setTeamAtrsSelectedIds] = useState<string[]>([])
+  const [changeOwnerModalOpen, setChangeOwnerModalOpen] = useState(false)
+  const [changeOwnerNewOwnerId, setChangeOwnerNewOwnerId] = useState<string | undefined>()
+  const [changeOwnerRemarks, setChangeOwnerRemarks] = useState('')
+
+  const { data: teamAtrsData, isLoading: teamAtrsLoading } = useQuery({
+    queryKey: ['ard-team-atrs'],
+    queryFn: () => ardAtrApi.list({ scope: 'team', pageSize: 200 }),
+    enabled: isTl,
+  })
+  const { data: teamUsersForOwnerData } = useQuery({
+    queryKey: ['ard-team-users-owner'],
+    queryFn: () => ardOpsApi.teamUsers(),
+    enabled: isTl || isHodUser,
+  })
+  const teamOwnerOptions = (teamUsersForOwnerData?.items ?? []).map((u) => ({ value: u.id, label: u.full_name || u.username }))
+  const teamAtrs = (teamAtrsData?.items ?? []).filter((r) => {
+    if (teamAtrsIncludeDate && teamAtrsFrom && teamAtrsTo && r.raisedOn) {
+      const d = dayjs(r.raisedOn)
+      if (d.isBefore(teamAtrsFrom, 'day') || d.isAfter(teamAtrsTo, 'day')) return false
+    }
+    if (teamAtrsOwnerId) {
+      const ownerName = teamOwnerOptions.find((o) => o.value === teamAtrsOwnerId)?.label
+      if ((r.currentOwnerName || r.assignedTl) !== ownerName) return false
+    }
+    return true
+  })
+
+  const changeOwnerMut = useMutation({
+    mutationFn: async () => {
+      let ok = 0
+      for (const id of teamAtrsSelectedIds) {
+        await ardAtrApi.changeOwner(id, { newOwnerId: changeOwnerNewOwnerId!, remarks: changeOwnerRemarks })
+        ok += 1
+      }
+      return ok
+    },
+    onSuccess: (ok) => {
+      msg.success(`Changed owner for ${ok} ATR${ok !== 1 ? 's' : ''}.`)
+      setChangeOwnerModalOpen(false)
+      setChangeOwnerNewOwnerId(undefined)
+      setChangeOwnerRemarks('')
+      setTeamAtrsSelectedIds([])
+      qc.invalidateQueries({ queryKey: ['ard-team-atrs'] })
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to change owner for one or more ATRs.'),
+  })
+
+  // ── Test Pending Verification tab (HOD only) — test-level (not ATR-form
+  // level) queue, mirroring the Tests screen's own "Pending Verification"
+  // column set/toolbar exactly, just surfaced here on the ATRs screen too.
+  const [hodPendingVerifySelectedIds, setHodPendingVerifySelectedIds] = useState<string[]>([])
+  const { data: hodPendingVerifyData, isLoading: hodPendingVerifyLoading } = useQuery({
+    queryKey: ['ard-hod-pending-verify-tests'],
+    queryFn: () => apiGet<{ items: TestPendingVerifyRow[]; total: number }>('/api/ard/tests', { status: 'VERIFICATION_REQUESTED', pageSize: 200 }),
+    enabled: isHodUser,
+  })
+  const hodPendingVerifyTests = hodPendingVerifyData?.items ?? []
+
+  const handleHodViewReport = async (row: TestPendingVerifyRow) => {
+    try {
+      const files = await ardUploadsApi.list('test_final_report', row.id)
+      const latest = files[files.length - 1]
+      if (!latest) { msg.error('No final report uploaded for this test yet.'); return }
+      window.open(latest.downloadUrl, '_blank')
+    } catch {
+      msg.error('Failed to load the report.')
+    }
+  }
+  const handleHodDownloadReport = async (row: TestPendingVerifyRow) => {
+    try {
+      const files = await ardUploadsApi.list('test_final_report', row.id)
+      const latest = files[files.length - 1]
+      if (!latest) { msg.error('No final report uploaded for this test yet.'); return }
+      const { blob, filename } = await ardUploadsApi.downloadBlob(latest.id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = filename || latest.filename || 'final-report'
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch {
+      msg.error('Failed to download the report.')
+    }
+  }
+  const [hodTestEventsRow, setHodTestEventsRow] = useState<TestPendingVerifyRow | null>(null)
+  const { data: hodTestEventsData } = useQuery({
+    queryKey: ['ard-hod-test-events', hodTestEventsRow?.id],
+    queryFn: () => apiGet<{ id: string; action: string; detail: string; by: string | null; at: string }[]>(`/api/ard/tests/${hodTestEventsRow!.atrId}/${hodTestEventsRow!.id}/events`),
+    enabled: !!hodTestEventsRow,
+  })
+
+  // ── Enhancement Requests tab (HOD only) — test-level, mirroring the Tests
+  // screen's own Enhancement Requests tab (Assigned To Me / Assigned To
+  // Others), surfaced here on the ATRs screen too.
+  const [hodEnhancementSelectedIds, setHodEnhancementSelectedIds] = useState<string[]>([])
+  const { data: hodEnhancementData, isLoading: hodEnhancementLoading } = useQuery({
+    queryKey: ['ard-hod-enhancement-tests'],
+    queryFn: () => apiGet<{ items: TestPendingVerifyRow[]; total: number }>('/api/ard/tests', { pageSize: 200 }),
+    enabled: isHodUser,
+  })
+  const hodEnhancementTests = (hodEnhancementData?.items ?? []).filter(hasPendingEnhancement)
+  const [hodEnhAssignOpen, setHodEnhAssignOpen] = useState(false)
+  const [hodEnhAssignUserId, setHodEnhAssignUserId] = useState<string | undefined>()
+  const hodEnhAssignMut = useMutation({
+    mutationFn: () => {
+      const target = teamOwnerOptions.find((o) => o.value === hodEnhAssignUserId)
+      return ardAtrApi.bulkAssign({
+        testIds: hodEnhancementSelectedIds.map((id) => {
+          const row = hodEnhancementTests.find((r) => r.id === id)
+          return { atrId: row?.atrId ?? '', testId: id }
+        }),
+        analystId: hodEnhAssignUserId!,
+        analystName: target?.label ?? '',
+      })
+    },
+    onSuccess: () => {
+      msg.success('Assigned selected test(s).')
+      setHodEnhAssignOpen(false)
+      setHodEnhAssignUserId(undefined)
+      setHodEnhancementSelectedIds([])
+      qc.invalidateQueries({ queryKey: ['ard-hod-enhancement-tests'] })
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to assign.'),
+  })
+
+  const [tlClarifyModalOpen, setTlClarifyModalOpen] = useState(false)
+  const [tlClarifyMessage, setTlClarifyMessage] = useState('')
+  const tlBulkClarifyMut = useMutation({
+    mutationFn: async () => {
+      for (const id of tlClarificationSelectedIds) {
+        await ardAtrApi.addClarification(id, { message: tlClarifyMessage })
+        await ardAtrApi.transition(id, { to: 'CLARIFIED' })
+      }
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['ard-tl-clarification-requests'] })
+      qc.invalidateQueries({ queryKey: ['ard-atrs-counts'] })
+      msg.success(`Clarified ${tlClarificationSelectedIds.length} form${tlClarificationSelectedIds.length !== 1 ? 's' : ''}.`)
+      setTlClarifyModalOpen(false)
+      setTlClarifyMessage('')
+      setTlClarificationSelectedIds([])
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to submit clarification for one or more forms.'),
   })
 
   // ── Form Pending Approval tab (HOD + TL) ──────────────────────────────
@@ -214,9 +464,11 @@ export default function ArdAtrsPage() {
     mutationFn: (id: string) => ardAtrApi.transition(id, { to: 'WITHDRAWN', remarks: withdrawRemarks }),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['ard-atrs'] })
+      qc.invalidateQueries({ queryKey: ['ard-tl-my-atrs'] })
       msg.success('ATR withdrawn.')
       setWithdrawId(null)
       setWithdrawRemarks('')
+      setTlMyAtrSelectedIds([])
     },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed to withdraw ATR.'),
   })
@@ -358,11 +610,14 @@ export default function ArdAtrsPage() {
   // Test, Queued ATR, then everything else in its prior relative order.
   // Visibility per tab is unchanged from before — only position moved.
   const allTabDescriptors: { key: string; label: string; show: boolean }[] = [
-    { key: 'verification_request', label: `Test Pending Verification (${countVerReq})`, show: isTl || isUnscopedAdmin },
-    { key: 'enhancement', label: `Enhancement Request (${countEnhancement})`, show: isTl || isUnscopedAdmin },
+    { key: 'verification_request', label: `Test Pending Verification (${isHodUser ? hodPendingVerifyTests.length : countVerReq})`, show: isTl || isUnscopedAdmin },
+    { key: 'enhancement', label: `Enhancement Request (${isHodUser ? hodEnhancementTests.length : countEnhancement})`, show: isTl || isUnscopedAdmin },
     { key: 're_assign_forms', label: 'Re-assign Forms', show: isHodUser },
+    { key: 'certification_atrs', label: `Certification ATRs (${certificationAtrs.length})`, show: isTl },
+    { key: 'new_clarified', label: `New/Clarified Forms (${newClarifiedAtrs.length})`, show: isTl },
+    { key: 'tl_clarification_requests', label: `Clarification Requests (${tlClarificationAtrs.length})`, show: isTl },
     { key: 'form_pending_approval', label: `Form Pending Approval (${countVerReq})`, show: isHodOrTl },
-    { key: 'my_raised', label: `My ATR's (${countMyRaised})`, show: true },
+    { key: 'my_raised', label: `My ATR's (${isTl ? tlMyAtrs.length : countMyRaised})`, show: true },
     { key: 're_assign', label: 'Re-assign Tests', show: isHodUser },
     { key: 'unsatisfactory', label: 'Unsatisfactory Test', show: isHodUser },
     { key: 'queued', label: `Queued ATR (${countQueued})`, show: isTl || isUnscopedAdmin },
@@ -378,14 +633,56 @@ export default function ArdAtrsPage() {
     // (as "Pending Clarification") — same status, but its own tab/column set
     // since the two audiences want different columns (legacy screen).
     { key: 'clarification_requests', label: `Form Pending Clarification (${countPendingClar})`, show: isAnalyst },
-    { key: 'method_dev', label: `Method Development (${countMethodDev})`, show: true },
+    { key: 'method_dev', label: `Method Development (${isTl ? tlMethodDevAtrs.length : countMethodDev})`, show: true },
   ]
-  const tabItems = allTabDescriptors.filter((t) => t.show).map(({ key, label }) => ({ key, label }))
+  // TL gets its own fixed tab order/label set on this screen — every other
+  // tab (Test Pending Verification, Enhancement Request, Un-assigned, etc.)
+  // is dropped for this role rather than filtered out of the shared list.
+  const TL_ATR_TAB_ITEMS = [
+    { key: 'certification_atrs', label: `Certification ATRs (${certificationAtrs.length})` },
+    { key: 'new_clarified', label: `New/Clarified Forms (${newClarifiedAtrs.length})` },
+    { key: 'form_pending_approval', label: `Form Pending Approval (${countVerReq})` },
+    { key: 'tl_clarification_requests', label: `Clarification Request (${tlClarificationAtrs.length})` },
+    { key: 'method_dev', label: `Method Development Request (${tlMethodDevAtrs.length})` },
+    { key: 'queued', label: `Queued ATR (${countQueued})` },
+    { key: 'my_raised', label: `My ATR's (${tlMyAtrs.length})` },
+    { key: 'team_atrs', label: `Team ATRs (${teamAtrs.length})` },
+    { key: 'pending_clarification', label: `Pending Clarification (${countPendingClar})` },
+  ]
+  // HOD gets its own fixed tab order/label set too — every other tab (Re-
+  // assign Forms/Tests and Unsatisfactory Test were already HOD-only; the
+  // rest this role could see, like All ATRs/QA Pre-Approval/etc., are
+  // dropped here rather than filtered out of the shared list).
+  const HOD_ATR_TAB_ITEMS = [
+    { key: 'verification_request', label: `Test Pending Verification (${hodPendingVerifyTests.length})` },
+    { key: 'enhancement', label: `Enhancement Request (${hodEnhancementTests.length})` },
+    { key: 're_assign_forms', label: 'Re-assign Forms' },
+    { key: 'form_pending_approval', label: `Form Pending Approval (${countVerReq})` },
+    { key: 're_assign', label: 'Re-assign Tests' },
+    { key: 'unsatisfactory', label: 'Unsatisfactory Test' },
+    { key: 'my_raised', label: `My ATR's (${countMyRaised})` },
+    { key: 'queued', label: `Queued ATR (${countQueued})` },
+  ]
+  const tabItems = isTl ? TL_ATR_TAB_ITEMS : isHodUser ? HOD_ATR_TAB_ITEMS : allTabDescriptors.filter((t) => t.show).map(({ key, label }) => ({ key, label }))
 
   const isReassignTab = activeTab === 're_assign'
   const isReassignFormsTab = activeTab === 're_assign_forms'
   const isUnsatisfactoryTab = activeTab === 'unsatisfactory'
-  const isCustomTab = isReassignTab || isReassignFormsTab || isUnsatisfactoryTab || isFormApprovalTab || isClarificationRequestsTab
+  const isCertificationAtrsTab = activeTab === 'certification_atrs'
+  const isNewClarifiedTab = activeTab === 'new_clarified'
+  const isTlClarificationTab = activeTab === 'tl_clarification_requests'
+  const isTlMethodDevTab = activeTab === 'method_dev' && isTl
+  const isTlMyAtrTab = activeTab === 'my_raised' && isTl
+  const isTeamAtrsTab = activeTab === 'team_atrs' && isTl
+  // HOD's own "Test Pending Verification" — same tab key/label the TL/admin
+  // ATR-form-level view already uses, but test-level content (mirroring the
+  // Tests screen's Pending Verification tab) instead, for this role only.
+  const isHodPendingVerifyTab = activeTab === 'verification_request' && isHodUser
+  // HOD's own "Enhancement Requests" — test-level, same tab key/label as
+  // the TL/admin ATR-form-level view, but this role gets the Tests screen's
+  // Assigned To Me / Assigned To Others content instead.
+  const isHodEnhancementTab = activeTab === 'enhancement' && isHodUser
+  const isCustomTab = isReassignTab || isReassignFormsTab || isUnsatisfactoryTab || isFormApprovalTab || isClarificationRequestsTab || isCertificationAtrsTab || isNewClarifiedTab || isTlClarificationTab || isTlMethodDevTab || isTlMyAtrTab || isTeamAtrsTab || isHodPendingVerifyTab || isHodEnhancementTab
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -411,6 +708,68 @@ export default function ArdAtrsPage() {
           />
         </div>
       </Modal>
+
+      {/* Change Owner — Team ATRs tab */}
+      <Modal
+        {...glassModalProps}
+        title="Change Owner"
+        open={changeOwnerModalOpen}
+        onCancel={() => setChangeOwnerModalOpen(false)}
+        onOk={() => changeOwnerMut.mutate()}
+        confirmLoading={changeOwnerMut.isPending}
+        okText="Change Owner"
+        okButtonProps={{ disabled: !changeOwnerNewOwnerId }}
+      >
+        <div className="py-2 space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">New Owner <span className="text-red-500">*</span></label>
+            <Select
+              className="w-full"
+              placeholder="Select new owner"
+              showSearch
+              optionFilterProp="label"
+              value={changeOwnerNewOwnerId}
+              onChange={setChangeOwnerNewOwnerId}
+              options={teamOwnerOptions}
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Remarks</label>
+            <Input.TextArea
+              rows={3}
+              value={changeOwnerRemarks}
+              onChange={(e) => setChangeOwnerRemarks(e.target.value)}
+              placeholder="Reason for changing owner..."
+            />
+          </div>
+        </div>
+      </Modal>
+
+      {/* Assign — HOD's Enhancement Requests tab */}
+      <Modal
+        {...glassModalProps}
+        title="Assign"
+        open={hodEnhAssignOpen}
+        onCancel={() => setHodEnhAssignOpen(false)}
+        onOk={() => hodEnhAssignMut.mutate()}
+        confirmLoading={hodEnhAssignMut.isPending}
+        okText="Assign"
+        okButtonProps={{ disabled: !hodEnhAssignUserId }}
+      >
+        <div className="py-2">
+          <label className="block text-sm font-medium text-slate-700 mb-1">Analyst <span className="text-red-500">*</span></label>
+          <Select
+            className="w-full"
+            placeholder="Select analyst"
+            showSearch
+            optionFilterProp="label"
+            value={hodEnhAssignUserId}
+            onChange={setHodEnhAssignUserId}
+            options={teamOwnerOptions}
+          />
+        </div>
+      </Modal>
+
       <div className="flex items-center gap-2">
         <FileText size={20} className="text-violet-600" />
         <h1 className="text-lg font-bold text-slate-800">Analytical Test Requests (ATR)</h1>
@@ -519,6 +878,8 @@ export default function ArdAtrsPage() {
             onApprove={() => bulkApproveMut.mutate()}
             approving={bulkApproveMut.isPending}
             onEventsClick={() => setEventsModalRows(filteredItems.filter((r) => approvalSelectedIds.includes(r.id)))}
+            showReassign={isTl}
+            onReassignClick={() => { setReassignFormsSelectedIds(approvalSelectedIds); setReassignFormsModalOpen(true) }}
           />
         ) : isClarificationRequestsTab ? (
           <ClarificationRequestsPanel
@@ -530,6 +891,96 @@ export default function ArdAtrsPage() {
             setSelectedIds={setClarificationSelectedIds}
             onClarifyClick={() => { setClarifyMessage(''); setClarifyModalOpen(true) }}
             onEventsClick={() => setEventsModalRows(filteredItems.filter((r) => clarificationSelectedIds.includes(r.id)))}
+          />
+        ) : isCertificationAtrsTab ? (
+          <CertificationAtrsPanel
+            items={certificationAtrs}
+            loading={certificationAtrsLoading}
+            selectedIds={certificationSelectedIds}
+            setSelectedIds={setCertificationSelectedIds}
+            onReassignClick={() => { setReassignFormsSelectedIds(certificationSelectedIds); setReassignFormsModalOpen(true) }}
+            onEventsClick={() => setEventsModalRows(certificationAtrs.filter((r) => certificationSelectedIds.includes(r.id)))}
+          />
+        ) : isNewClarifiedTab ? (
+          <NewClarifiedFormsPanel
+            items={newClarifiedAtrs}
+            loading={newClarifiedAtrsLoading}
+            healthTagColor={healthTagColor}
+            selectedIds={newClarifiedSelectedIds}
+            setSelectedIds={setNewClarifiedSelectedIds}
+            onReassignClick={() => { setReassignFormsSelectedIds(newClarifiedSelectedIds); setReassignFormsModalOpen(true) }}
+            onEventsClick={() => setEventsModalRows(newClarifiedAtrs.filter((r) => newClarifiedSelectedIds.includes(r.id)))}
+          />
+        ) : isTlClarificationTab ? (
+          <ClarificationRequestsPanel
+            items={tlClarificationAtrs}
+            loading={tlClarificationLoading}
+            healthTagColor={healthTagColor}
+            onRowClick={(id) => navigate(`/ard/atrs/${id}`)}
+            selectedIds={tlClarificationSelectedIds}
+            setSelectedIds={setTlClarificationSelectedIds}
+            onClarifyClick={() => { setTlClarifyMessage(''); setTlClarifyModalOpen(true) }}
+            onEventsClick={() => setEventsModalRows(tlClarificationAtrs.filter((r) => tlClarificationSelectedIds.includes(r.id)))}
+          />
+        ) : isTlMethodDevTab ? (
+          <MethodDevelopmentPanel
+            items={tlMethodDevAtrs}
+            loading={tlMethodDevLoading}
+            selectedIds={tlMethodDevSelectedIds}
+            setSelectedIds={setTlMethodDevSelectedIds}
+            onProcessClick={() => { if (tlMethodDevSelectedIds[0]) navigate(`/ard/atrs/${tlMethodDevSelectedIds[0]}`) }}
+            onEventsClick={() => setEventsModalRows(tlMethodDevAtrs.filter((r) => tlMethodDevSelectedIds.includes(r.id)))}
+          />
+        ) : isTlMyAtrTab ? (
+          <MyAtrPanel
+            items={tlMyAtrs}
+            loading={tlMyAtrLoading}
+            selectedIds={tlMyAtrSelectedIds}
+            setSelectedIds={setTlMyAtrSelectedIds}
+            onNewAtrClick={() => navigate('/ard/atrs/new')}
+            onWithdrawClick={() => { if (tlMyAtrSelectedIds[0]) { setWithdrawId(tlMyAtrSelectedIds[0]); setWithdrawRemarks('') } }}
+            onEventsClick={() => setEventsModalRows(tlMyAtrs.filter((r) => tlMyAtrSelectedIds.includes(r.id)))}
+            canWithdraw={(id) => ['DRAFT', 'SAVED', 'NEW', 'PARTIAL'].includes(tlMyAtrs.find((r) => r.id === id)?.status ?? '')}
+          />
+        ) : isTeamAtrsTab ? (
+          <TeamAtrsPanel
+            items={teamAtrs}
+            loading={teamAtrsLoading}
+            ownerOptions={teamOwnerOptions}
+            includeDate={teamAtrsIncludeDate}
+            setIncludeDate={setTeamAtrsIncludeDate}
+            from={teamAtrsFrom}
+            setFrom={setTeamAtrsFrom}
+            to={teamAtrsTo}
+            setTo={setTeamAtrsTo}
+            ownerId={teamAtrsOwnerId}
+            setOwnerId={setTeamAtrsOwnerId}
+            selectedIds={teamAtrsSelectedIds}
+            setSelectedIds={setTeamAtrsSelectedIds}
+            onChangeOwnerClick={() => { setChangeOwnerNewOwnerId(undefined); setChangeOwnerRemarks(''); setChangeOwnerModalOpen(true) }}
+          />
+        ) : isHodPendingVerifyTab ? (
+          <HodTestPendingVerifyPanel
+            items={hodPendingVerifyTests}
+            loading={hodPendingVerifyLoading}
+            healthTagColor={healthTagColor}
+            selectedIds={hodPendingVerifySelectedIds}
+            setSelectedIds={setHodPendingVerifySelectedIds}
+            onProcessClick={() => { if (hodPendingVerifySelectedIds[0]) { const r = hodPendingVerifyTests.find((t) => t.id === hodPendingVerifySelectedIds[0]); if (r) navigate(`/ard/tests/${r.atrId}/${r.id}`) } }}
+            onViewReportClick={() => { const r = hodPendingVerifyTests.find((t) => t.id === hodPendingVerifySelectedIds[0]); if (r) handleHodViewReport(r) }}
+            onDownloadClick={() => { const r = hodPendingVerifyTests.find((t) => t.id === hodPendingVerifySelectedIds[0]); if (r) handleHodDownloadReport(r) }}
+            onEventsClick={() => { const r = hodPendingVerifyTests.find((t) => t.id === hodPendingVerifySelectedIds[0]); if (r) setHodTestEventsRow(r) }}
+          />
+        ) : isHodEnhancementTab ? (
+          <HodEnhancementPanel
+            items={hodEnhancementTests}
+            loading={hodEnhancementLoading}
+            healthTagColor={healthTagColor}
+            selectedIds={hodEnhancementSelectedIds}
+            setSelectedIds={setHodEnhancementSelectedIds}
+            onAssignClick={() => { setHodEnhAssignUserId(undefined); setHodEnhAssignOpen(true) }}
+            onViewReportClick={() => { const r = hodEnhancementTests.find((t) => t.id === hodEnhancementSelectedIds[0]); if (r) handleHodViewReport(r) }}
+            onEventsClick={() => { const r = hodEnhancementTests.find((t) => t.id === hodEnhancementSelectedIds[0]); if (r) setHodTestEventsRow(r) }}
           />
         ) : (
         <Table
@@ -721,6 +1172,29 @@ export default function ArdAtrsPage() {
         </div>
       </Modal>
 
+      {/* Clarify Modal — TL's own Clarification Requests tab (team-scoped) */}
+      <Modal
+        {...glassModalProps}
+        title={`Clarify ${tlClarificationSelectedIds.length} Form${tlClarificationSelectedIds.length !== 1 ? 's' : ''}`}
+        open={tlClarifyModalOpen}
+        onCancel={() => { setTlClarifyModalOpen(false); setTlClarifyMessage('') }}
+        onOk={() => tlBulkClarifyMut.mutate()}
+        confirmLoading={tlBulkClarifyMut.isPending}
+        okText="Submit Clarification"
+        okButtonProps={{ disabled: !tlClarifyMessage.trim() }}
+        destroyOnClose
+      >
+        <div className="py-2 space-y-3">
+          <p className="text-xs text-slate-600">Reply to the clarification request. The form moves to CLARIFIED once submitted.</p>
+          <Input.TextArea
+            rows={4}
+            value={tlClarifyMessage}
+            onChange={(e) => setTlClarifyMessage(e.target.value)}
+            placeholder="Enter your response..."
+          />
+        </div>
+      </Modal>
+
       {/* Events — workflow history for the selected ATR(s) on Form Pending Approval */}
       <Modal
         {...glassModalProps}
@@ -748,6 +1222,30 @@ export default function ArdAtrsPage() {
               )}
             </div>
           ))}
+        </div>
+      </Modal>
+
+      {/* Events — HOD's Test Pending Verification tab (test-level audit log, distinct from the ATR-form-level Events modal above) */}
+      <Modal
+        {...glassModalProps}
+        title="Events"
+        open={!!hodTestEventsRow}
+        onCancel={() => setHodTestEventsRow(null)}
+        footer={null}
+      >
+        <div className="py-2 space-y-1.5 max-h-[60vh] overflow-y-auto">
+          {(hodTestEventsData ?? []).length === 0 ? (
+            <p className="text-xs text-slate-400 italic">No events recorded.</p>
+          ) : (
+            (hodTestEventsData ?? []).map((ev) => (
+              <div key={ev.id} className="text-xs border-l-2 border-indigo-200 pl-2">
+                <span className="font-medium text-slate-700">{ev.action}</span>
+                <span className="text-slate-500"> — {ev.detail}</span>
+                <span className="text-slate-500"> by {ev.by ?? '—'}</span>
+                {ev.at && <span className="text-slate-400"> · {dayjs(ev.at).format('DD MMM YYYY (HH:mm)')}</span>}
+              </div>
+            ))
+          )}
         </div>
       </Modal>
     </div>
@@ -1070,6 +1568,7 @@ function ClarificationRequestsPanel({
             return latest?.message || '—'
           },
         },
+        { title: 'Customer Name', dataIndex: 'customerName', render: (v) => v || '—' },
         {
           title: 'Age', dataIndex: 'dateDiffForAge', render: (v) => (
             v !== undefined && v !== null ? (
@@ -1092,8 +1591,488 @@ function ClarificationRequestsPanel({
   )
 }
 
+// "Certification ATRs" (TL screen) — every ATR of the TL's team currently
+// past approval and moving through the certification workflow (VERIFIED /
+// CERTIFICATION_REQUESTED / CERTIFICATION_REWORK / CERTIFIED). Reassign
+// hands the whole form off to another TL (same mutation as Re-assign Forms);
+// Events shows its workflow history.
+function CertificationAtrsPanel({
+  items, loading, selectedIds, setSelectedIds, onReassignClick, onEventsClick,
+}: {
+  items: AtrForm[]
+  loading: boolean
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onReassignClick: () => void
+  onEventsClick: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} ATRs` }}
+        columns={[
+          { title: 'Sample Code', render: (_, r) => sampleField(r, 'sampleCode') },
+          { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+          { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+          { title: 'Form Type', dataIndex: 'formTypeName', render: (v) => v || '—' },
+          { title: 'Form Number', dataIndex: 'formNo', render: (v) => <span className="font-mono font-semibold text-indigo-900">{v}</span> },
+          { title: 'Batch Number', render: (_, r) => sampleField(r, 'batchNo') },
+          { title: 'Storage Condition & Period', render: (_, r) => sampleField(r, 'storageCondition') },
+          { title: 'Remarks', dataIndex: 'requestRemarks', render: (v) => v || '—' },
+          {
+            title: 'Status', dataIndex: 'status',
+            render: (v: AtrStatus) => <Tag color={statusColor(v)} className="text-xs font-semibold">{v.replace(/_/g, ' ')}</Tag>,
+          },
+          { title: 'Requester Name', render: (_, r) => r.raisedBy || r.createdBy || '—' },
+          {
+            title: 'Rejected By',
+            render: (_, r) => (r.qaReworkHistory ?? [])[(r.qaReworkHistory ?? []).length - 1]?.by || '—',
+          },
+          {
+            title: 'QA Remarks',
+            render: (_, r) => (r.qaReworkHistory ?? [])[(r.qaReworkHistory ?? []).length - 1]?.remarks || '—',
+          },
+        ]}
+      />
+      <div className="flex gap-2">
+        <Button type="primary" disabled={selectedIds.length === 0} onClick={onReassignClick}
+          icon={<Repeat size={14} />} className="bg-indigo-600 hover:bg-indigo-700 border-none">
+          Reassign
+        </Button>
+        <Button disabled={selectedIds.length === 0} onClick={onEventsClick}>
+          Events
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// "New/Clarified Forms" (TL screen) — every ATR of the TL's team still
+// sitting in NEW or CLARIFIED (raised but not yet through QA pre-approval).
+// Reassign hands the whole form off to another TL (same mutation as
+// Re-assign Forms/Certification ATRs); Events shows its workflow history.
+function NewClarifiedFormsPanel({
+  items, loading, healthTagColor, selectedIds, setSelectedIds, onReassignClick, onEventsClick,
+}: {
+  items: AtrForm[]
+  loading: boolean
+  healthTagColor: (days: number) => string
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onReassignClick: () => void
+  onEventsClick: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} ATRs` }}
+        columns={[
+          { title: 'Sample Code', render: (_, r) => sampleField(r, 'sampleCode') },
+          { title: 'Form Type', dataIndex: 'formTypeName', render: (v) => v || '—' },
+          { title: 'Requested By', render: (_, r) => r.raisedBy || r.createdBy || '—' },
+          { title: 'Sample Type', render: (_, r) => sampleField(r, 'sampleType') },
+          { title: 'Raised On', render: (_, r) => (r.raisedOn ? dayjs(r.raisedOn).format('DD MMM YYYY (HH:mm)') : '—') },
+          {
+            title: 'Status', dataIndex: 'status',
+            render: (v: AtrStatus) => <Tag color={statusColor(v)} className="text-xs font-semibold">{v.replace(/_/g, ' ')}</Tag>,
+          },
+          { title: 'Customer Name', dataIndex: 'customerName', render: (v) => v || '—' },
+          {
+            title: 'Age', dataIndex: 'dateDiffForAge', render: (v) => (
+              v !== undefined && v !== null ? (
+                <Tag icon={<Clock size={11} />} color={healthTagColor(v)} className="text-xs">{v} d</Tag>
+              ) : '—'
+            ),
+          },
+        ]}
+      />
+      <div className="flex gap-2">
+        <Button type="primary" disabled={selectedIds.length === 0} onClick={onReassignClick}
+          icon={<Repeat size={14} />} className="bg-indigo-600 hover:bg-indigo-700 border-none">
+          Reassign
+        </Button>
+        <Button disabled={selectedIds.length === 0} onClick={onEventsClick}>
+          Events
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// "Method Development" (TL screen) — the same formCategory=METHOD_DEV tab
+// every role sees, but the TL's own team-scoped query and column
+// set/toolbar (Process + Events, single-row) instead of the generic table.
+function MethodDevelopmentPanel({
+  items, loading, selectedIds, setSelectedIds, onProcessClick, onEventsClick,
+}: {
+  items: AtrForm[]
+  loading: boolean
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onProcessClick: () => void
+  onEventsClick: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} ATRs` }}
+        columns={[
+          { title: 'Sample Code', render: (_, r) => sampleField(r, 'sampleCode') },
+          { title: 'Batch Number', render: (_, r) => sampleField(r, 'batchNo') },
+          { title: 'Storage Condition & Period', render: (_, r) => sampleField(r, 'storageCondition') },
+          { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+          { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+          { title: 'Form Type', dataIndex: 'formTypeName', render: (v) => v || '—' },
+          {
+            title: 'Status', dataIndex: 'status',
+            render: (v: AtrStatus) => <Tag color={statusColor(v)} className="text-xs font-semibold">{v.replace(/_/g, ' ')}</Tag>,
+          },
+          { title: 'Submitted To', dataIndex: 'assignedTl', render: (v) => v || '—' },
+          {
+            title: 'Raised By(On)',
+            render: (_, r) => (
+              <div className="text-xs">
+                <p className="font-medium text-slate-700">{r.raisedBy || r.createdBy || '—'}</p>
+                <p className="text-[11px] text-slate-400">{r.raisedOn ? dayjs(r.raisedOn).format('DD MMM YYYY (HH:mm)') : ''}</p>
+              </div>
+            ),
+          },
+        ]}
+      />
+      <div className="flex gap-2">
+        <Button type="primary" disabled={selectedIds.length !== 1} onClick={onProcessClick}
+          className="bg-indigo-600 hover:bg-indigo-700 border-none">
+          Process
+        </Button>
+        <Button disabled={selectedIds.length === 0} onClick={onEventsClick}>
+          Events
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// "My ATR's" (TL screen) — the same "raised by me" data every role's My
+// ATR's tab shows, but a fuller legacy column set and a New ATR/Withdraw/
+// Events toolbar instead of the generic table + per-row View/Withdraw links.
+function MyAtrPanel({
+  items, loading, selectedIds, setSelectedIds, onNewAtrClick, onWithdrawClick, onEventsClick, canWithdraw,
+}: {
+  items: AtrForm[]
+  loading: boolean
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onNewAtrClick: () => void
+  onWithdrawClick: () => void
+  onEventsClick: () => void
+  canWithdraw: (id: string) => boolean
+}) {
+  const withdrawDisabled = selectedIds.length !== 1 || !canWithdraw(selectedIds[0])
+  return (
+    <div className="space-y-3">
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} ATRs` }}
+        columns={[
+          { title: 'ATR Form No.', dataIndex: 'formNo', render: (v) => <span className="font-mono font-semibold text-indigo-900">{v}</span> },
+          { title: 'Sample Code', render: (_, r) => sampleField(r, 'sampleCode') },
+          { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+          { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+          { title: 'Form Type', dataIndex: 'formTypeName', render: (v) => v || '—' },
+          { title: 'Batch No.', render: (_, r) => sampleField(r, 'batchNo') },
+          {
+            title: 'Status', dataIndex: 'status',
+            render: (v: AtrStatus) => <Tag color={statusColor(v)} className="text-xs font-semibold">{v.replace(/_/g, ' ')}</Tag>,
+          },
+          { title: 'Submitted To', dataIndex: 'assignedTl', render: (v) => v || '—' },
+          { title: 'Raised On', render: (_, r) => (r.raisedOn ? dayjs(r.raisedOn).format('DD MMM YYYY (HH:mm)') : '—') },
+        ]}
+      />
+      <div className="flex gap-2">
+        <Button type="primary" onClick={onNewAtrClick} className="bg-indigo-600 hover:bg-indigo-700 border-none">
+          New ATR
+        </Button>
+        <Button danger disabled={withdrawDisabled} onClick={onWithdrawClick}>
+          Withdraw
+        </Button>
+        <Button disabled={selectedIds.length === 0} onClick={onEventsClick}>
+          Events
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// "Team ATRs" (TL screen) — the whole team's ATRs with a From/To raised-date
+// filter (toggled by "Include Date") and a Current Owner filter, plus a
+// Change Owner action (hands the form to a different team member — same
+// idea as the HOD's Re-assign Forms, just within one's own team and without
+// the e-signature step).
+function TeamAtrsPanel({
+  items, loading, ownerOptions, includeDate, setIncludeDate, from, setFrom, to, setTo, ownerId, setOwnerId,
+  selectedIds, setSelectedIds, onChangeOwnerClick,
+}: {
+  items: AtrForm[]
+  loading: boolean
+  ownerOptions: { value: string; label: string }[]
+  includeDate: boolean
+  setIncludeDate: (v: boolean) => void
+  from: Dayjs | null
+  setFrom: (v: Dayjs | null) => void
+  to: Dayjs | null
+  setTo: (v: Dayjs | null) => void
+  ownerId: string | undefined
+  setOwnerId: (v: string | undefined) => void
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onChangeOwnerClick: () => void
+}) {
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-end gap-3 bg-slate-50 border border-slate-200 rounded-lg p-3">
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">From</label>
+          <DatePicker value={from} onChange={setFrom} disabled={!includeDate} />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">To</label>
+          <DatePicker value={to} onChange={setTo} disabled={!includeDate} />
+        </div>
+        <div>
+          <label className="block text-xs font-semibold text-slate-600 mb-1">Current Owner</label>
+          <Select
+            allowClear
+            showSearch
+            optionFilterProp="label"
+            style={{ width: 220 }}
+            placeholder="Select owner"
+            value={ownerId}
+            onChange={setOwnerId}
+            options={ownerOptions}
+          />
+        </div>
+        <Checkbox checked={includeDate} onChange={(e) => setIncludeDate(e.target.checked)}>
+          Include Date
+        </Checkbox>
+      </div>
+
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} ATRs` }}
+        columns={[
+          { title: 'Sample Code', render: (_, r) => sampleField(r, 'sampleCode') },
+          { title: 'Project Name', dataIndex: 'productName', render: (v) => v || '—' },
+          { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+          { title: 'Form Type', dataIndex: 'formTypeName', render: (v) => v || '—' },
+          { title: 'Form Number', dataIndex: 'formNo', render: (v) => <span className="font-mono font-semibold text-indigo-900">{v}</span> },
+          { title: 'Batch Number', render: (_, r) => sampleField(r, 'batchNo') },
+          { title: 'Storage Condition & Period', render: (_, r) => sampleField(r, 'storageCondition') },
+          {
+            title: 'Status', dataIndex: 'status',
+            render: (v: AtrStatus) => <Tag color={statusColor(v)} className="text-xs font-semibold">{v.replace(/_/g, ' ')}</Tag>,
+          },
+          { title: 'Submitted To', dataIndex: 'assignedTl', render: (v) => v || '—' },
+          {
+            title: 'Raised By(On)',
+            render: (_, r) => (
+              <div className="text-xs">
+                <p className="font-medium text-slate-700">{r.raisedBy || r.createdBy || '—'}</p>
+                <p className="text-[11px] text-slate-400">{r.raisedOn ? dayjs(r.raisedOn).format('DD MMM YYYY (HH:mm)') : '—'}</p>
+              </div>
+            ),
+          },
+          { title: 'Current Owner', render: (_, r) => r.currentOwnerName || r.assignedTl || '—' },
+        ]}
+      />
+      <div className="flex gap-2">
+        <Button type="primary" disabled={selectedIds.length === 0} onClick={onChangeOwnerClick}
+          className="bg-indigo-600 hover:bg-indigo-700 border-none">
+          Change Owner
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// "Test Pending Verification" (HOD screen, ATRs page) — test-level rows
+// mirroring the Tests screen's own Pending Verification column set exactly:
+// Project Code, Product Name, Sample Code, Form No., Batch No, Storage
+// Condition & Period, Packing, Test/SubType, Priority, Test No., Analyzed
+// By, Req Count, Remarks, Test Remarks, Age. Actions: Process, View Report,
+// Download, Events (all single-row).
+function HodTestPendingVerifyPanel({
+  items, loading, healthTagColor, selectedIds, setSelectedIds, onProcessClick, onViewReportClick, onDownloadClick, onEventsClick,
+}: {
+  items: TestPendingVerifyRow[]
+  loading: boolean
+  healthTagColor: (days: number) => string
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onProcessClick: () => void
+  onViewReportClick: () => void
+  onDownloadClick: () => void
+  onEventsClick: () => void
+}) {
+  const renderAge = (v: string | null) => {
+    if (!v) return '—'
+    const days = Math.floor((Date.now() - new Date(v).getTime()) / 86_400_000)
+    return <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: healthTagColor(days) }} title={`${days} day(s)`} />
+  }
+  return (
+    <div className="space-y-3">
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={items}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} tests` }}
+        columns={[
+          { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+          { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+          { title: 'Sample Code', dataIndex: 'sampleCode', render: (v) => v || '—' },
+          { title: 'Form No.', dataIndex: 'formNo', render: (v) => <span className="font-mono font-semibold text-indigo-900">{v}</span> },
+          { title: 'Batch No', dataIndex: 'batchNo', render: (v) => v || '—' },
+          { title: 'Storage Condition & Period', dataIndex: 'storageCondition', render: (v) => v || '—' },
+          { title: 'Packing', dataIndex: 'packType', render: (v) => v || '—' },
+          { title: 'Test/SubType', render: (_, r) => `${r.testType}${r.testSubtype ? ` / ${r.testSubtype}` : ''}` },
+          { title: 'Priority', dataIndex: 'priority', render: (v) => v || '—' },
+          { title: 'Test No.', dataIndex: 'arNumber', render: (v) => v || '—' },
+          { title: 'Analyzed By', dataIndex: 'analyzedBy', render: (v) => v || '—' },
+          { title: 'Req Count', render: (_, r) => (Array.isArray(r.results) ? r.results.length : '—') },
+          { title: 'Remarks', dataIndex: 'remarks', render: (v) => v || '—' },
+          { title: 'Test Remarks', dataIndex: 'resultRemarks', render: (v) => v || '—' },
+          { title: 'Age', dataIndex: 'createdAt', width: 70, render: renderAge },
+        ]}
+      />
+      <div className="flex gap-2">
+        <Button type="primary" disabled={selectedIds.length !== 1} onClick={onProcessClick}
+          className="bg-indigo-600 hover:bg-indigo-700 border-none">
+          Process
+        </Button>
+        <Button disabled={selectedIds.length !== 1} onClick={onViewReportClick}>
+          View Report
+        </Button>
+        <Button disabled={selectedIds.length !== 1} onClick={onDownloadClick}>
+          Download
+        </Button>
+        <Button disabled={selectedIds.length !== 1} onClick={onEventsClick}>
+          Events
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+// "Enhancement Requests" (HOD screen, ATRs page) — test-level, mirroring
+// the Tests screen's own Enhancement Requests tab: Assigned To Me /
+// Assigned To Others sub-tabs, same column set (no Test No./Analyzed By/Req
+// Count — swapped for Assigned To), Assign (Me only) + View Report + Events.
+function HodEnhancementPanel({
+  items, loading, healthTagColor, selectedIds, setSelectedIds, onAssignClick, onViewReportClick, onEventsClick,
+}: {
+  items: TestPendingVerifyRow[]
+  loading: boolean
+  healthTagColor: (days: number) => string
+  selectedIds: string[]
+  setSelectedIds: (ids: string[]) => void
+  onAssignClick: () => void
+  onViewReportClick: () => void
+  onEventsClick: () => void
+}) {
+  const user = useAppSelector(selectUser)
+  const [subTab, setSubTab] = useState<'me' | 'others'>('me')
+  const isMine = (r: TestPendingVerifyRow) => r.assignedToId === user?.id || r.assignedToName === user?.username
+  const meItems = items.filter(isMine)
+  const othersItems = items.filter((r) => !!r.assignedToName && !isMine(r))
+  const filtered = subTab === 'me' ? meItems : othersItems
+
+  const renderAge = (v: string | null) => {
+    if (!v) return '—'
+    const days = Math.floor((Date.now() - new Date(v).getTime()) / 86_400_000)
+    return <span className="inline-block w-2.5 h-2.5 rounded-full" style={{ backgroundColor: healthTagColor(days) }} title={`${days} day(s)`} />
+  }
+
+  return (
+    <div className="space-y-3">
+      <Tabs
+        activeKey={subTab}
+        onChange={(k) => { setSubTab(k as 'me' | 'others'); setSelectedIds([]) }}
+        size="small"
+        type="card"
+        items={[
+          { key: 'me', label: `Assigned To Me (${meItems.length})` },
+          { key: 'others', label: `Assigned To Others (${othersItems.length})` },
+        ]}
+      />
+      <Table
+        rowKey="id"
+        loading={loading}
+        dataSource={filtered}
+        size="small"
+        rowSelection={{ selectedRowKeys: selectedIds, onChange: (keys) => setSelectedIds(keys as string[]) }}
+        pagination={{ pageSize: 10, showTotal: (t) => `${t} tests` }}
+        columns={[
+          { title: 'Project Code', dataIndex: 'projectCode', render: (v) => v || '—' },
+          { title: 'Product Name', dataIndex: 'productName', render: (v) => v || '—' },
+          { title: 'Sample Code', dataIndex: 'sampleCode', render: (v) => v || '—' },
+          { title: 'Form No.', dataIndex: 'formNo', render: (v) => <span className="font-mono font-semibold text-indigo-900">{v}</span> },
+          { title: 'Batch No', dataIndex: 'batchNo', render: (v) => v || '—' },
+          { title: 'Storage Condition & Period', dataIndex: 'storageCondition', render: (v) => v || '—' },
+          { title: 'Packing', dataIndex: 'packType', render: (v) => v || '—' },
+          { title: 'Test/SubType', render: (_, r) => `${r.testType}${r.testSubtype ? ` / ${r.testSubtype}` : ''}` },
+          { title: 'Priority', dataIndex: 'priority', render: (v) => v || '—' },
+          { title: 'Test No.', dataIndex: 'arNumber', render: (v) => v || '—' },
+          { title: 'Assigned To', dataIndex: 'assignedToName', render: (v) => v || '—' },
+          { title: 'Remarks', dataIndex: 'remarks', render: (v) => v || '—' },
+          { title: 'Test Remarks', dataIndex: 'resultRemarks', render: (v) => v || '—' },
+          { title: 'Age', dataIndex: 'createdAt', width: 70, render: renderAge },
+        ]}
+      />
+      <div className="flex gap-2">
+        {subTab === 'me' && (
+          <Button type="primary" disabled={selectedIds.length === 0} onClick={onAssignClick}
+            className="bg-indigo-600 hover:bg-indigo-700 border-none">
+            Assign
+          </Button>
+        )}
+        <Button disabled={selectedIds.length !== 1} onClick={onViewReportClick}>
+          View Report
+        </Button>
+        <Button disabled={selectedIds.length !== 1} onClick={onEventsClick}>
+          Events
+        </Button>
+      </div>
+    </div>
+  )
+}
+
 function FormPendingApprovalPanel({
   items, loading, healthTagColor, selectedIds, setSelectedIds, onApprove, approving, onEventsClick,
+  showReassign, onReassignClick,
 }: {
   items: AtrForm[]
   loading: boolean
@@ -1103,6 +2082,10 @@ function FormPendingApprovalPanel({
   onApprove: () => void
   approving: boolean
   onEventsClick: () => void
+  // Reassign is TL-only — HOD already owns approval itself here, so it has
+  // no one further to hand the form off to.
+  showReassign?: boolean
+  onReassignClick?: () => void
 }) {
   return (
     <div className="space-y-3">
@@ -1134,6 +2117,12 @@ function FormPendingApprovalPanel({
           className="bg-emerald-600 hover:bg-emerald-700 border-none">
           Approve
         </Button>
+        {showReassign && (
+          <Button disabled={selectedIds.length === 0} onClick={onReassignClick}
+            icon={<Repeat size={14} />}>
+            Reassign
+          </Button>
+        )}
         <Button disabled={selectedIds.length === 0} onClick={onEventsClick}>
           Events
         </Button>

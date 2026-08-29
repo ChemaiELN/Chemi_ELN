@@ -377,6 +377,9 @@ export interface AtrForm {
   qaReworkHistory?: Array<{ remarks: string; date: string; by: string }>
   // G-3: Standalone vs cross-module origin
   raisedStandalone?: boolean
+  // "New/Clarified Forms" (TL screen) — no backing column yet; renders
+  // blank until the backend adds it to the ATR form record.
+  customerName?: string | null
   // Backend toast message
   message?: string
 }
@@ -762,6 +765,27 @@ export interface OngoingExperimentItem {
   aim: string | null
   projectCode: string | null
   productName: string | null
+  notebookType: string | null
+  atrFormNos: string | null
+  testNumbers: string | null
+  batchNo: string | null
+  startedByName: string | null
+  ageDays: number | null
+  notebookId: string | null
+  createdAt: string | null
+}
+
+export interface UnlockedExperimentItem {
+  id: string
+  code: string
+  templateName: string | null
+  status: string
+  aim: string | null
+  projectCode: string | null
+  productName: string | null
+  notebookType: string | null
+  testNumbers: string | null
+  startedByName: string | null
   ageDays: number | null
   notebookId: string | null
   createdAt: string | null
@@ -776,6 +800,7 @@ export interface ReviewCommentItem {
   productName: string | null
   notebookType: string | null
   linkedAtrIds: string[]
+  testNumbers: string | null
   clarifications: { id?: string; message?: string; by?: string; byName?: string; at?: string }[]
   createdByName: string | null
   createdAt: string | null
@@ -794,6 +819,7 @@ export interface PendingReviewItem {
   requestCount: number
   projectCode: string | null
   productName: string | null
+  testNumbers: string | null
   ageDays: number | null
   notebookId: string | null
   createdAt: string | null
@@ -834,14 +860,20 @@ export const ardExperimentApi = {
     apiPost<{ items: Record<string, unknown>[] }>(`${EXPERIMENT_BASE}/${id}/post-analytical`, body),
   deletePostAnalytical: (id: string, itemId: string) =>
     apiDelete<{ items: Record<string, unknown>[] }>(`${EXPERIMENT_BASE}/${id}/post-analytical/${itemId}`),
-  takeover: (id: string, body: { newAnalystId: string; remarks: string }) =>
+  getQaRemarks: (id: string) =>
+    apiGet<{ id: string; remark: string; by: string; byName: string; at: string }[]>(`${EXPERIMENT_BASE}/${id}/qa-remarks`),
+  addQaRemark: (id: string, body: { remark: string }) =>
+    apiPost<{ id: string; remark: string; by: string; byName: string; at: string }>(`${EXPERIMENT_BASE}/${id}/qa-remarks`, body),
+  deleteQaRemark: (id: string, remarkId: string) =>
+    apiDelete<void>(`${EXPERIMENT_BASE}/${id}/qa-remarks/${remarkId}`),
+  takeover: (id: string, body: { analyst_id: string; analyst_name?: string; password: string }) =>
     apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/takeover`, body),
   // The backend schema requires reviewer_id/reviewer_name specifically (snake_case,
   // not aliased from camelCase — normalizeRequestCase only adds camelCase aliases
   // for snake_case input, never the reverse) — sending reviewerId/remarks here
   // always 422'd with "reviewer_id: Required", silently breaking every caller.
-  reassignReviewer: (id: string, body: { reviewerId: string; reviewerName?: string }) =>
-    apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/reassign-reviewer`, { reviewer_id: body.reviewerId, reviewer_name: body.reviewerName }),
+  reassignReviewer: (id: string, body: { reviewerId: string; reviewerName?: string; password: string }) =>
+    apiPost<ArdExperimentDoc>(`${EXPERIMENT_BASE}/${id}/reassign-reviewer`, { reviewer_id: body.reviewerId, reviewer_name: body.reviewerName, password: body.password }),
   bulkTakeOverReview: (body: { experimentIds: string[]; remarks: string; password: string }) =>
     apiPost<{ updatedCount: number }>(`${EXPERIMENT_BASE}/bulk-take-over-review`, body),
   restore: (id: string, remarks?: string) =>
@@ -851,10 +883,12 @@ export const ardExperimentApi = {
   setHighlightComment: (id: string, comment: string) =>
     apiPatch<{ highlighted: boolean; highlightComment: string | null }>(`${EXPERIMENT_BASE}/${id}/highlight`, { comment }),
   ongoing: () => apiGet<{ items: OngoingExperimentItem[]; total: number }>(`${EXPERIMENT_BASE}/ongoing`),
+  unlocked: () => apiGet<{ items: UnlockedExperimentItem[]; total: number }>(`${EXPERIMENT_BASE}/unlocked`),
   pendingReview: (perspective: 'mine' | 'others', status?: 'SUBMITTED' | 'VERIFICATION_REQUESTED') =>
     apiGet<{ items: PendingReviewItem[]; total: number }>(`${EXPERIMENT_BASE}/pending-review`, { perspective, status }),
   reviewComments: (perspective: 'mine' | 'all') =>
     apiGet<{ items: ReviewCommentItem[]; total: number }>(`${EXPERIMENT_BASE}/review-comments`, { perspective }),
+  expectedVerifier: (id: string) => apiGet<{ userId: string; username: string } | null>(`${EXPERIMENT_BASE}/${id}/expected-verifier`),
   acquireLock: (id: string) => apiPost<ExperimentLockInfo>(`${EXPERIMENT_BASE}/${id}/acquire-lock`),
   releaseLock: (id: string) => apiDelete<{ released: boolean }>(`${EXPERIMENT_BASE}/${id}/lock`),
   checkLock: (id: string) => apiGet<ExperimentLockInfo>(`${EXPERIMENT_BASE}/${id}/check-lock`),
@@ -1045,6 +1079,8 @@ export const ardApi = {
 
   saveTechnique: (body: Partial<ArdTechnique> & { code: string; name: string }) =>
     apiPost<ArdTechnique>(`${BASE}/techniques`, body),
+
+  getTestConfig: (id: string) => apiGet<ArdTestConfiguration>(`${BASE}/test-configs/${id}`),
 
   saveTestConfig: (body: Record<string, unknown>) =>
     apiPost<ArdTestConfiguration>(`${BASE}/test-configs`, body),

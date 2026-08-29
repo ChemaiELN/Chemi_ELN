@@ -101,6 +101,22 @@ async function buildItems(user: any): Promise<any[]> {
       category: 'workflow',
     }))
 
+    // Scenario 20b (requestForUnlock) — legacy mailed every notebook user
+    // when an unlock request was raised; this app has no email
+    // infrastructure at all, so the closest functional equivalent is
+    // surfacing it here, same as the SUBMITTED item above already does for
+    // approval requests.
+    const unlockRequests = await ArdExperiment.findAll({ where: { status: 'UNLOCK_REQUESTED' } })
+    unlockRequests.forEach((e: any) => items.push({
+      id: `exp-unlock-requested-${e.id}`,
+      title: `Unlock requested: ${e.code}`,
+      body: e.templateName,
+      href: `/ard/experiments/${e.id}`,
+      at: e.updatedAt || e.createdAt,
+      tone: 'warning',
+      category: 'workflow',
+    }))
+
     const pendingTemplates = await ArdTemplate.findAll({ where: { status: 'PENDING_APPROVAL' } })
     pendingTemplates.forEach((t: any) => items.push({
       id: `tmpl-pending-${t.id}`,

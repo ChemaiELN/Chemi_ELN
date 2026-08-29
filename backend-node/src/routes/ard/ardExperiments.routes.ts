@@ -16,6 +16,7 @@ import {
   ArdNotebook,
   ArdTestRequest,
   ArdAtrForm,
+  ArdAtrSample,
   ArdProject,
   ArdSetting,
   User,
@@ -43,22 +44,93 @@ async function isVerificationRequired(notebookId: string | null): Promise<boolea
   return nb?.includeVerificationFlow ?? true;
 }
 
+// Mirrors legacy's routing-consistency guard at submit-for-verification:
+// resolves who the experiment's linked ATR test is actually assigned to
+// (delegation first, then direct assignee, falling back to the ATR form's
+// TL) so the experiment can't be verified by someone unrelated to who's
+// actually working the linked test. Returns null when there's nothing
+// linked, or when linked tests disagree on who that is (ambiguous —
+// deliberately not guarded rather than guessing).
+async function resolveExpectedVerifier(experimentId: string): Promise<{ userId: string; username: string } | null> {
+  // Mirrors legacy's checkATRFormSubmission filter: a test already dead
+  // (WITHDRAWN/CANCELLED) or already finalized on its own workflow
+  // (VERIFICATION_REQUESTED/VERIFIED/ACCEPTED/REJECTED — i.e. already past
+  // the analyst's desk and sitting with someone else) is skipped from this
+  // check entirely rather than gating the experiment's own verification
+  // routing on a stale assignee.
+  const tests = await (ArdTestRequest as any).findAll({
+    where: {
+      experimentId,
+      status: { [Op.notIn]: ['WITHDRAWN', 'CANCELLED', 'VERIFICATION_REQUESTED', 'VERIFIED', 'ACCEPTED', 'REJECTED'] },
+    },
+  });
+  if (tests.length === 0) return null;
+
+  const atrFormIds = Array.from(new Set(tests.map((t: any) => t.sampleId).filter(Boolean)));
+  const samples = atrFormIds.length
+    ? await (ArdAtrSample as any).findAll({ where: { id: { [Op.in]: atrFormIds } }, attributes: ['id', 'atrFormId'] })
+    : [];
+  const sampleFormMap = new Map(samples.map((s: any) => [s.id, s.atrFormId]));
+  const formIds = Array.from(new Set(Array.from(sampleFormMap.values()).filter(Boolean)));
+  const forms = formIds.length
+    ? await (ArdAtrForm as any).findAll({ where: { id: { [Op.in]: formIds } }, attributes: ['id', 'assignedTlId'] })
+    : [];
+  const formTlMap = new Map(forms.map((f: any) => [f.id, f.assignedTlId]));
+
+  const expectedIds = new Set<string>();
+  for (const test of tests) {
+    const formId = sampleFormMap.get((test as any).sampleId);
+    const resolved = (test as any).delegatedToId ?? (test as any).assignedToId ?? (formId ? formTlMap.get(formId) : null);
+    if (resolved) expectedIds.add(resolved);
+  }
+  if (expectedIds.size !== 1) return null;
+
+  const userId = Array.from(expectedIds)[0];
+  const user = await (User as any).findByPk(userId);
+  if (!user) return null;
+  return { userId, username: user.username };
+}
+
 // Status machine
 const EXPERIMENT_TRANSITIONS: Record<string, string[]> = {
-  NEW: ['DEACTIVATED'],
+  // NEW normally auto-flips to IN_PROGRESS on its first save (PATCH
+  // /:experimentId below), but the same submit options must be reachable
+  // even before that first save happens — matches IN_PROGRESS's options.
+  NEW: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
   IN_PROGRESS: ['VERIFICATION_REQUESTED', 'SUBMITTED', 'DEACTIVATED'],
   VERIFICATION_REQUESTED: ['VERIFIED', 'VERIFICATION_REWORK', 'DEACTIVATED'],
-  VERIFIED: ['SUBMITTED'],
+  // VERIFICATION_REWORK previously had no outgoing transitions at all — an
+  // experiment sent back for verification rework was permanently stuck
+  // (every next-step attempt 400'd). Mirrors REWORK's own two exits: back to
+  // the owner for further editing, or straight to re-submit for verification
+  // without another edit pass first.
+  VERIFICATION_REWORK: ['IN_PROGRESS', 'VERIFICATION_REQUESTED', 'DEACTIVATED'],
+  VERIFIED: ['SUBMITTED', 'DEACTIVATED'],
   SUBMITTED: ['APPROVED', 'REWORK', 'DEACTIVATED'],
-  APPROVED: ['UNLOCK_REQUESTED'],
-  REWORK: ['IN_PROGRESS'],
-  UNLOCK_REQUESTED: ['UNLOCKED'],
-  UNLOCKED: ['IN_PROGRESS'],
+  // APPROVED -> UNLOCK_REQUESTED -> APPROVED (reject) mirrors legacy's
+  // rejectExpUnlockReq — previously UNLOCK_REQUESTED only had 'UNLOCKED' as a
+  // valid target, so an approver could grant an unlock request but never
+  // decline one; the experiment would sit in UNLOCK_REQUESTED forever.
+  // DEACTIVATED added to every remaining non-terminal state below — legacy's
+  // Discontinue is an administrative override reachable from "most
+  // non-terminal states", but this map previously only allowed it from
+  // NEW/IN_PROGRESS/VERIFICATION_REQUESTED/SUBMITTED.
+  APPROVED: ['UNLOCK_REQUESTED', 'DEACTIVATED'],
+  REWORK: ['IN_PROGRESS', 'DEACTIVATED'],
+  UNLOCK_REQUESTED: ['UNLOCKED', 'APPROVED', 'DEACTIVATED'],
+  UNLOCKED: ['IN_PROGRESS', 'DEACTIVATED'],
 };
 
 const ESIGN_TRANSITIONS: Record<string, string> = {
   SUBMITTED: ESIGN_FLAGS.EXPERIMENT_SUBMIT_AUTH,
   APPROVED: ESIGN_FLAGS.EXPERIMENT_APPROVE_AUTH,
+  // Previously only SUBMITTED/APPROVED were gated at all — submit-for-
+  // verification, reject-to-rework, and deactivate silently skipped the
+  // e-signature check no matter what the settings said, since enforceEsignature
+  // is only ever called for actions present in this map.
+  VERIFICATION_REQUESTED: ESIGN_FLAGS.EXPERIMENT_VERIFY_SUBMIT_AUTH,
+  REWORK: ESIGN_FLAGS.EXPERIMENT_REJECT_AUTH,
+  DEACTIVATED: ESIGN_FLAGS.EXPERIMENT_DEACTIVATE_AUTH,
 };
 
 const HOD_TL_ROLES = ['HOD', 'TL', 'SUPER_ADMIN'];
@@ -136,14 +208,25 @@ const postAnalyticalSchema = z.object({
   value: z.any().optional(),
 }).passthrough();
 
+// Scenario 25 (persistQaComment) — QA annotations, independent of workflow
+// stage, distinct from Post-Analytical remarks (both are append-only
+// side-lists, but legacy kept them as two separate annotation layers).
+const qaRemarkSchema = z.object({
+  remark: z.string().min(1),
+}).passthrough();
+
+const QA_REMARK_ROLES = ['QA', 'HOD', 'SUPER_ADMIN', 'ADMIN'];
+
 const takeoverSchema = z.object({
   analyst_id: z.string(),
   analyst_name: z.string().optional(),
+  password: z.string().min(1),
 });
 
 const reassignReviewerSchema = z.object({
   reviewer_id: z.string(),
   reviewer_name: z.string().optional(),
+  password: z.string().min(1),
 });
 
 const sampleWeightsSchema = z.object({
@@ -167,6 +250,30 @@ async function findExperiment(experimentId: string): Promise<InstanceType<typeof
   return exp;
 }
 
+// Resolves "Test Number(s)" (AR numbers) for a batch of experiments' linked
+// ATRs in one pair of queries — shared by every AD Experiments tab that
+// surfaces this column (Ongoing, Review Comments, Unlocked, ...).
+async function resolveTestNumbers(rows: any[]): Promise<Map<string, string | null>> {
+  const allAtrIds = Array.from(new Set(rows.flatMap((e: any) => (e.linkedAtrIds as string[] | null) ?? [])));
+  const atrForms = allAtrIds.length
+    ? await (ArdAtrForm as any).findAll({
+        where: { id: { [Op.in]: allAtrIds } },
+        attributes: ['id'],
+        include: [{ model: ArdAtrSample, as: 'samples', attributes: ['id'], include: [{ model: ArdTestRequest, as: 'tests', attributes: ['id', 'arNumber'] }] }],
+      })
+    : [];
+  const atrFormMap = new Map(atrForms.map((a: any) => [a.id, a]));
+
+  const result = new Map<string, string | null>();
+  for (const e of rows) {
+    const linkedAtrIds: string[] = (e.linkedAtrIds as string[] | null) ?? [];
+    const linkedAtrs = linkedAtrIds.map((id) => atrFormMap.get(id)).filter(Boolean) as any[];
+    const tests = linkedAtrs.flatMap((a) => (a.samples ?? []).flatMap((s: any) => s.tests ?? []));
+    result.set(String(e.id), Array.from(new Set(tests.map((t: any) => t.arNumber).filter(Boolean))).join(', ') || null);
+  }
+  return result;
+}
+
 function makeSectionSnapshot(sections: any) {
   const hash = createHash('sha256').update(JSON.stringify(sections)).digest('hex');
   return { hash, sections, at: new Date() };
@@ -175,6 +282,92 @@ function makeSectionSnapshot(sections: any) {
 function mergeSnapshots(existing: any[], newSnap: any): any[] {
   const arr = [...(existing || []), newSnap];
   return arr.slice(-MAX_SNAPSHOTS);
+}
+
+// Shared by POST / and ardTests.routes.ts's create-and-link-experiment —
+// resolves what a new experiment's sectionDefs/templateName/testType should
+// be for either a Via-Template or Via-Project-STP creation, including the
+// STP-uniqueness-per-notebook guard. Extracted so "create from an ATR test"
+// isn't stuck template-only when the underlying STP flow supports both.
+export async function resolveExperimentCreationPlan(opts: {
+  templateId?: string | null;
+  projectStpId?: string | null;
+  projectId?: string | null;
+  notebookId?: string | null;
+  testType?: string | null;
+  testSubType?: string | null;
+  forceSampleDetails?: boolean;
+}): Promise<{ templateName: string | null; sectionDefs: any[]; stp: any; testType: string | null; testSubtype: string | null }> {
+  const { templateId, projectStpId, projectId, notebookId } = opts;
+  if (!templateId && !projectStpId) throw new BadRequestError('templateId or projectStpId is required');
+
+  let templateName: string | null = null;
+  let sectionDefs: any[];
+  let stp: any = null;
+
+  if (projectStpId) {
+    if (!projectId) throw new BadRequestError('projectId is required when creating from an STP');
+    const project = await (ArdProject as any).findByPk(projectId);
+    if (!project) throw new NotFoundError('Project not found');
+    stp = ((project.stpDocuments as any[]) || []).find((s: any) => s.id === projectStpId);
+    if (!stp) throw new NotFoundError('STP document on this project');
+    if (stp.status !== 'APPROVED') throw new BadRequestError('Only an APPROVED STP can be used to create an experiment', 'INVALID_STATE');
+
+    if (notebookId) {
+      const activeSameStp = await (ArdExperiment as any).findOne({
+        where: {
+          notebookId,
+          projectStpId,
+          status: { [Op.notIn]: ['APPROVED', 'DEACTIVATED'] },
+        },
+      });
+      if (activeSameStp) {
+        throw new BadRequestError(
+          `Experiment ${(activeSameStp as any).code} is already running this STP in this notebook — complete or discontinue it before starting another.`,
+          'STP_ALREADY_ACTIVE',
+        );
+      }
+    }
+
+    templateName = stp.title;
+    sectionDefs = [
+      { id: uuidv4(), type: 'sample_details', title: 'Sample Details', required: true },
+      { id: uuidv4(), type: 'equipment', title: 'Equipment Details', required: true },
+      { id: uuidv4(), type: 'material', title: 'Material Details', required: true },
+    ];
+    if (stp.weighingDetails) sectionDefs.push({ id: uuidv4(), type: 'weighing', title: 'Weighing Details', required: true });
+    if (stp.phDetails) sectionDefs.push({ id: uuidv4(), type: 'ph', title: 'pH Details', required: true });
+    if (stp.columnDetails) sectionDefs.push({ id: uuidv4(), type: 'column', title: 'Column Details', required: true });
+    if (stp.sampleMappingSpreadsheet) {
+      sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'Sample Mapping Details', required: true, spreadsheet: stp.sampleMappingSpreadsheet });
+    }
+    if (stp.procedureSpreadsheet) {
+      sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'Procedure', required: true, spreadsheet: stp.procedureSpreadsheet });
+    }
+    if (stp.stpCalculationSpreadsheet) {
+      sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'STP Calculation', required: true, spreadsheet: stp.stpCalculationSpreadsheet });
+    }
+    sectionDefs.push({ id: uuidv4(), type: 'further_actions', title: 'Further Actions', required: false });
+  } else {
+    const template = await (ArdTemplate as any).findByPk(templateId);
+    if (!template) throw new NotFoundError('Template not found');
+    templateName = template.name;
+    sectionDefs = await buildExperimentSectionDefs(templateId as string);
+  }
+
+  // Scenario C1 (create-from-ATR-test): "forces Include Sample Details=Y" —
+  // only for that path (forceSampleDetails), not general experiment
+  // creation — a Via-Template experiment whose template has no
+  // sample_details section would otherwise silently drop the seeded ATR
+  // sample row later (attachAtrToExperimentSampleDetails no-ops without
+  // one). STP-sourced experiments already always include one (built above).
+  if (opts.forceSampleDetails && !sectionDefs.some((s) => (s?.type || '').toLowerCase().replace(/-/g, '_') === 'sample_details')) {
+    sectionDefs = [{ id: uuidv4(), type: 'sample_details', title: 'Sample Details', required: true }, ...sectionDefs];
+  }
+
+  const testType = opts.testType || stp?.testType || null;
+  const testSubtype = opts.testSubType || stp?.testSubtype || null;
+  return { templateName, sectionDefs, stp, testType, testSubtype };
 }
 
 // ─── Routes ──────────────────────────────────────────────────────────────────
@@ -228,61 +421,14 @@ ardExperimentRouter.post('/', authenticate, async (req: Request, res: Response, 
 
     const code = await generateArdExperimentCode();
 
-    let templateName: string | null = null;
-    let sectionDefs: any[];
-    let stp: any = null;
-    if (projectStpId) {
-      // STP-sourced experiment: NOT a snapshot-of-attached-Sections like a
-      // template — the STP itself carries a fixed, ordered set of section
-      // types the renderer already knows (sample_details/equipment/material/
-      // weighing/ph/column/spreadsheet/further_actions — the same block
-      // types Template Builder already defines, matching the legacy STP
-      // Worksheet's experiment screen: Sample Details, Equipment Details,
-      // Material Details always present; Weighing/pH/Column only when the
-      // STP checked them; one spreadsheet block per uploaded Excel; Further
-      // Actions at the end), so sectionDefs are built directly here rather
-      // than via buildExperimentSectionDefs (which reads the ArdTemplate
-      // snapshot tables STPs have no relationship to).
-      if (!projectId) throw new BadRequestError('projectId is required when creating from an STP');
-      const project = await (ArdProject as any).findByPk(projectId);
-      if (!project) throw new NotFoundError('Project not found');
-      stp = ((project.stpDocuments as any[]) || []).find((s: any) => s.id === projectStpId);
-      if (!stp) throw new NotFoundError('STP document on this project');
-      if (stp.status !== 'APPROVED') throw new BadRequestError('Only an APPROVED STP can be used to create an experiment', 'INVALID_STATE');
-
-      templateName = stp.title;
-      sectionDefs = [
-        { id: uuidv4(), type: 'sample_details', title: 'Sample Details', required: true },
-        { id: uuidv4(), type: 'equipment', title: 'Equipment Details', required: true },
-        { id: uuidv4(), type: 'material', title: 'Material Details', required: true },
-      ];
-      if (stp.weighingDetails) sectionDefs.push({ id: uuidv4(), type: 'weighing', title: 'Weighing Details', required: true });
-      if (stp.phDetails) sectionDefs.push({ id: uuidv4(), type: 'ph', title: 'pH Details', required: true });
-      if (stp.columnDetails) sectionDefs.push({ id: uuidv4(), type: 'column', title: 'Column Details', required: true });
-      if (stp.sampleMappingSpreadsheet) {
-        sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'Sample Mapping Details', required: true, spreadsheet: stp.sampleMappingSpreadsheet });
-      }
-      if (stp.procedureSpreadsheet) {
-        sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'Procedure', required: true, spreadsheet: stp.procedureSpreadsheet });
-      }
-      if (stp.stpCalculationSpreadsheet) {
-        sectionDefs.push({ id: uuidv4(), type: 'spreadsheet', title: 'STP Calculation', required: true, spreadsheet: stp.stpCalculationSpreadsheet });
-      }
-      sectionDefs.push({ id: uuidv4(), type: 'further_actions', title: 'Further Actions', required: false });
-    } else {
-      const template = await (ArdTemplate as any).findByPk(templateId);
-      if (!template) throw new NotFoundError('Template not found');
-      templateName = template.name;
-      sectionDefs = await buildExperimentSectionDefs(templateId as string);
-    }
-
-    // Test Type/Sub-Type mirror the selected STP when created via Project
-    // STP (matching the legacy Angular "Add Experiment" form, where these
-    // were read-only, derived from the chosen STP, not independently
-    // picked) — body.testType/testSubType stay as an explicit override for
-    // the Via-Template flow, which has no STP to derive them from.
-    const testType = body.testType || stp?.testType || null;
-    const testSubtype = body.testSubType || stp?.testSubtype || null;
+    const { templateName, sectionDefs, testType, testSubtype } = await resolveExperimentCreationPlan({
+      templateId,
+      projectStpId,
+      projectId,
+      notebookId,
+      testType: body.testType,
+      testSubType: body.testSubType,
+    });
 
     const exp = await (ArdExperiment as any).create({
       code,
@@ -330,10 +476,41 @@ ardExperimentRouter.get('/ongoing', authenticate, async (req: Request, res: Resp
       : [];
     const projectMap = new Map(projects.map((p: any) => [p.id, p]));
 
+    const notebookIds = Array.from(new Set(rows.map((e: any) => e.notebookId).filter(Boolean)));
+    const notebooks = notebookIds.length
+      ? await (ArdNotebook as any).findAll({ where: { id: { [Op.in]: notebookIds } }, attributes: ['id', 'notebookType'] })
+      : [];
+    const notebookMap = new Map(notebooks.map((n: any) => [n.id, n]));
+
+    const creatorIds = Array.from(new Set(rows.map((e: any) => e.createdById).filter(Boolean)));
+    const creators = creatorIds.length
+      ? await (User as any).findAll({ where: { id: { [Op.in]: creatorIds } }, attributes: ['id', 'username'] })
+      : [];
+    const creatorMap = new Map(creators.map((u: any) => [u.id, u.username]));
+
+    // ATR Form No.(s) / Test Number(s) / Batch No — TL's "On-Going
+    // Experiments" screen (Ard-TL only) surfaces whatever ATR(s) this
+    // experiment has linked via linkedAtrIds, with their samples' batch
+    // numbers and tests' AR numbers rolled up.
+    const allAtrIds = Array.from(new Set(rows.flatMap((e: any) => (e.linkedAtrIds as string[] | null) ?? [])));
+    const atrForms = allAtrIds.length
+      ? await (ArdAtrForm as any).findAll({
+          where: { id: { [Op.in]: allAtrIds } },
+          attributes: ['id', 'formNo'],
+          include: [{ model: ArdAtrSample, as: 'samples', attributes: ['id', 'batchNo'], include: [{ model: ArdTestRequest, as: 'tests', attributes: ['id', 'arNumber'] }] }],
+        })
+      : [];
+    const atrFormMap = new Map(atrForms.map((a: any) => [a.id, a]));
+
     const MS_PER_DAY = 86_400_000;
     const now = Date.now();
     const items = rows.map((e: any) => {
       const project: any = e.projectId ? projectMap.get(e.projectId) : null;
+      const notebook: any = e.notebookId ? notebookMap.get(e.notebookId) : null;
+      const linkedAtrIds: string[] = (e.linkedAtrIds as string[] | null) ?? [];
+      const linkedAtrs = linkedAtrIds.map((id) => atrFormMap.get(id)).filter(Boolean) as any[];
+      const samples = linkedAtrs.flatMap((a) => a.samples ?? []);
+      const tests = samples.flatMap((s: any) => s.tests ?? []);
       return {
         id: String(e.id),
         code: e.code,
@@ -342,6 +519,11 @@ ardExperimentRouter.get('/ongoing', authenticate, async (req: Request, res: Resp
         aim: e.aim ?? null,
         projectCode: project?.code ?? null,
         productName: project?.productName ?? null,
+        notebookType: notebook?.notebookType ?? null,
+        atrFormNos: linkedAtrs.map((a) => a.formNo).filter(Boolean).join(', ') || null,
+        testNumbers: Array.from(new Set(tests.map((t: any) => t.arNumber).filter(Boolean))).join(', ') || null,
+        batchNo: Array.from(new Set(samples.map((s: any) => s.batchNo).filter(Boolean))).join(', ') || null,
+        startedByName: e.createdById ? (creatorMap.get(e.createdById) ?? null) : null,
         ageDays: e.createdAt ? Math.floor((now - new Date(e.createdAt).getTime()) / MS_PER_DAY) : null,
         notebookId: e.notebookId ? String(e.notebookId) : null,
         createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
@@ -389,6 +571,12 @@ ardExperimentRouter.get('/review-comments', authenticate, async (req: Request, r
       : [];
     const creatorMap = new Map(creators.map((u: any) => [u.id, u.username]));
 
+    // "Test Number(s)" is the AR number(s) of the tests tied to this
+    // experiment's linked ATR(s) — previously this rendered the raw
+    // linkedAtrIds (ATR form UUIDs) instead, which was never a "test
+    // number" at all.
+    const testNumbersMap = await resolveTestNumbers(scoped);
+
     const MS_PER_DAY = 86_400_000;
     const now = Date.now();
     const items = scoped.map((e: any) => {
@@ -402,7 +590,8 @@ ardExperimentRouter.get('/review-comments', authenticate, async (req: Request, r
         projectCode: project?.code ?? null,
         productName: project?.productName ?? null,
         notebookType: notebook?.notebookType ?? null,
-        linkedAtrIds: e.linkedAtrIds ?? [],
+        linkedAtrIds: (e.linkedAtrIds as string[] | null) ?? [],
+        testNumbers: testNumbersMap.get(String(e.id)) ?? null,
         clarifications: e.clarifications ?? [],
         createdByName: e.createdById ? (creatorMap.get(e.createdById) ?? null) : null,
         createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
@@ -411,6 +600,62 @@ ardExperimentRouter.get('/review-comments', authenticate, async (req: Request, r
     });
 
     res.json(successResponse('Review comments', { items, total: items.length }));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// GET /unlocked — the AD Experiments "Unlocked Experiments" tab (Ard-TL
+// only): experiments an approver reopened for correction (status
+// UNLOCKED). Flat list, no mine/others split, same shape as Ongoing/Review
+// Comments so the frontend can share rendering.
+ardExperimentRouter.get('/unlocked', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const rows = await (ArdExperiment as any).findAll({ where: { status: 'UNLOCKED' }, order: [['updatedAt', 'DESC']] });
+
+    const projectIds = Array.from(new Set(rows.map((e: any) => e.projectId).filter(Boolean)));
+    const projects = projectIds.length
+      ? await (ArdProject as any).findAll({ where: { id: { [Op.in]: projectIds } }, attributes: ['id', 'code', 'productName'] })
+      : [];
+    const projectMap = new Map(projects.map((p: any) => [p.id, p]));
+
+    const notebookIds = Array.from(new Set(rows.map((e: any) => e.notebookId).filter(Boolean)));
+    const notebooks = notebookIds.length
+      ? await (ArdNotebook as any).findAll({ where: { id: { [Op.in]: notebookIds } }, attributes: ['id', 'notebookType'] })
+      : [];
+    const notebookMap = new Map(notebooks.map((n: any) => [n.id, n]));
+
+    const creatorIds = Array.from(new Set(rows.map((e: any) => e.createdById).filter(Boolean)));
+    const creators = creatorIds.length
+      ? await (User as any).findAll({ where: { id: { [Op.in]: creatorIds } }, attributes: ['id', 'username'] })
+      : [];
+    const creatorMap = new Map(creators.map((u: any) => [u.id, u.username]));
+
+    const testNumbersMap = await resolveTestNumbers(rows);
+
+    const MS_PER_DAY = 86_400_000;
+    const now = Date.now();
+    const items = rows.map((e: any) => {
+      const project: any = e.projectId ? projectMap.get(e.projectId) : null;
+      const notebook: any = e.notebookId ? notebookMap.get(e.notebookId) : null;
+      return {
+        id: String(e.id),
+        code: e.code,
+        templateName: e.templateName ?? null,
+        status: e.status,
+        aim: e.aim ?? null,
+        projectCode: project?.code ?? null,
+        productName: project?.productName ?? null,
+        notebookType: notebook?.notebookType ?? null,
+        testNumbers: testNumbersMap.get(String(e.id)) ?? null,
+        startedByName: e.createdById ? (creatorMap.get(e.createdById) ?? null) : null,
+        ageDays: e.createdAt ? Math.floor((now - new Date(e.createdAt).getTime()) / MS_PER_DAY) : null,
+        notebookId: e.notebookId ? String(e.notebookId) : null,
+        createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
+      };
+    });
+
+    res.json(successResponse('Unlocked experiments', { items, total: items.length }));
   } catch (err) {
     next(err);
   }
@@ -457,6 +702,8 @@ ardExperimentRouter.get('/pending-review', authenticate, async (req: Request, re
       : [];
     const projectMap = new Map(projects.map((p: any) => [p.id, p]));
 
+    const testNumbersMap = await resolveTestNumbers(rows);
+
     // Who submitted and when is derived from the most recent SUBMITTED /
     // VERIFICATION_REQUESTED history entry (experiments.py:1091-1116).
     // requestCount tallies every such entry — how many times this experiment
@@ -497,6 +744,7 @@ ardExperimentRouter.get('/pending-review', authenticate, async (req: Request, re
         requestCount,
         projectCode: project?.code ?? null,
         productName: project?.productName ?? null,
+        testNumbers: testNumbersMap.get(String(e.id)) ?? null,
         ageDays: e.createdAt ? Math.floor((now - new Date(e.createdAt).getTime()) / MS_PER_DAY) : null,
         notebookId: e.notebookId ? String(e.notebookId) : null,
         createdAt: e.createdAt ? new Date(e.createdAt).toISOString() : null,
@@ -553,10 +801,17 @@ ardExperimentRouter.patch('/:experimentId', authenticate, async (req: Request, r
       const existing = (exp as any).sections || {};
       const merged = {
         ...existing,
+        // Array-valued sections (Sample Details, tables, equipment, etc.)
+        // hold a full list of rows, not a partial patch of named fields —
+        // spreading them like `{...v}` turns the array into a plain
+        // `{0: ..., 1: ...}` object, which then fails Array.isArray() on
+        // the frontend and reads back as an empty list. Replace those
+        // wholesale; only object-shaped sections (richtext, params, etc.)
+        // get the field-by-field merge.
         ...Object.fromEntries(
           Object.entries(body.sections).map(([k, v]) => [
             k,
-            { ...(existing[k] || {}), ...(v as object) },
+            Array.isArray(v) ? v : { ...(existing[k] || {}), ...(v as object) },
           ])
         ),
       };
@@ -584,6 +839,19 @@ ardExperimentRouter.patch('/:experimentId', authenticate, async (req: Request, r
   }
 });
 
+// GET /:experimentId/expected-verifier
+// Lets the pre-submit UI pre-fill (and lock) the verifier picker instead of
+// making the analyst guess, then finding out only after a VERIFIER_MISMATCH
+// 400 who they should have picked.
+ardExperimentRouter.get('/:experimentId/expected-verifier', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const expectedVerifier = await resolveExpectedVerifier(req.params.experimentId as string);
+    res.json(successResponse('Expected verifier', expectedVerifier));
+  } catch (err) {
+    next(err);
+  }
+});
+
 // POST /:experimentId/transition
 ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -600,12 +868,12 @@ ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: 
       throw new BadRequestError(`Transition '${action}' not allowed from status '${currentStatus}'`);
     }
 
-    // B-80: IN_PROGRESS -> SUBMITTED is the direct 1-step shortcut that skips
-    // peer verification entirely — only valid when verification isn't
+    // B-80: NEW/IN_PROGRESS -> SUBMITTED is the direct 1-step shortcut that
+    // skips peer verification entirely — only valid when verification isn't
     // required for this experiment (app setting AND notebook flag). This
     // must be enforced here, not just hidden in the UI, since the frontend
     // button being hidden doesn't stop a direct API call.
-    if (currentStatus === 'IN_PROGRESS' && action === 'SUBMITTED') {
+    if (['NEW', 'IN_PROGRESS'].includes(currentStatus) && action === 'SUBMITTED') {
       const required = await isVerificationRequired((exp as any).notebookId ?? null);
       if (required) {
         throw new BadRequestError('This notebook requires peer verification before approval — submit for verification instead.', 'VERIFICATION_REQUIRED');
@@ -644,11 +912,47 @@ ardExperimentRouter.post('/:experimentId/transition', authenticate, async (req: 
       updates.approvedById = user.id;
       updates.approvedAt = new Date();
     }
+    if (action === 'VERIFICATION_REQUESTED') {
+      const expectedVerifier = await resolveExpectedVerifier(req.params.experimentId as string);
+      if (expectedVerifier) {
+        if (reviewerId && reviewerId !== expectedVerifier.userId) {
+          throw new BadRequestError(
+            `This experiment's linked ATR test is assigned to ${expectedVerifier.username} — verification must be routed to them.`,
+            'VERIFIER_MISMATCH',
+          );
+        }
+        updates.reviewerId = expectedVerifier.userId;
+        updates.reviewerName = expectedVerifier.username;
+      } else if (reviewerId) {
+        updates.reviewerId = reviewerId;
+        updates.reviewerName = reviewerName ?? null;
+      }
+    }
     if (aimAchieved != null) updates.aimAchieved = aimAchieved;
     if (aimRemarks) updates.aimRemarks = aimRemarks;
     if (linkedAtrIds) updates.linkedAtrIds = linkedAtrIds;
 
     await (exp as any).update(updates);
+
+    // Co-submit: an analyst can choose (via the "ATR Submission Alert") to
+    // move the ATR(s) linked to this experiment's Sample Details along with
+    // it — only forms still sitting in DRAFT/SAVED actually move, matching
+    // the ATR status machine's own DRAFT/SAVED -> REQUESTED transition.
+    if (action === 'SUBMITTED' && Array.isArray(linkedAtrIds) && linkedAtrIds.length > 0) {
+      const atrs = await ArdAtrForm.findAll({ where: { id: { [Op.in]: linkedAtrIds } } });
+      for (const atr of atrs) {
+        const atrStatus = (atr as any).status;
+        if (!['DRAFT', 'SAVED'].includes(atrStatus)) continue;
+        await (atr as any).update({
+          status: 'REQUESTED',
+          workflowHistory: [
+            ...((atr as any).workflowHistory || []),
+            { from: atrStatus, to: 'REQUESTED', by: user.id, byName: user.username, at: new Date(), remarks: 'Co-submitted with experiment ' + (exp as any).code },
+          ],
+        });
+      }
+    }
+
     res.json(successResponse('Experiment status updated', exp));
   } catch (err) {
     next(err);
@@ -975,38 +1279,140 @@ ardExperimentRouter.delete('/:experimentId/post-analytical/:itemId', authenticat
   }
 });
 
-// POST /:experimentId/takeover
+// GET /:experimentId/qa-remarks
+ardExperimentRouter.get('/:experimentId/qa-remarks', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const exp = await findExperiment(req.params.experimentId as string);
+    res.json(successResponse('QA remarks', (exp as any).qaRemarks || []));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /:experimentId/qa-remarks
+ardExperimentRouter.post('/:experimentId/qa-remarks', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user;
+    const roleCode: string = (user?.role as any)?.code ?? '';
+    if (!QA_REMARK_ROLES.includes(roleCode)) {
+      throw new ForbiddenError('Only QA/HOD can add QA remarks.');
+    }
+    const body = qaRemarkSchema.parse(req.body);
+    const exp = await findExperiment(req.params.experimentId as string);
+    const entry = {
+      id: uuidv4(),
+      ...body,
+      by: user.id,
+      byName: user.username,
+      at: new Date(),
+    };
+    await (exp as any).update({
+      qaRemarks: [...((exp as any).qaRemarks || []), entry],
+    });
+    res.status(201).json(successResponse('QA remark added', entry));
+  } catch (err) {
+    next(err);
+  }
+});
+
+// DELETE /:experimentId/qa-remarks/:remarkId
+ardExperimentRouter.delete('/:experimentId/qa-remarks/:remarkId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const user = (req as any).user;
+    const roleCode: string = (user?.role as any)?.code ?? '';
+    if (!QA_REMARK_ROLES.includes(roleCode)) {
+      throw new ForbiddenError('Only QA/HOD can remove QA remarks.');
+    }
+    const exp = await findExperiment(req.params.experimentId as string);
+    const filtered = ((exp as any).qaRemarks || []).filter(
+      (item: any) => item.id !== req.params.remarkId
+    );
+    await (exp as any).update({ qaRemarks: filtered });
+    res.status(204).send();
+  } catch (err) {
+    next(err);
+  }
+});
+
+// POST /:experimentId/takeover — always requires e-signature (unconditional,
+// like /bulk-take-over-review) since this reassigns ownership of a GxP
+// experiment; also records a history entry for the same reason.
 ardExperimentRouter.post('/:experimentId/takeover', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const user = (req as any).user;
     if (!HOD_TL_ROLES.includes(user.role?.code)) {
       throw new ForbiddenError('Only HOD, TL, or SUPER_ADMIN can perform takeover');
     }
-    const { analyst_id, analyst_name } = takeoverSchema.parse(req.body);
+    const { analyst_id, analyst_name, password } = takeoverSchema.parse(req.body);
+
+    const passwordValid = await verifyPassword(password, user.passwordHash);
+    if (!passwordValid) {
+      throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED');
+    }
+
     const exp = await findExperiment(req.params.experimentId as string);
     let resolvedName = analyst_name;
     if (!resolvedName) {
       const analyst = await (User as any).findByPk(analyst_id);
       resolvedName = analyst?.username;
     }
-    await (exp as any).update({ createdById: analyst_id });
+    let fromOwner: string | null = null;
+    if ((exp as any).createdById) {
+      const prevOwner = await (User as any).findByPk((exp as any).createdById);
+      fromOwner = prevOwner?.username ?? null;
+    }
+    const historyEntry = {
+      action: 'TAKEOVER',
+      by: user.id,
+      byName: user.username,
+      at: new Date(),
+      ...(fromOwner ? { from: fromOwner } : {}),
+      to: resolvedName,
+    };
+    await (exp as any).update({
+      createdById: analyst_id,
+      history: [...((exp as any).history || []), historyEntry],
+    });
     res.json(successResponse('Experiment taken over', exp));
   } catch (err) {
     next(err);
   }
 });
 
-// POST /:experimentId/reassign-reviewer
+// POST /:experimentId/reassign-reviewer — always requires e-signature
+// (unconditional, same as /:experimentId/takeover) since this reassigns who
+// owns a GxP review decision; also records a history entry for the same
+// reason.
 ardExperimentRouter.post('/:experimentId/reassign-reviewer', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { reviewer_id, reviewer_name } = reassignReviewerSchema.parse(req.body);
+    const user = (req as any).user;
+    const { reviewer_id, reviewer_name, password } = reassignReviewerSchema.parse(req.body);
+
+    const passwordValid = await verifyPassword(password, user.passwordHash);
+    if (!passwordValid) {
+      throw new BadRequestError('Electronic signature failed. Incorrect password.', 'ESIGNATURE_FAILED');
+    }
+
     const exp = await findExperiment(req.params.experimentId as string);
     let resolvedName = reviewer_name;
     if (!resolvedName) {
       const reviewer = await (User as any).findByPk(reviewer_id);
       resolvedName = reviewer?.username;
     }
-    await (exp as any).update({ reviewerId: reviewer_id, reviewerName: resolvedName });
+    const fromReviewer = (exp as any).reviewerName ?? null;
+    const historyEntry = {
+      action: 'REVIEWER_REASSIGN',
+      by: user.id,
+      byName: user.username,
+      at: new Date(),
+      ...(fromReviewer ? { from: fromReviewer } : {}),
+      to: resolvedName,
+    };
+    await (exp as any).update({
+      reviewerId: reviewer_id,
+      reviewerName: resolvedName,
+      history: [...((exp as any).history || []), historyEntry],
+    });
     res.json(successResponse('Reviewer reassigned', exp));
   } catch (err) {
     next(err);

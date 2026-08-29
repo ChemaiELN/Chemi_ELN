@@ -31,6 +31,7 @@ interface TestRow {
   priority: string | null
   remarks: string | null
   assignedTl: string | null
+  assignedTlId: string | null
   requestedBy: string | null
   requestedOn: string | null
   assignedToName: string | null
@@ -46,6 +47,20 @@ interface TestRow {
   verifiedAt: string | null
   results: unknown[] | null
   enhancementRequests: { id: string; status: 'PENDING' | 'APPROVED' | 'REJECTED' }[] | null
+  // Delegated Tests (TL screen) — delegatedToId/Name/At already exist on the
+  // backend model; delegatedByName/delegationRemarks don't have a backing
+  // column yet (the delegate action only records them in the audit log
+  // today), so these render blank until the backend is wired up to persist
+  // them on the test record directly.
+  delegatedToId?: string | null
+  delegatedToName?: string | null
+  delegatedAt?: string | null
+  delegatedByName?: string | null
+  delegationRemarks?: string | null
+  // Verification Queue (TL screen) — no backing column yet; renders blank
+  // until the backend adds it to the test/ATR record.
+  customerName?: string | null
+  submittedAt?: string | null
 }
 
 function hasPendingEnhancement(row: TestRow): boolean {
@@ -185,6 +200,7 @@ export default function ArdTestsPage() {
   const canTakeover = TAKEOVER_ROLES.includes(user?.role_code ?? '')
   const canUnlock = ['TL', 'HOD', 'ADMIN', 'SUPER_ADMIN', 'QA'].includes(user?.role_code ?? '')
   const isSupervisory = ['HOD', 'QA', 'ADMIN', 'SUPER_ADMIN', 'QC_MANAGER'].includes(user?.role_code ?? '')
+  const isTl = ['TL', 'TEAM_LEAD'].includes(user?.role_code ?? '')
 
   const [activeTab, setActiveTab] = useState(isAnalyst ? 'assigned_tests' : 'unassigned')
   const [status, setStatus] = useState<string | undefined>()
@@ -198,11 +214,28 @@ export default function ArdTestsPage() {
   // Tests, kept as its own state so switching tabs doesn't cross-contaminate
   // which sub-view is showing.
   const [enhancementSubTab, setEnhancementSubTab] = useState<'me' | 'others'>('me')
-  // Rework Tests — analyst-only enhanced view (legacy screen): "Assigned To
-  // Me" (tests I need to fix) vs "Assigned By Me" (tests tied to an ATR I
-  // raised, wherever they currently sit). Other roles keep the plain flat
-  // "Verification Rework" list this tab has always had.
+  // Rework Tests — legacy screen's two-sub-tab view, now shared by every
+  // role: "Assigned To Me" (tests I need to fix) vs "Assigned By Me" (tests
+  // tied to an ATR I raised, wherever they currently sit).
   const [reworkSubTab, setReworkSubTab] = useState<'me' | 'by_me'>('me')
+  // Delegated Tests — TL-only two-sub-tab view (legacy screen): "Delegated
+  // To Me" (tests routed to me by another TL) vs "Delegated By Me" (tests I
+  // handed off to someone else). Other roles keep the plain flat list.
+  const [delegatedSubTab, setDelegatedSubTab] = useState<'to_me' | 'by_me'>('to_me')
+  // Pending Verification — TL-only two-sub-tab view (legacy screen):
+  // "Assigned To Me" (my team's tests awaiting my verification) vs
+  // "Assigned To Others" (visible for awareness, submitted to another
+  // reviewer). Other roles keep the plain flat list.
+  const [pendingVerifySubTab, setPendingVerifySubTab] = useState<'me' | 'others'>('me')
+  // Verification Queue — TL-only oversight tab: pick anyone on the team and
+  // see whatever's currently sitting on their plate awaiting verification
+  // (VERIFICATION_REQUESTED, routed to a TL/HOD) or rework
+  // (VERIFICATION_REWORK, routed back to the analyst), with a Take Over
+  // action. `vqReviewerId` is the in-progress Select value; `activeVqReviewerId`
+  // only updates on "Go", matching the HOD's Re-assign Test panel pattern
+  // elsewhere in ARD.
+  const [vqReviewerId, setVqReviewerId] = useState<string | undefined>()
+  const [activeVqReviewerId, setActiveVqReviewerId] = useState<string | undefined>()
   // Verified Tests — analyst-only enhanced view: a "Select Frame" date filter
   // (on verifiedAt) instead of the generic search/status row, matching the
   // legacy screen. Other roles keep today's plain flat "Verified" list.
@@ -347,6 +380,14 @@ export default function ArdTestsPage() {
 
   const assignmentBlocked = qualifiedData?.isRestricted === true && analystOptions.length === 0
 
+  // Verification Queue's "Choose Reviewer" picker — every team user, not
+  // just TL/HOD: a VERIFICATION_REWORK test's current owner is the analyst
+  // it was sent back to, so the picker needs to cover analysts too.
+  const vqReviewerOptions = (teamUsersData?.items ?? []).map((u) => ({
+    value: u.id,
+    label: `${u.full_name || u.username} (${u.username})`,
+  }))
+
   const { data, isLoading } = useQuery({
     queryKey: ['ard-tests', status],
     queryFn: () => apiGet<{ items: TestRow[]; total: number }>('/api/ard/tests', { status, pageSize: 100 }),
@@ -387,19 +428,31 @@ export default function ArdTestsPage() {
       const isMine = row.assignedToId === user?.id || row.assignedToName === user?.username
       return assignedSubTab === 'me' ? isMine : (!!row.assignedToName && !isMine)
     }
-    if (activeTab === 'pending_verify') return row.status === 'VERIFICATION_REQUESTED'
+    if (activeTab === 'pending_verify') {
+      if (row.status !== 'VERIFICATION_REQUESTED') return false
+      if (!isTl) return true
+      const isMine = row.assignedTlId === user?.id
+      return pendingVerifySubTab === 'me' ? isMine : !isMine
+    }
     if (activeTab === 'rework') {
-      if (!isAnalyst) return row.status === 'VERIFICATION_REWORK'
+      // Assigned To Me / Assigned By Me split applies to every role now
+      // (originally analyst-only) — a TL/HOD can also be the assignee of a
+      // rework test or the one who raised the ATR it's tied to.
       if (row.status !== 'VERIFICATION_REWORK') return false
       const isMine = row.assignedToId === user?.id || row.assignedToName === user?.username
       return reworkSubTab === 'me' ? isMine : row.requestedBy === user?.username
     }
-    if (activeTab === 'delegated') return row.status === 'DELEGATED'
+    if (activeTab === 'delegated') {
+      if (row.status !== 'DELEGATED') return false
+      if (!isTl) return true
+      const isToMe = row.assignedToId === user?.id || row.assignedToName === user?.username || row.delegatedToId === user?.id
+      return delegatedSubTab === 'to_me' ? isToMe : row.delegatedByName === user?.username
+    }
     if (activeTab === 'in_progress') return row.status === 'IN_PROGRESS'
     if (activeTab === 'unassigned') return row.status === 'UNASSIGNED' || (!row.assignedToName && row.status !== 'CANCELLED' && row.status !== 'WITHDRAWN')
     if (activeTab === 'verified') {
       if (row.status !== 'VERIFIED') return false
-      if (!isAnalyst) return true
+      if (!isAnalyst && !isTl) return true
       const d = row.verifiedAt ? dayjs(row.verifiedAt) : null
       if (!d) return false
       if (verifiedFrame === 'current_month') return d.isSame(dayjs(), 'month')
@@ -413,6 +466,11 @@ export default function ArdTestsPage() {
       const isMine = row.assignedToId === user?.id || row.assignedToName === user?.username
       return enhancementSubTab === 'me' ? isMine : (!!row.assignedToName && !isMine)
     }
+    if (activeTab === 'verification_queue') {
+      if (!activeVqReviewerId) return false
+      if (!['VERIFICATION_REQUESTED', 'VERIFICATION_REWORK'].includes(row.status)) return false
+      return row.assignedTlId === activeVqReviewerId || row.assignedToId === activeVqReviewerId
+    }
     if (activeTab === 'team_queue') {
       // Tests assigned to any member of the same team (approximated by same TL/department)
       return ['ASSIGNED', 'IN_PROGRESS', 'DELEGATED', 'VERIFICATION_REWORK'].includes(row.status)
@@ -423,10 +481,14 @@ export default function ArdTestsPage() {
   const countAssignedMe = items.filter(r => r.assignedToId === user?.id || r.assignedToName === user?.username).length
   const countAssignedOthers = items.filter(r => !!r.assignedToName && r.assignedToId !== user?.id && r.assignedToName !== user?.username).length
   const countPendingVerify = items.filter(r => r.status === 'VERIFICATION_REQUESTED').length
+  const countPendingVerifyMe = items.filter(r => r.status === 'VERIFICATION_REQUESTED' && r.assignedTlId === user?.id).length
+  const countPendingVerifyOthers = items.filter(r => r.status === 'VERIFICATION_REQUESTED' && r.assignedTlId !== user?.id).length
   const countRework = items.filter(r => r.status === 'VERIFICATION_REWORK').length
   const countReworkMe = items.filter(r => r.status === 'VERIFICATION_REWORK' && (r.assignedToId === user?.id || r.assignedToName === user?.username)).length
   const countReworkByMe = items.filter(r => r.status === 'VERIFICATION_REWORK' && r.requestedBy === user?.username).length
   const countDelegated = items.filter(r => r.status === 'DELEGATED').length
+  const countDelegatedToMe = items.filter(r => r.status === 'DELEGATED' && (r.assignedToId === user?.id || r.assignedToName === user?.username || r.delegatedToId === user?.id)).length
+  const countDelegatedByMe = items.filter(r => r.status === 'DELEGATED' && r.delegatedByName === user?.username).length
   const countInProgress = items.filter(r => r.status === 'IN_PROGRESS').length
   const countUnassigned = items.filter(r => r.status === 'UNASSIGNED' || (!r.assignedToName && r.status !== 'CANCELLED' && r.status !== 'WITHDRAWN')).length
   const countVerified = items.filter(r => r.status === 'VERIFIED').length
@@ -442,7 +504,27 @@ export default function ArdTestsPage() {
   // Verified stays visible to analysts too (isAnalystVerifiedView already
   // gives them their own tailored columns/toolbar on it) — just relabeled.
   const ANALYST_HIDDEN_TABS = ['unassigned', 'delegated', 'unlocked']
-  const tabItems = [
+  // HOD doesn't need Delegated/Verified/Unlocked as separate tabs here.
+  const isHod = user?.role_code === 'HOD'
+  const HOD_HIDDEN_TABS = ['delegated', 'verified', 'unlocked']
+  // TL gets its own fixed tab order/label set (Unassigned Test, Assigned
+  // tests, Enhancement Request, Delegated Tests, Test Pending Verification,
+  // Verified Test, Team Queue, Verification Rework, In Progress Test,
+  // Verification Queue) — every other tab (just Unlocked, today) is dropped
+  // for this role rather than filtered out of the shared list below.
+  const TL_TAB_ITEMS = [
+    { key: 'unassigned', label: `Unassigned Test (${countUnassigned})` },
+    { key: 'assigned_tests', label: `Assigned tests (${countAssignedMe + countAssignedOthers})` },
+    { key: 'enhancement', label: `Enhancement Request (${countEnhancement})` },
+    { key: 'delegated', label: `Delegated Tests (${countDelegated})` },
+    { key: 'pending_verify', label: `Test Pending Verification (${countPendingVerify})` },
+    { key: 'verified', label: `Verified Test (${countVerified})` },
+    { key: 'team_queue', label: `Team Queue (${countTeamQueue})` },
+    { key: 'rework', label: `Verification Rework (${countRework})` },
+    { key: 'in_progress', label: `In Progress Test (${countInProgress})` },
+    { key: 'verification_queue', label: 'Verification Queue' },
+  ]
+  const tabItems = isTl ? TL_TAB_ITEMS : [
     { key: 'unassigned', label: `Unassigned (${countUnassigned})` },
     { key: 'assigned_tests', label: `Assigned Tests (${countAssignedMe + countAssignedOthers})` },
     { key: 'in_progress', label: `In Progress (${countInProgress})` },
@@ -453,7 +535,7 @@ export default function ArdTestsPage() {
     { key: 'delegated', label: `Delegated (${countDelegated})` },
     { key: 'verified', label: isAnalyst ? `Verified Tests (${countVerified})` : `Verified (${countVerified})` },
     { key: 'unlocked', label: `Unlocked (${countUnlocked})` },
-  ].filter((t) => !isAnalyst || !ANALYST_HIDDEN_TABS.includes(t.key))
+  ].filter((t) => (!isAnalyst || !ANALYST_HIDDEN_TABS.includes(t.key)) && (!isHod || !HOD_HIDDEN_TABS.includes(t.key)))
 
   const handleAssignConfirm = async () => {
     if (!assignModal || !selectedAnalystId) {
@@ -943,6 +1025,13 @@ export default function ArdTestsPage() {
     },
   ]
 
+  // Unassigned tab: same as defaultColumns minus "Assigned Analyst" — every
+  // row here is by definition unassigned, so the column is dead weight.
+  // HOD's Unassigned tab also drops "AR No" — a test sitting unassigned has
+  // no AR number generated yet anyway (that only happens once work starts),
+  // so the column is dead weight there for this role specifically.
+  const unassignedColumns = defaultColumns.filter((c) => c.dataIndex !== 'assignedToName' && (!isHod || c.dataIndex !== 'arNumber'))
+
   // Legacy "Assigned Tests → Assigned to Me" column set: no Submitted To /
   // Assigned Analyst / AR No / Status columns since those are all implied by
   // being in this tab (it's already mine); adds a plain "Raised On" date in
@@ -1119,18 +1208,72 @@ export default function ArdTestsPage() {
     },
   ]
 
-  // Legacy "Enhancement Requests" column set — same shape as Pending
-  // Verification but "Analyzed By" becomes a plain "Assigned To" (no
-  // stacked timestamp, matching the legacy screen exactly), and it's shared
-  // between the Me/Others sub-tabs since neither screenshot shows a column
-  // difference between them — only the bottom toolbar differs.
-  const enhancementColumns = [
-    ...pendingVerifyColumns.filter((col: any) => col.title !== 'Analyzed By'),
+  // "Assigned To Others" variant of Pending Verification — same columns
+  // plus "Submitted To" (which TL/reviewer it's routed to) right after
+  // Analyzed By, matching the legacy screen.
+  const pendingVerifyOthersColumns = (() => {
+    const idx = pendingVerifyColumns.findIndex((c: any) => c.title === 'Analyzed By')
+    const next = pendingVerifyColumns.slice()
+    next.splice(idx + 1, 0, {
+      title: 'Submitted To', dataIndex: 'assignedTl', render: (v: string | null) => v || '—',
+      ...getColumnSelectFilterProps((row) => row.assignedTl),
+    })
+    return next
+  })()
+
+  // "Test Verification Queue" column set (TL screen) — an oversight view
+  // over anyone's verification/rework workload, not one person's own queue.
+  const verificationQueueColumns = [
+    {
+      title: 'Project Code', dataIndex: 'projectCode', render: (v: string) => v || '—',
+      ...getColumnSelectFilterProps((row) => row.projectCode),
+    },
+    {
+      title: 'Product Name', dataIndex: 'productName',
+      ...getColumnSelectFilterProps((row) => row.productName),
+    },
+    { title: 'Sample Code', dataIndex: 'sampleCode', render: renderSampleCode, ...getColumnSearchProps('sampleCode', 'Sample Code') },
+    { title: 'Form Number', dataIndex: 'formNo', render: renderFormNo, ...getColumnSearchProps('formNo', 'Form Number') },
+    { title: 'Batch Number', dataIndex: 'batchNo', render: (v: string) => v || '—', ...getColumnSearchProps('batchNo', 'Batch Number') },
+    {
+      title: 'Sample Condition and Package Details', dataIndex: 'storageCondition',
+      render: (_: unknown, row: TestRow) => [row.storageCondition, row.packType].filter(Boolean).join(' / ') || '—',
+      ...getColumnSearchProps('storageCondition', 'Sample Condition'),
+    },
+    {
+      title: 'Test / Sub Type', dataIndex: 'testType', render: renderTestSubtype,
+      ...getColumnSelectFilterProps(
+        (row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}`,
+        (value, row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}` === value,
+      ),
+    },
+    { title: 'AR Number', dataIndex: 'arNumber', render: (v: string | null) => v || '—', ...getColumnSearchProps('arNumber', 'AR Number') },
+    {
+      title: 'Status', dataIndex: 'status',
+      render: (v: string) => <Tag color={statusColor(v)} className="font-medium text-xs whitespace-nowrap">{v.replace(/_/g, ' ')}</Tag>,
+    },
+    {
+      title: 'Submitted By(On)', dataIndex: 'analyzedBy',
+      render: (v: string | null, row: TestRow) => v ? (
+        <div className="leading-tight">
+          <div>{v}</div>
+          <div className="text-[11px] text-slate-400">{row.submittedAt ? dayjs(row.submittedAt).format('DD MMM YYYY (HH:mm)') : ''}</div>
+        </div>
+      ) : '—',
+      ...getColumnSelectFilterProps((row) => row.analyzedBy),
+    },
+    { title: 'Customer Name', dataIndex: 'customerName', render: (v: string | null) => v || '—' },
+    { title: 'Remarks', dataIndex: 'remarks', render: (v: string) => v || '—' },
+    { title: 'Age', dataIndex: 'createdAt', width: 70, render: renderAge },
   ]
-  enhancementColumns.splice(10, 0, {
-    title: 'Assigned To', dataIndex: 'assignedToName', render: (v: string | null) => v || '—',
-    ...getColumnSelectFilterProps((row) => row.assignedToName),
-  })
+
+  // Legacy "Enhancement Requests" column set — same shape as Pending
+  // Verification minus Analyzed By/Req Count, shared between the Me/Others
+  // sub-tabs since neither screenshot shows a column difference between
+  // them — only the bottom toolbar differs.
+  const enhancementColumns = pendingVerifyColumns.filter(
+    (col: any) => col.title !== 'Analyzed By' && col.title !== 'Req Count',
+  )
 
   // Legacy "Team Queue" column set — the whole team's in-flight work at a
   // glance: who it's submitted to, who raised it, no per-row action set
@@ -1196,11 +1339,12 @@ export default function ArdTestsPage() {
     },
   ]
 
-  // Legacy "Rework Tests" column set (analyst-only) — same base fields as
-  // Pending Verification, plus AssignedTo and Review Remarks (verifyRemarks:
-  // the reviewer's comment recorded when the test was sent back), shared
-  // between the Me / By Me sub-tabs since neither screenshot shows a column
-  // difference between them — only the bottom toolbar differs.
+  // Legacy "Rework Tests" column set (shared by every role that sees this
+  // tab) — same base fields as Pending Verification, plus AssignedTo and
+  // Review Remarks (verifyRemarks: the reviewer's comment recorded when the
+  // test was sent back), shared between the Me / By Me sub-tabs since
+  // neither screenshot shows a column difference between them — only the
+  // bottom toolbar differs.
   const reworkColumns = [
     {
       title: 'Project Code', dataIndex: 'projectCode', render: (v: string) => v || '—',
@@ -1244,6 +1388,75 @@ export default function ArdTestsPage() {
       width: 70,
       render: renderAge,
     },
+  ]
+
+  // Legacy "Delegated Tests" column set (TL screen) — shared base fields
+  // between the Delegated To Me / Delegated By Me sub-tabs; only one column
+  // differs (who delegated it to me & when, vs. who I delegated it to &
+  // when), matching the legacy screen exactly.
+  const delegatedBaseColumns = [
+    {
+      title: 'Project Code', dataIndex: 'projectCode', render: (v: string) => v || '—',
+      ...getColumnSelectFilterProps((row) => row.projectCode),
+    },
+    {
+      title: 'Product Name', dataIndex: 'productName',
+      ...getColumnSelectFilterProps((row) => row.productName),
+    },
+    { title: 'Sample Code', dataIndex: 'sampleCode', render: renderSampleCode, ...getColumnSearchProps('sampleCode', 'Sample Code') },
+    { title: 'Batch No.', dataIndex: 'batchNo', render: (v: string) => v || '—', ...getColumnSearchProps('batchNo', 'Batch No') },
+    { title: 'Storage Condition & Period', dataIndex: 'storageCondition', render: (v: string) => v || '—', ...getColumnSearchProps('storageCondition', 'Storage Condition') },
+    { title: 'Packing', dataIndex: 'packType', render: (v: string) => v || '—', ...getColumnSearchProps('packType', 'Packing') },
+    {
+      title: 'Test/SubType', dataIndex: 'testType', render: renderTestSubtype,
+      ...getColumnSelectFilterProps(
+        (row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}`,
+        (value, row) => `${row.testType}${row.testSubtype ? ` / ${row.testSubtype}` : ''}` === value,
+      ),
+    },
+    { title: 'Priority', dataIndex: 'priority', render: renderPriority },
+    {
+      title: 'Requested By(On)', dataIndex: 'requestedBy',
+      render: (v: string | null, row: TestRow) => v ? (
+        <div className="leading-tight">
+          <div>{v}</div>
+          <div className="text-[11px] text-slate-400">{row.requestedOn ? dayjs(row.requestedOn).format('DD MMM YYYY (HH:mm)') : ''}</div>
+        </div>
+      ) : '—',
+      ...getColumnSelectFilterProps((row) => row.requestedBy),
+    },
+  ]
+  const delegationRemarksAndAge = [
+    { title: 'Delegation Remarks', dataIndex: 'delegationRemarks', render: (v: string | null) => v || '—' },
+    { title: 'Age', dataIndex: 'createdAt', width: 70, render: renderAge },
+  ]
+  const delegatedToMeColumns = [
+    ...delegatedBaseColumns,
+    {
+      title: 'Delegated By(On)', dataIndex: 'delegatedByName',
+      render: (v: string | null, row: TestRow) => v ? (
+        <div className="leading-tight">
+          <div>{v}</div>
+          <div className="text-[11px] text-slate-400">{row.delegatedAt ? dayjs(row.delegatedAt).format('DD MMM YYYY (HH:mm)') : ''}</div>
+        </div>
+      ) : '—',
+      ...getColumnSelectFilterProps((row) => row.delegatedByName),
+    },
+    ...delegationRemarksAndAge,
+  ]
+  const delegatedByMeColumns = [
+    ...delegatedBaseColumns,
+    {
+      title: 'Delegated To(On)', dataIndex: 'delegatedToName',
+      render: (v: string | null, row: TestRow) => v ? (
+        <div className="leading-tight">
+          <div>{v}</div>
+          <div className="text-[11px] text-slate-400">{row.delegatedAt ? dayjs(row.delegatedAt).format('DD MMM YYYY (HH:mm)') : ''}</div>
+        </div>
+      ) : '—',
+      ...getColumnSelectFilterProps((row) => row.delegatedToName),
+    },
+    ...delegationRemarksAndAge,
   ]
 
   // Legacy "Verified Test" column set (analyst-only) — swaps AssignedTo/
@@ -1305,15 +1518,31 @@ export default function ArdTestsPage() {
   const isEnhancementMeTab = isEnhancementTab && enhancementSubTab === 'me'
   const isEnhancementOthersTab = isEnhancementTab && enhancementSubTab === 'others'
   const isTeamQueueTab = activeTab === 'team_queue'
-  // The enhanced 2-sub-tab Rework Tests view only applies to analysts —
-  // other roles keep today's plain flat "Rework Tests" list (defaultColumns,
-  // generic filter row/toolbar), unchanged.
-  const isAnalystReworkView = activeTab === 'rework' && isAnalyst
+  // The enhanced 2-sub-tab Rework Tests view (Assigned To Me / Assigned By
+  // Me, its own column set and toolbar) now applies to every role that sees
+  // this tab, not just analysts — HOD/TL get the same legacy-matching view.
+  const isAnalystReworkView = activeTab === 'rework'
   const isReworkMeTab = isAnalystReworkView && reworkSubTab === 'me'
   const isReworkByMeTab = isAnalystReworkView && reworkSubTab === 'by_me'
-  // Same idea for Verified Tests — analyst-only "Select Frame" date view;
-  // other roles keep today's plain flat "Verified" list unchanged.
-  const isAnalystVerifiedView = activeTab === 'verified' && isAnalyst
+  // Same idea for Verified Tests — the "Select Frame" date view (Current
+  // Month/Last Month/Choose Timeframe, the latter revealing a From/To range
+  // picker) applies to Analyst and TL logins; other roles keep today's plain
+  // flat "Verified" list unchanged.
+  const isAnalystVerifiedView = activeTab === 'verified' && (isAnalyst || isTl)
+  // Delegated Tests — TL-only 2-sub-tab view (Delegated To Me / Delegated By
+  // Me); other roles keep the plain flat "Delegated" list unchanged.
+  const isTlDelegatedView = activeTab === 'delegated' && isTl
+  const isDelegatedToMeTab = isTlDelegatedView && delegatedSubTab === 'to_me'
+  const isDelegatedByMeTab = isTlDelegatedView && delegatedSubTab === 'by_me'
+  // Pending Verification — TL-only 2-sub-tab view (Assigned To Me / Assigned
+  // To Others); other roles keep the plain flat "Pending Verification" list.
+  const isTlPendingVerifyView = isPendingVerifyTab && isTl
+  const isPendingVerifyMeTab = isTlPendingVerifyView && pendingVerifySubTab === 'me'
+  const isPendingVerifyOthersTab = isTlPendingVerifyView && pendingVerifySubTab === 'others'
+  // Verification Queue — TL-only oversight tab, own layout entirely (a
+  // reviewer picker instead of the generic search/status row, one Take Over
+  // action instead of the usual toolbar).
+  const isVerificationQueueTab = activeTab === 'verification_queue'
 
   return (
     <div className="p-4 md:p-6 space-y-4 w-full">
@@ -1363,7 +1592,7 @@ export default function ArdTestsPage() {
           />
         )}
 
-        {/* Rework Tests: analyst-only inner Assigned To Me / Assigned By Me switch */}
+        {/* Rework Tests: inner Assigned To Me / Assigned By Me switch */}
         {isAnalystReworkView && (
           <Tabs
             activeKey={reworkSubTab}
@@ -1376,6 +1605,58 @@ export default function ArdTestsPage() {
             ]}
             style={{ marginTop: -4 }}
           />
+        )}
+
+        {/* Delegated Tests: TL-only inner Delegated To Me / Delegated By Me switch */}
+        {isTlDelegatedView && (
+          <Tabs
+            activeKey={delegatedSubTab}
+            onChange={(k) => { setDelegatedSubTab(k as 'to_me' | 'by_me'); clearSelection() }}
+            size="small"
+            type="card"
+            items={[
+              { key: 'to_me', label: `Delegated To Me (${countDelegatedToMe})` },
+              { key: 'by_me', label: `Delegated By Me (${countDelegatedByMe})` },
+            ]}
+            style={{ marginTop: -4 }}
+          />
+        )}
+
+        {/* Pending Verification: TL-only inner Assigned To Me / Assigned To Others switch */}
+        {isTlPendingVerifyView && (
+          <Tabs
+            activeKey={pendingVerifySubTab}
+            onChange={(k) => { setPendingVerifySubTab(k as 'me' | 'others'); clearSelection() }}
+            size="small"
+            type="card"
+            items={[
+              { key: 'me', label: `Assigned To Me (${countPendingVerifyMe})` },
+              { key: 'others', label: `Assigned To Others (${countPendingVerifyOthers})` },
+            ]}
+            style={{ marginTop: -4 }}
+          />
+        )}
+
+        {/* Verification Queue: TL-only "Choose Reviewer" picker, replacing the generic search row for this tab. */}
+        {isVerificationQueueTab && (
+          <div className="flex flex-wrap items-end gap-3 py-3 border-t border-slate-100">
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Choose Reviewer</label>
+              <Select
+                showSearch
+                optionFilterProp="label"
+                placeholder="Select Reviewer/Approver"
+                style={{ width: 320 }}
+                value={vqReviewerId}
+                onChange={setVqReviewerId}
+                options={vqReviewerOptions}
+              />
+            </div>
+            <Button type="primary" onClick={() => { setActiveVqReviewerId(vqReviewerId); clearSelection() }} disabled={!vqReviewerId}
+              className="bg-emerald-600 hover:bg-emerald-700 border-none">
+              Go
+            </Button>
+          </div>
         )}
 
         {/* Verified Tests: analyst-only "Select Frame" date filter (on verifiedAt), replacing the generic search row for this tab. */}
@@ -1404,7 +1685,7 @@ export default function ArdTestsPage() {
         )}
 
         {/* Filter row — Unassigned, Assigned Tests, Enhancement Requested and the analyst Rework Tests / Verified Tests views drive selection through their own toolbar instead */}
-        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isAnalystReworkView && !isAnalystVerifiedView && (
+        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isAnalystReworkView && !isAnalystVerifiedView && !isTlDelegatedView && !isTlPendingVerifyView && !isVerificationQueueTab && (
           <div className="flex flex-wrap gap-2 py-3 border-t border-slate-100">
             <Input
               placeholder="Search all columns…"
@@ -1439,7 +1720,7 @@ export default function ArdTestsPage() {
           </div>
         )}
 
-        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isInProgressTab && !isAnalystReworkView && !isAnalystVerifiedView && selectedRowKeys.length > 0 && (() => {
+        {!isUnassignedTab && !isMyAssignedTab && !isAssignedOthersTab && !isEnhancementTab && !isTeamQueueTab && !isInProgressTab && !isAnalystReworkView && !isAnalystVerifiedView && !isTlDelegatedView && !isTlPendingVerifyView && !isVerificationQueueTab && selectedRowKeys.length > 0 && (() => {
           const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
           const isRowUnassigned = !!selectedRow && (!selectedRow.assignedToName || ['UNASSIGNED', 'PENDING'].includes(selectedRow.status))
           const canTakeoverRow = !!selectedRow && ['IN_PROGRESS', 'ASSIGNED', 'DELEGATED', 'VERIFICATION_REWORK'].includes(selectedRow.status)
@@ -1525,7 +1806,7 @@ export default function ArdTestsPage() {
           rowSelection={{
             selectedRowKeys,
             onChange: (keys) => setSelectedRowKeys(keys as string[]),
-            hideSelectAll: isUnassignedTab || isMyAssignedTab || isAssignedOthersTab || isEnhancementTab || isTeamQueueTab || isReworkMeTab || isReworkByMeTab || isAnalystVerifiedView,
+            hideSelectAll: isUnassignedTab || isMyAssignedTab || isAssignedOthersTab || isEnhancementTab || isTeamQueueTab || isReworkMeTab || isReworkByMeTab || isAnalystVerifiedView || isDelegatedToMeTab || isDelegatedByMeTab || isPendingVerifyMeTab || isPendingVerifyOthersTab || isVerificationQueueTab,
           }}
           loading={isLoading}
           dataSource={filteredItems}
@@ -1536,13 +1817,19 @@ export default function ArdTestsPage() {
           rowClassName={() => 'cursor-pointer hover:bg-indigo-50/40 transition-colors'}
           components={{ header: { cell: ResizableTitle } }}
           columns={applyColumnWidths(
-            isMyAssignedTab ? myAssignedColumns
+            isUnassignedTab ? unassignedColumns
+              : isMyAssignedTab ? myAssignedColumns
               : isAssignedOthersTab ? assignedOthersColumns
               : isInProgressTab ? inProgressColumns
+              : isPendingVerifyMeTab ? pendingVerifyColumns
+              : isPendingVerifyOthersTab ? pendingVerifyOthersColumns
+              : isVerificationQueueTab ? verificationQueueColumns
               : isPendingVerifyTab ? pendingVerifyColumns
               : isEnhancementTab ? enhancementColumns
               : isTeamQueueTab ? teamQueueColumns
               : (isReworkMeTab || isReworkByMeTab) ? reworkColumns
+              : isDelegatedToMeTab ? delegatedToMeColumns
+              : isDelegatedByMeTab ? delegatedByMeColumns
               : isAnalystVerifiedView ? verifiedColumns
               : defaultColumns
           )}
@@ -1744,9 +2031,11 @@ export default function ArdTestsPage() {
         })()}
 
         {/* Rework Tests — Assigned To Me: Process (open the test to fix and
-            resubmit, one at a time), View Report, Events — matching the
-            legacy screen's own toolbar exactly. No Delegate/Takeover here;
-            those belong to tabs that deal with other people's tests. */}
+            resubmit, one at a time), Reassign (TL/HOD/Admin only — hand the
+            rework off to a different analyst), View Report, Events —
+            matching the legacy screen's own toolbar exactly. No Delegate/
+            Takeover here; those belong to tabs that deal with other
+            people's tests. */}
         {isReworkMeTab && selectedRowKeys.length > 0 && (() => {
           const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
           return (
@@ -1759,6 +2048,13 @@ export default function ArdTestsPage() {
                 onClick={() => { if (selectedRow) navigate(`/ard/tests/${selectedRow.atrId}/${selectedRow.id}`) }}>
                 Process
               </Button>
+              {canTakeover && (
+                <Button size="small" icon={<Share2 size={13} />}
+                  disabled={!selectedRow}
+                  onClick={() => { if (selectedRow) { setAssignModal({ row: selectedRow }); setSelectedAnalystId(selectedRow.assignedToId || '') } }}>
+                  Reassign
+                </Button>
+              )}
               <Button size="small" icon={<FileText size={13} />}
                 disabled={selectedRowKeys.length !== 1}
                 onClick={() => { if (selectedRow) handleViewReportClick(selectedRow) }}>
@@ -1793,6 +2089,151 @@ export default function ArdTestsPage() {
                 disabled={selectedRowKeys.length !== 1}
                 onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
                 Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Delegated Tests — Delegated To Me: Assign, Accept, Delegate,
+            Events — matching the legacy screen's own toolbar exactly. */}
+        {isDelegatedToMeTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" type="primary" icon={<UserCheck size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) { setAssignModal({ row: selectedRow }); setSelectedAnalystId(selectedRow.assignedToId || '') } }}>
+                Assign
+              </Button>
+              <Button size="small" icon={<CheckCircle2 size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) { setAcceptModal({ row: selectedRow }); setAcceptRemarks('') } }}>
+                Accept
+              </Button>
+              <Button size="small" icon={<Share2 size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) { setDelegateModal({ row: selectedRow }); setDelegateTarget(''); setDelegateRemarks('') } }}>
+                Delegate
+              </Button>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Delegated Tests — Delegated By Me: view-only over tests I handed
+            off to someone else — Events only, matching the legacy screen's
+            own toolbar exactly. */}
+        {isDelegatedByMeTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Pending Verification — Assigned To Me: Process (open to review),
+            View Report, Download, Events — matching the legacy screen's own
+            toolbar exactly. */}
+        {isPendingVerifyMeTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" type="primary" icon={<Eye size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) navigate(`/ard/tests/${selectedRow.atrId}/${selectedRow.id}`) }}>
+                Process
+              </Button>
+              <Button size="small" icon={<FileText size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleViewReportClick(selectedRow) }}>
+                View Report
+              </Button>
+              <Button size="small" icon={<Download size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleDownloadReportClick(selectedRow) }}>
+                Download
+              </Button>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Pending Verification — Assigned To Others: view-only over tests
+            submitted to another reviewer — Accept, View Report, Download,
+            Events, matching the legacy screen's own toolbar exactly. */}
+        {isPendingVerifyOthersTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" icon={<CheckCircle2 size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) { setAcceptModal({ row: selectedRow }); setAcceptRemarks('') } }}>
+                Accept
+              </Button>
+              <Button size="small" icon={<FileText size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleViewReportClick(selectedRow) }}>
+                View Report
+              </Button>
+              <Button size="small" icon={<Download size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) handleDownloadReportClick(selectedRow) }}>
+                Download
+              </Button>
+              <Button size="small" icon={<History size={13} />}
+                disabled={selectedRowKeys.length !== 1}
+                onClick={() => { if (selectedRow) setEventsModal({ row: selectedRow }) }}>
+                Events
+              </Button>
+              <Button size="small" onClick={clearSelection}>Clear</Button>
+            </div>
+          )
+        })()}
+
+        {/* Verification Queue — Take Over: hand whichever test is selected
+            to the current TL/HOD, regardless of its current owner/status —
+            matching the legacy screen's own single-action toolbar. */}
+        {isVerificationQueueTab && selectedRowKeys.length > 0 && (() => {
+          const selectedRow = selectedRowKeys.length === 1 ? filteredItems.find((r) => r.id === selectedRowKeys[0]) : undefined
+          return (
+            <div className="flex flex-wrap items-center gap-2 px-3 py-2 mb-3 bg-slate-50 border border-slate-200 rounded-lg">
+              <span className="text-sm font-medium text-slate-600 mr-2">
+                {selectedRowKeys.length} selected
+              </span>
+              <Button size="small" type="primary" icon={<RotateCcw size={13} />}
+                disabled={!selectedRow}
+                onClick={() => { if (selectedRow) { setTakeover({ row: selectedRow }); setTakeoverTarget(''); setTakeoverRemarks('') } }}
+                className="bg-amber-600 hover:bg-amber-700 border-none">
+                Take Over
               </Button>
               <Button size="small" onClick={clearSelection}>Clear</Button>
             </div>

@@ -1,14 +1,15 @@
 import { useState, useMemo } from 'react'
 import { useNavigate, Navigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Button, Tag, Spin, Table, Badge, Tabs } from 'antd'
+import { Button, Tag, Spin, Table, Badge, Tabs, Select } from 'antd'
 import { Column } from '@ant-design/plots'
 import {
   FlaskConical, FileText, Activity, Award, ClipboardCheck,
   Plus, CheckCircle2, AlertCircle, ArrowUpRight, Clock,
-  RefreshCw, ShieldCheck, User, Users, TestTube, LayoutDashboard,
+  RefreshCw, ShieldCheck, User, Users, TestTube, LayoutDashboard, FolderOpen,
 } from 'lucide-react'
 import { ardApi, type ArdDashboardMetrics, type ArdMyDashboardMetrics } from '../../api/ard'
+import { ardProjectsApi } from '../../api/ard-projects'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import dayjs from 'dayjs'
@@ -68,6 +69,47 @@ function KpiCard({ title, value, subtitle, icon: Icon, gradient, shadow, onClick
   )
 }
 
+// Every ARD user's real day-to-day work happens inside a project — this
+// gives every dashboard (regardless of role) a one-step jump straight into
+// one, instead of navigating to the Projects list and searching. Reuses the
+// same GET /api/ard/projects endpoint the Projects page itself calls, which
+// already scopes results to what the current user can access (creator,
+// owner, or team member — admins/HODs see everything), so there's no risk
+// of surfacing a project this user shouldn't see.
+function ProjectQuickAccess() {
+  const navigate = useNavigate()
+  const [projectId, setProjectId] = useState<string | undefined>()
+
+  const { data, isLoading } = useQuery({
+    queryKey: ['ard-dashboard-quick-projects'],
+    queryFn: () => ardProjectsApi.list({ pageSize: 500 }),
+  })
+  const options = (data?.items ?? []).map(p => ({
+    value: p.id,
+    label: `${p.code}${p.productName ? ` — ${p.productName}` : ''}`,
+  }))
+
+  return (
+    <div className="flex items-center gap-1.5">
+      <FolderOpen size={15} className="text-slate-400 shrink-0" />
+      <Select
+        showSearch
+        allowClear
+        placeholder="Jump to a project…"
+        className="w-56"
+        loading={isLoading}
+        value={projectId}
+        onChange={setProjectId}
+        optionFilterProp="label"
+        options={options}
+      />
+      <Button type="primary" disabled={!projectId} onClick={() => projectId && navigate(`/ard/projects/${projectId}`)}>
+        Go
+      </Button>
+    </div>
+  )
+}
+
 function DashboardHeader({ title, onRefetch, children }: {
   title: string; subtitle?: string; onRefetch: () => void; children?: React.ReactNode
 }) {
@@ -78,6 +120,7 @@ function DashboardHeader({ title, onRefetch, children }: {
         <h1 className="text-lg font-bold text-slate-800">{title}</h1>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        <ProjectQuickAccess />
         {children}
         <Button icon={<RefreshCw size={14} />} onClick={onRefetch} />
       </div>

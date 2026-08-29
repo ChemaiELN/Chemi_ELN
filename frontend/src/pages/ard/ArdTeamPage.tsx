@@ -102,6 +102,22 @@ function DirectoryTab({
   const { data, isLoading } = useQuery({ queryKey: ['ard-team-directory'], queryFn: ardOpsApi.teamDirectory })
   const items = data?.items ?? []
 
+  // A Team Lead can lead only one ACTIVE team at a time (mirrors the
+  // backend's assertTlIdsAvailable check on save) — proactively hide anyone
+  // already leading another active team from this dropdown instead of
+  // letting them pick one and only finding out from a save-time error.
+  // Deactivating that other team frees them up again automatically, since
+  // this only looks at `active` teams. The team currently being edited is
+  // excluded from the "taken" set so its own existing TL still shows.
+  const availableTlOptions = useMemo(() => {
+    const takenTlIds = new Set(
+      items
+        .filter((t) => t.active && t.id !== editingTeam?.id)
+        .flatMap((t) => t.tlIds || []),
+    )
+    return tlOptions.filter((o) => !takenTlIds.has(o.value))
+  }, [items, editingTeam, tlOptions])
+
   const filtered = useMemo(() => {
     // TL sees only their own teams
     let base = items
@@ -466,7 +482,7 @@ function DirectoryTab({
                 showSearch
                 loading={usersLoading}
                 filterOption={(i, o) => (o?.label ?? '').toString().toLowerCase().includes(i.toLowerCase())}
-                options={tlOptions}
+                options={availableTlOptions}
                 placeholder="Select Team Leader"
               />
             </Form.Item>
@@ -604,7 +620,10 @@ function MySubTeamTab({
   const { data, isLoading } = useQuery({ queryKey: ['ard-team-directory'], queryFn: ardOpsApi.teamDirectory })
   const allTeams = data?.items ?? []
 
-  const myTeams = allTeams.filter((t: any) => (t.tlIds || []).includes(currentUserId ?? ''))
+  // Active only — a deactivated team's stale tlIds entry (left over from
+  // before a TL can lead only one active team was enforced) shouldn't keep
+  // showing up here once that team's been closed out.
+  const myTeams = allTeams.filter((t: any) => t.active && (t.tlIds || []).includes(currentUserId ?? ''))
 
   const updateAnalystMap = useMutation({
     mutationFn: ({ teamId, map }: { teamId: string; map: Record<string, string[]> }) =>

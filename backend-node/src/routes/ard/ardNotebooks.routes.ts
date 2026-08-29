@@ -17,6 +17,23 @@ function canEdit(nb: ArdNotebook, user: any, rc: string) {
   return nb.createdById === user.id || isAdmin(rc) || assigned.some((u: any) => u.userId === user.id)
 }
 
+// A project team member being present on the project does NOT by itself
+// grant notebook visibility — the HOD/TL must have explicitly checked them
+// in for THIS notebook via the "Notebook Access" matrix (team member's own
+// notebookIds array). Being merely listed under the project's Team is not
+// enough; without this, adding someone to a project silently handed them
+// every one of its notebooks regardless of what access was actually granted.
+// The project's creator/owner is always exempt — they should never lose
+// access to notebooks inside a project they own just because nobody
+// remembered to add them to their own Notebook Access matrix.
+function projectGrantsNotebookAccess(project: any, notebookId: string, userId: string): boolean {
+  if (!project) return false
+  if (project.createdById === userId || project.ownerId === userId) return true
+  const team = (project.team as any[]) || []
+  const member = team.find((m: any) => m.userId === userId)
+  return !!member && Array.isArray(member.notebookIds) && member.notebookIds.includes(notebookId)
+}
+
 function nbOut(nb: ArdNotebook) {
   return {
     id: nb.id, code: nb.code, name: nb.name, description: nb.description,
@@ -91,14 +108,16 @@ function diffNotebookUpdate(nb: ArdNotebook, updates: any): { action: string; de
   return { action: membershipChanged ? 'Members changed' : 'Updated', detail: parts.join('; ') };
 }
 
+// "AD" + an 8-digit sequence that increments across the whole ARD module —
+// not per year, not per project — so it never resets. Replaces the old
+// "NB-<year>-<5-digit>" scheme.
 async function nextCode(): Promise<string> {
-  const year = new Date().getFullYear()
   const [{ count }] = await sequelize.query<{ count: string }>(
-    `SELECT COUNT(*) AS count FROM ard_notebooks WHERE code LIKE 'NB-${year}-%'`,
+    `SELECT COUNT(*) AS count FROM ard_notebooks WHERE code LIKE 'AD%'`,
     { type: QueryTypes.SELECT }
   )
-  const seq = String(Number(count) + 1).padStart(5, '0')
-  return `NB-${year}-${seq}`
+  const seq = String(Number(count) + 1).padStart(8, '0')
+  return `AD${seq}`
 }
 
 // GET /api/ard/notebooks
@@ -114,11 +133,13 @@ router.get('/', authenticate, async (req: Request, res: Response, next: NextFunc
     if (status) where.status = status
 
     if (!isAdmin(rc)) {
-      // Correlated subquery: the unqualified `project_id` resolves to the outer
-      // notebook row regardless of the alias Sequelize gives the outer table
-      // (it uses "ArdNotebook" in COUNT queries but "ard_notebooks" in SELECTs —
-      // qualifying with the literal table name broke the COUNT variant with
-      // "invalid reference to FROM-clause entry for table ard_notebooks").
+      // Coarse SQL pre-filter (createdById / assignedUsers / "some relation
+      // to a project this user touches") narrows the candidate set; the real
+      // per-notebook decision — was THIS notebook actually granted via the
+      // Notebook Access matrix, not just project Team membership — happens
+      // in JS below via projectGrantsNotebookAccess, since a team member's
+      // notebookIds grant lives nested inside the project's team JSONB array
+      // and isn't practically expressible as a single indexed SQL predicate.
       where[Op.or] = [
         { createdById: user.id },
         sequelize.literal(`assigned_users::text LIKE '%${user.id}%'`),
@@ -126,7 +147,23 @@ router.get('/', authenticate, async (req: Request, res: Response, next: NextFunc
       ]
     }
 
-    const { count, rows } = await ArdNotebook.findAndCountAll({ where, limit, offset, order: [['createdAt', 'DESC']] })
+    const all = await ArdNotebook.findAll({ where, order: [['createdAt', 'DESC']] })
+
+    let visible = all
+    if (!isAdmin(rc)) {
+      const projectIds = Array.from(new Set(all.map((nb: any) => nb.projectId).filter(Boolean)))
+      const projects = projectIds.length
+        ? await ArdProject.findAll({ where: { id: { [Op.in]: projectIds } }, attributes: ['id', 'createdById', 'ownerId', 'team'] })
+        : []
+      const projectById = new Map(projects.map((p: any) => [p.id, p]))
+      visible = all.filter((nb: any) => {
+        if (canEdit(nb, user, rc)) return true
+        return projectGrantsNotebookAccess(projectById.get(nb.projectId), nb.id, user.id)
+      })
+    }
+
+    const count = visible.length
+    const rows = visible.slice(offset, offset + limit)
     res.json(listResponse('Notebooks', rows.map(nbOut), buildPagination(page, limit, count)))
   } catch (err) { next(err) }
 })
@@ -135,8 +172,7 @@ async function canView(nb: ArdNotebook, user: any, rc: string): Promise<boolean>
   if (canEdit(nb, user, rc)) return true
   if (!nb.projectId) return false
   const project = await ArdProject.findByPk(nb.projectId)
-  const team = (project?.team as any[]) || []
-  return team.some((m: any) => m.userId === user.id)
+  return projectGrantsNotebookAccess(project, nb.id, user.id)
 }
 
 // GET /api/ard/notebooks/:notebookId
@@ -278,6 +314,27 @@ router.patch('/:notebookId', authenticate, async (req: Request, res: Response, n
         } as any,
       });
       if (dupe) throw new BadRequestError(`A notebook named "${trimmedName}" already exists in this project.`, 'VALIDATION_ERROR');
+    }
+
+    if (body.resultParameters !== undefined) {
+      const seen = new Set<string>()
+      for (const p of body.resultParameters as any[]) {
+        const code = String(p?.paramCode || '').trim().toLowerCase()
+        if (!code) continue
+        if (seen.has(code)) {
+          throw new BadRequestError(`Parameter code "${p.paramCode}" is already in use.`, 'VALIDATION_ERROR')
+        }
+        seen.add(code)
+      }
+    }
+
+    // Notebook Type drives downstream behavior (e.g. verification-flow
+    // defaults, experiment section templates) — changing it after
+    // experiments/tests already exist under this notebook would silently
+    // reinterpret their history, so once it's set it's fixed for the life
+    // of the notebook.
+    if (body.notebookType !== undefined && nb.notebookType && body.notebookType !== nb.notebookType) {
+      throw new BadRequestError('Notebook Type cannot be changed once set.', 'VALIDATION_ERROR')
     }
 
     const editableFields = ['name', 'description', 'notebookType', 'includeVerificationFlow', 'assignedUsers', 'resultParameters', 'maxExperiments']

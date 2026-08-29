@@ -87,12 +87,17 @@ router.get('/directory', authenticate, async (req: Request, res: Response, next:
   try {
     const teams = await ArdTeam.findAll({ order: [['name', 'ASC']] })
 
-    // Build user id→username map from all referenced user IDs
+    // Build user id→username map from all referenced user IDs. Must include
+    // tlAnalystMap's values too, not just memberIds — an analyst can be
+    // assigned under a TL there without also being duplicated into
+    // memberIds, and missing them here silently rendered their raw UUID
+    // instead of a username in the directory's per-TL analyst lists.
     const allUserIds = new Set<string>()
     teams.forEach((t: any) => {
       if (t.hodId) allUserIds.add(t.hodId)
       ;((t.tlIds as string[]) || []).forEach((id: string) => allUserIds.add(id))
       ;((t.memberIds as string[]) || []).forEach((id: string) => allUserIds.add(id))
+      Object.values((t.tlAnalystMap as Record<string, string[]>) || {}).forEach((ids) => ids.forEach((id) => allUserIds.add(id)))
     })
     const users = allUserIds.size > 0
       ? await User.findAll({ where: { id: { [Op.in]: [...allUserIds] } }, attributes: ['id', 'username'] })
@@ -103,6 +108,7 @@ router.get('/directory', authenticate, async (req: Request, res: Response, next:
       const tlIds: string[] = (t.tlIds as string[]) || []
       const memberIds: string[] = (t.memberIds as string[]) || []
       const tlAnalystMap: Record<string, string[]> = (t.tlAnalystMap as any) || {}
+      const tlAnalystCanReview: Record<string, Record<string, boolean>> = (t.tlAnalystCanReview as any) || {}
 
       const tls = tlIds.map((tlId: string) => ({
         id: tlId,
@@ -111,6 +117,12 @@ router.get('/directory', authenticate, async (req: Request, res: Response, next:
           id: aId,
           name: uMap[aId] || aId,
           role: memberIds.includes(aId) ? 'ANALYST' : 'MEMBER',
+          // Was never attached here — the frontend's "Can Review" toggle read
+          // this field expecting it per-analyst, always got undefined, and
+          // rendered OFF even right after a successful save (the save itself
+          // worked; only the directory's re-hydration of the switch state
+          // was missing it).
+          canReview: !!tlAnalystCanReview[tlId]?.[aId],
         })),
       }))
 

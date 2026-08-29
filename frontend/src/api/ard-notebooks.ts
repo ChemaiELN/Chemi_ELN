@@ -48,6 +48,7 @@ export interface ResultParameter {
   paramName: string
   ioType?: string
   valueType?: string
+  formula?: string
   dataType?: string
   unit: string
   description?: string

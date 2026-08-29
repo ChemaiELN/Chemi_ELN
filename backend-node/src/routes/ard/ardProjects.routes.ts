@@ -131,20 +131,15 @@ router.post('/', authenticate, async (req: Request, res: Response, next: NextFun
       ownerName: z.string().optional(),
     }).parse(req.body)
 
-    // Checked separately (not combined via Op.or) so the message can name
-    // which field actually collided and, for a duplicate product name,
-    // who created the existing project — otherwise the author has no way
-    // to tell whose project they're bumping into.
-    const existingByCode = await ArdProject.findOne({ where: { code: body.code } })
+    // Project Code must be unique (case-insensitive — "LH44" and "lh44"
+    // would otherwise both pass the DB's case-sensitive unique constraint
+    // and collide in practice). Product Name is intentionally NOT checked
+    // here — multiple projects can legitimately share the same product.
+    const existingByCode = await ArdProject.findOne({
+      where: sequelize.where(sequelize.fn('lower', sequelize.col('code')), body.code.trim().toLowerCase()),
+    })
     if (existingByCode) {
       throw new BadRequestError(`Project code "${body.code}" is already in use.`, 'CONFLICT')
-    }
-    const existingByProductName = await ArdProject.findOne({ where: { productName: body.productName } })
-    if (existingByProductName) {
-      throw new BadRequestError(
-        `Product name "${body.productName}" is already used by project ${existingByProductName.code}, created by ${existingByProductName.createdBy || 'another user'}.`,
-        'CONFLICT',
-      )
     }
 
     const auditTrail = [{ id: uuidv4(), action: 'CREATED', actorName: user.username, detail: null, createdAt: new Date().toISOString() }]
@@ -174,8 +169,15 @@ router.put('/:projectId', authenticate, async (req: Request, res: Response, next
     const p = await ArdProject.findByPk(req.params.projectId as string)
     if (!p) throw new NotFoundError('Project')
 
-    if (req.body.code !== undefined && req.body.code !== p.code) {
-      const dupe = await ArdProject.findOne({ where: { code: req.body.code, id: { [Op.ne]: p.id } } })
+    if (req.body.code !== undefined && req.body.code.trim().toLowerCase() !== p.code.toLowerCase()) {
+      const dupe = await ArdProject.findOne({
+        where: {
+          [Op.and]: [
+            sequelize.where(sequelize.fn('lower', sequelize.col('code')), req.body.code.trim().toLowerCase()),
+            { id: { [Op.ne]: p.id } },
+          ],
+        },
+      })
       if (dupe) throw new BadRequestError(`Project code "${req.body.code}" is already in use.`, 'VALIDATION_ERROR')
     }
 

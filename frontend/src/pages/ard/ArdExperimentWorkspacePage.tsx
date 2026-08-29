@@ -987,16 +987,26 @@ function ArdExperimentWorkspacePage() {
   // crumb; fetches the project separately since exp carries projectId but
   // not its name.
   useBreadcrumbLabel(experimentId ?? '', exp?.code ?? null)
+  // An experiment reached via its notebook's Experiments tab doesn't always
+  // carry its own projectId (only notebookId gets set at creation in that
+  // flow) — fall back to the notebook's projectId so the Project crumb still
+  // shows. Previously this required BOTH exp.projectId AND notebookId to
+  // render anything, so an experiment with only one of the two (either is
+  // common) showed no prefix at all — the flat "ARD > Experiments > CODE"
+  // breadcrumb the user reported, with no way back to the project/notebook.
+  const parentProjectId = exp?.projectId || notebookDetail?.projectId
   const { data: expParentProject } = useQuery({
-    queryKey: ['ard-project', exp?.projectId],
-    queryFn: () => ardProjectsApi.get(exp!.projectId!),
-    enabled: !!exp?.projectId,
+    queryKey: ['ard-project', parentProjectId],
+    queryFn: () => ardProjectsApi.get(parentProjectId!),
+    enabled: !!parentProjectId,
   })
   useBreadcrumbPrefix(
-    exp?.projectId
+    parentProjectId || notebookId
       ? [
-          { label: 'Projects', href: '/ard/projects' },
-          { label: expParentProject?.productName || expParentProject?.code || '…', href: `/ard/projects/${exp.projectId}` },
+          ...(parentProjectId ? [
+            { label: 'Projects', href: '/ard/projects' },
+            { label: expParentProject?.productName || expParentProject?.code || '…', href: `/ard/projects/${parentProjectId}` },
+          ] : []),
           ...(notebookId ? [
             { label: 'Notebooks', href: '/ard/notebooks' },
             { label: notebookDetail?.name || '…', href: `/ard/notebooks/${notebookId}` },

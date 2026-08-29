@@ -98,7 +98,11 @@ function SummaryTab({ nb, onSave, saving }: { nb: Notebook; onSave: (patch: Part
 
         <div className="md:col-span-2">
           <label className="text-xs text-slate-400 font-medium block mb-1.5">Notebook Type</label>
-          {isEditing ? (
+          {isEditing && !nb.notebookType ? (
+            // Once a type is set it drives downstream behavior (verification
+            // defaults, experiment section templates) — fixed for the life
+            // of the notebook, so this dropdown only ever appears the very
+            // first time, before any type has been chosen.
             <Select
               value={notebookType || undefined}
               onChange={setNotebookType}
@@ -832,13 +836,45 @@ function ResultParametersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (pa
   const [params, setParams] = useState<ResultParameter[]>(nb.resultParameters)
   const [form] = Form.useForm()
   const [open, setOpen] = useState(false)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [msgApi, msgCtx] = message.useMessage()
+  // FORMULA-derived results are always numeric — mirrors the legacy screen,
+  // which grays Type out to Numeric the moment Formula is picked, since a
+  // computed value has no "text" case to represent, and only lets Type be
+  // chosen at all when the value is User Entered.
+  const valueType = Form.useWatch('valueType', form)
   useEffect(() => setParams(nb.resultParameters), [nb.resultParameters])
+  useEffect(() => {
+    if (valueType === 'FORMULA') form.setFieldValue('dataType', 'NUMERIC')
+  }, [valueType, form])
 
-  const add = (vals: ResultParameter) => {
-    const next = [...params, { ...vals, id: newId() }]
+  const openAdd = () => {
+    setEditingId(null)
+    form.resetFields()
+    setOpen(true)
+  }
+  const openEdit = (p: ResultParameter) => {
+    setEditingId(p.id)
+    form.setFieldsValue(p)
+    setOpen(true)
+  }
+
+  const save = (vals: ResultParameter) => {
+    const code = (vals.paramCode || '').trim().toLowerCase()
+    if (code) {
+      const dupe = params.some(p => p.id !== editingId && (p.paramCode || '').trim().toLowerCase() === code)
+      if (dupe) {
+        msgApi.error(`Parameter code "${vals.paramCode}" is already in use.`)
+        return
+      }
+    }
+    const next = editingId
+      ? params.map(p => p.id === editingId ? { ...vals, id: editingId } : p)
+      : [...params, { ...vals, id: newId() }]
     setParams(next)
     onSave({ resultParameters: next })
     setOpen(false)
+    setEditingId(null)
     form.resetFields()
   }
   const remove = (id: string) => {
@@ -853,32 +889,40 @@ function ResultParametersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (pa
     { title: 'Parameter Name', dataIndex: 'paramName', key: 'paramName' },
     { title: 'I/O', dataIndex: 'ioType', key: 'ioType', width: 80,
       render: v => v ? <Tag color={v === 'OUTPUT' ? 'blue' : 'default'}>{v}</Tag> : '—' },
+    { title: 'User Entered/Formula', dataIndex: 'valueType', key: 'valueType', width: 130,
+      render: v => v === 'FORMULA' ? <Tag color="purple">Formula</Tag> : <Tag>User Entered</Tag> },
     { title: 'Type', dataIndex: 'dataType', key: 'dataType', width: 90,
       render: v => v ? v.charAt(0).toUpperCase() + v.slice(1).toLowerCase() : '—' },
+    { title: 'Formula', dataIndex: 'formula', key: 'formula',
+      render: v => v ? <span className="font-mono text-xs">{v}</span> : '—' },
     { title: 'Unit', dataIndex: 'unit', key: 'unit', width: 100 },
     {
-      title: '', key: 'del', width: 60,
+      title: '', key: 'actions', width: 90,
       render: (_, r) => (
-        <Popconfirm title="Remove parameter?" onConfirm={() => remove(r.id)}>
-          <Button type="text" danger icon={<Trash2 size={14} />} disabled={nb.status !== 'ACTIVE'} />
-        </Popconfirm>
+        <div className="flex items-center gap-1">
+          <Button type="text" icon={<Edit2 size={14} />} disabled={nb.status !== 'ACTIVE'} onClick={() => openEdit(r)} />
+          <Popconfirm title="Remove parameter?" onConfirm={() => remove(r.id)}>
+            <Button type="text" danger icon={<Trash2 size={14} />} disabled={nb.status !== 'ACTIVE'} />
+          </Popconfirm>
+        </div>
       ),
     },
   ]
 
   return (
     <div className="space-y-3">
+      {msgCtx}
       <div className="flex justify-end">
-        <Button icon={<Plus size={14} />} onClick={() => setOpen(true)} disabled={nb.status !== 'ACTIVE'}>
+        <Button icon={<Plus size={14} />} onClick={openAdd} disabled={nb.status !== 'ACTIVE'}>
           Add Parameter
         </Button>
       </div>
       <Table rowKey="id" columns={cols} dataSource={params} pagination={false}
         locale={{ emptyText: 'No result parameters defined.' }} size="small" />
-      <Modal {...glassModalProps} title="Add Result Parameter" open={open}
-        onCancel={() => { setOpen(false); form.resetFields() }}
-        onOk={() => form.submit()} okText="Add" confirmLoading={saving}>
-        <Form form={form} layout="vertical" onFinish={add} className="mt-4">
+      <Modal {...glassModalProps} title={editingId ? 'Edit Result Parameter' : 'Add Result Parameter'} open={open}
+        onCancel={() => { setOpen(false); setEditingId(null); form.resetFields() }}
+        onOk={() => form.submit()} okText={editingId ? 'Save' : 'Add'} confirmLoading={saving}>
+        <Form form={form} layout="vertical" onFinish={save} className="mt-4">
           <div className="grid grid-cols-2 gap-x-3">
             <Form.Item name="paramCode" label="Parameter Code" rules={[{ max: 3, message: 'Max 3 characters' }]}>
               <Input placeholder="e.g. ASY" maxLength={3} style={{ textTransform: 'uppercase' }} />
@@ -891,13 +935,23 @@ function ResultParametersTab({ nb, onSave, saving }: { nb: Notebook; onSave: (pa
             <Form.Item name="ioType" label="Input / Output">
               <Select placeholder="Select" options={[{ value: 'INPUT', label: 'Input' }, { value: 'OUTPUT', label: 'Output' }]} allowClear />
             </Form.Item>
-            <Form.Item name="valueType" label="Value">
-              <Select placeholder="Select" options={[{ value: 'INPUT', label: 'Input' }, { value: 'FORMULA', label: 'Formula' }]} allowClear />
+            <Form.Item name="valueType" label="User Entered/Formula">
+              <Select placeholder="Select" options={[{ value: 'INPUT', label: 'User Entered' }, { value: 'FORMULA', label: 'Formula' }]} allowClear />
             </Form.Item>
             <Form.Item name="dataType" label="Type">
-              <Select placeholder="Select" options={[{ value: 'TEXT', label: 'Text' }, { value: 'NUMERIC', label: 'Numeric' }]} allowClear />
+              <Select
+                placeholder="Select"
+                disabled={valueType === 'FORMULA'}
+                options={[{ value: 'TEXT', label: 'Text' }, { value: 'NUMERIC', label: 'Numeric' }]}
+                allowClear
+              />
             </Form.Item>
           </div>
+          {valueType === 'FORMULA' && (
+            <Form.Item name="formula" label="Formula" rules={[{ required: true, message: 'Required' }]}>
+              <Input placeholder="e.g. ASY - IMP1" />
+            </Form.Item>
+          )}
           <Form.Item name="unit" label="Unit">
             <Input placeholder="e.g. %" />
           </Form.Item>

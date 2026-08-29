@@ -1,8 +1,8 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactNode } from 'react'
 import { useLocation } from 'react-router-dom'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Tabs, Table, Button, Modal, Form, Input, InputNumber, Select, Switch, Checkbox,
+  Table, Button, Modal, Form, Input, InputNumber, Select, Switch, Checkbox,
   Tag, message, Card, Empty, DatePicker, Tooltip, Space, Alert, Segmented, Upload, Popconfirm, Spin,
 } from 'antd'
 import { Plus, Edit3, Trash2, Search, Users as UsersIcon, Eye, FileText, AlertTriangle, LayoutList, Award, ShieldCheck, Download, Upload as UploadIcon, Settings, Check, X, RotateCcw } from 'lucide-react'
@@ -141,7 +141,7 @@ function TechniquesTab({ data }: { data: ArdMasterDataState }) {
         onOk={() => form.validateFields().then((v) => submitForm(v))} confirmLoading={save.isPending}>
         <Form form={form} layout="vertical">
           <Form.Item name="code" label="Technique Name" rules={[{ required: true }]}><Input className="font-mono" /></Form.Item>
-          <Form.Item name="name" label="Description" rules={[{ required: true }]}><Input /></Form.Item>
+          <Form.Item name="name" label="Description"><Input /></Form.Item>
         </Form>
       </Modal>
     </div>
@@ -183,7 +183,7 @@ function ResultParamsEditor({
       {params.map((p, i) => (
         <div key={p.id} className="border border-slate-200/90 rounded-lg p-3 bg-slate-50/60 space-y-2.5">
           {/* Row 1: Parameter Name + Data Type + Delete Button */}
-          <div className="flex items-center gap-2">
+          <div className="flex items-end gap-2">
             <div className="flex-1">
               <label className="block text-[11px] font-medium text-slate-500 mb-0.5">
                 Parameter Name <span className="text-red-500">*</span>
@@ -196,32 +196,38 @@ function ResultParamsEditor({
                 />
               </div>
             </div>
-            <Select
-              style={{ width: 120 }}
-              className="shrink-0"
-              value={p.dataType ?? 'text'}
-              onChange={(v) => {
-                if (v === 'text') {
-                  update(i, { dataType: v, validationType: 'NONE', upperLimit: null, lowerLimit: null })
-                } else {
-                  update(i, { dataType: v })
-                }
-              }}
-              options={[
-                { value: 'text', label: 'Text' },
-                { value: 'number', label: 'Number' },
-              ]}
-            />
-            <Tooltip title="Delete parameter">
-              <Button
-                type="text"
-                danger
-                size="small"
-                icon={<Trash2 size={15} />}
-                onClick={() => remove(i)}
-                className="shrink-0 text-slate-400 hover:text-red-500 hover:bg-red-50"
+            <div className="shrink-0">
+              <label className="block text-[11px] font-medium text-slate-500 mb-0.5">
+                Data Type
+              </label>
+              <Select
+                style={{ width: 120 }}
+                value={p.dataType ?? 'text'}
+                onChange={(v) => {
+                  if (v === 'text') {
+                    update(i, { dataType: v, validationType: 'NONE', upperLimit: null, lowerLimit: null })
+                  } else {
+                    update(i, { dataType: v })
+                  }
+                }}
+                options={[
+                  { value: 'text', label: 'Text' },
+                  { value: 'number', label: 'Number' },
+                ]}
               />
-            </Tooltip>
+            </div>
+            <div className="shrink-0 pb-0.5">
+              <Tooltip title="Delete parameter">
+                <Button
+                  type="text"
+                  danger
+                  size="small"
+                  icon={<Trash2 size={15} />}
+                  onClick={() => remove(i)}
+                  className="text-slate-400 hover:text-red-500 hover:bg-red-50"
+                />
+              </Tooltip>
+            </div>
           </div>
 
           {/* Row 2: Specification OR Number Validation Controls */}
@@ -1242,7 +1248,7 @@ function LookupsTab({ data }: { data: ArdMasterDataState }) {
           </Form.Item>
           <Form.Item name="code" label="Lookup Value Code" rules={[{ required: true }]}><Input className="font-mono" /></Form.Item>
           <Form.Item name="label" label="Lookup Value" rules={[{ required: true }]}><Input /></Form.Item>
-          <Form.Item name="description" label="Lookup Desc" rules={[{ required: true, message: 'Lookup description is required' }]}><Input /></Form.Item>
+          <Form.Item name="description" label="Lookup Description" rules={[{ required: true, message: 'Lookup description is required' }]}><Input /></Form.Item>
         </Form>
       </Modal>
     </div>
@@ -2866,6 +2872,72 @@ function SettingsTab({ data }: { data: ArdMasterDataState }) {
 
 // ── Hub ──────────────────────────────────────────────────────────────────
 
+type ConfigTabItem = { key: string; label: ReactNode; children: ReactNode }
+
+const CONFIG_TAB_BTN =
+  'inline-flex items-center shrink-0 px-2.5 py-0.5 text-xs leading-[18px] rounded-t-sm border transition-colors whitespace-nowrap'
+
+function configTabBtnClass(active: boolean) {
+  return [
+    CONFIG_TAB_BTN,
+    active
+      ? 'bg-white border-[#f0f0f0] border-b-white text-[#1677ff] font-normal -mb-px relative z-[1]'
+      : 'bg-[#fafafa] border-transparent text-black/88 hover:text-[#1677ff]',
+  ].join(' ')
+}
+
+function ConfigTabNav({
+  items,
+  activeKey,
+  onChange,
+}: {
+  items: ConfigTabItem[]
+  activeKey: string
+  onChange: (key: string) => void
+}) {
+  const tabRefs = useRef<Map<string, HTMLButtonElement>>(new Map())
+
+  useLayoutEffect(() => {
+    tabRefs.current.get(activeKey)?.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'nearest' })
+  }, [activeKey])
+
+  return (
+    <>
+      <style>{`
+        .ard-config-tab-scroll {
+          overflow-x: auto;
+          overflow-y: hidden;
+          overscroll-behavior-x: contain;
+          scrollbar-width: thin;
+          scrollbar-color: #e2e8f0 transparent;
+        }
+        .ard-config-tab-scroll::-webkit-scrollbar { height: 4px; }
+        .ard-config-tab-scroll::-webkit-scrollbar-track { background: transparent; }
+        .ard-config-tab-scroll::-webkit-scrollbar-thumb { background: #e2e8f0; border-radius: 9999px; }
+        .ard-config-tab-scroll::-webkit-scrollbar-thumb:hover { background: #cbd5e1; }
+      `}</style>
+      <div className="ard-config-tab-scroll border-b border-[#f0f0f0] mb-4">
+        <div className="inline-flex items-end gap-0.5 min-w-max pb-px">
+          {items.map((tab) => (
+            <button
+              key={tab.key}
+              ref={(node) => {
+                if (node) tabRefs.current.set(tab.key, node)
+                else tabRefs.current.delete(tab.key)
+              }}
+              type="button"
+              onClick={() => onChange(tab.key)}
+              className={configTabBtnClass(activeKey === tab.key)}
+            >
+              {tab.label}
+            </button>
+          ))}
+        </div>
+      </div>
+    </>
+  )
+}
+
 export default function ArdConfigurationPage() {
   const { data, isLoading } = useMasterData()
   const user = useAppSelector(selectUser)
@@ -2932,7 +3004,10 @@ export default function ArdConfigurationPage() {
 
       {viewMode === 'tabbed' ? (
         <div className="glass-card rounded-lg p-4">
-          <Tabs type="card" items={items} activeKey={activeKey} onChange={setActiveKey} />
+          <ConfigTabNav items={items} activeKey={activeKey} onChange={setActiveKey} />
+          <div>
+            {items.find((t) => t.key === activeKey)?.children}
+          </div>
         </div>
       ) : (
         <div className="space-y-6">

@@ -853,6 +853,10 @@ module.exports = {
       "qualification_file_path": null
     }
   ], {});
+
+    await queryInterface.sequelize.query(
+      "SELECT setval('inv_manufacturers_id_seq', (SELECT COALESCE(MAX(id), 0) FROM inv_manufacturers));",
+    );
   },
 
   async down(queryInterface, Sequelize) {

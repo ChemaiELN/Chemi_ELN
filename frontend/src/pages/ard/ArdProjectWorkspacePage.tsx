@@ -142,6 +142,12 @@ export default function ArdProjectWorkspacePage() {
   const [teamModalOpen, setTeamModalOpen] = useState(false)
   const [teamMembers, setTeamMembers] = useState<ProjectTeamMember[]>([])
   const [selectedBatchUsers, setSelectedBatchUsers] = useState<string[]>([])
+  // Bulk "import a whole ArdTeam" mode — HOD/Admin only. A TL only ever
+  // needs their OWN team (handleAddMyTeam below covers that in one click),
+  // but a HOD legitimately manages many teams and needs to pull in any of
+  // them, not just their own.
+  const [addMode, setAddMode] = useState<'users' | 'team'>('users')
+  const [addTeamSel, setAddTeamSel] = useState<string | null>(null)
   const [teamRoleFilter, setTeamRoleFilter] = useState<string | undefined>(undefined)
   const [myTeamOnly, setMyTeamOnly] = useState(false)
   const [draftTeamMembers, setDraftTeamMembers] = useState<ProjectTeamMember[]>([])
@@ -484,6 +490,8 @@ export default function ArdProjectWorkspacePage() {
   function openTeamModal() {
     setDraftTeamMembers([...teamMembers])
     setSelectedBatchUsers([])
+    setAddMode('users')
+    setAddTeamSel(null)
     setTeamRoleFilter(undefined)
     setMyTeamOnly(false)
     setTeamModalOpen(true)
@@ -672,6 +680,59 @@ export default function ArdProjectWorkspacePage() {
     } else {
       msgApi.info('Your team is already fully added.')
     }
+  }
+
+  // HOD/Admin-only bulk import: pull an entire ArdTeam directory entry (HOD +
+  // every TL + every analyst under them) into the project team in one click.
+  // Unlike handleAddMyTeam, this isn't scoped to "your own team" — a HOD
+  // legitimately manages multiple teams and needs to add any of them.
+  function handleAddWholeTeam() {
+    const team = (teamDirData?.items ?? []).find((t: any) => t.id === addTeamSel)
+    if (!team) return
+    const existingIds = new Set(draftTeamMembers.map(m => m.userId).filter(Boolean))
+    const existingNames = new Set(draftTeamMembers.map(m => m.userName).filter(Boolean))
+    const isDup = (id: string, name: string) => existingIds.has(id) || existingNames.has(name)
+    const newMembers: ProjectTeamMember[] = []
+    // A person listed under a TL's "analysts" bucket (workload assignment
+    // within the ARD team) isn't necessarily an ANALYST by system role —
+    // e.g. a TL can be assigned there too. Always resolve the real role
+    // from the user directory instead of assuming the bucket name is it.
+    const roleById = new Map<string, string>(dbUserOptions.map((o: any) => [o.userId, o.role]))
+
+    if (team.hodName && team.hodName !== '—') {
+      const hodId = team.hodId || team.hodName
+      if (!isDup(hodId, team.hodName)) {
+        newMembers.push({ userName: team.hodName, userId: hodId, role: 'HOD' })
+        existingIds.add(hodId)
+        existingNames.add(team.hodName)
+      }
+    }
+    for (const tl of (team.tls ?? [])) {
+      const tlName = tl.name || tl.id
+      if (!isDup(tl.id, tlName)) {
+        newMembers.push({ userName: tlName, userId: tl.id, role: 'TL' })
+        existingIds.add(tl.id)
+        existingNames.add(tlName)
+      }
+      for (const analyst of (tl.analysts ?? [])) {
+        const uname = analyst.username || analyst.name || analyst.id
+        if (!isDup(analyst.id, uname)) {
+          newMembers.push({ userName: uname, userId: analyst.id, role: roleById.get(analyst.id) || 'ANALYST' })
+          existingIds.add(analyst.id)
+          existingNames.add(uname)
+        }
+      }
+    }
+
+    if (newMembers.length > 0) {
+      const next = [...draftTeamMembers, ...newMembers]
+      setDraftTeamMembers(next)
+      setTeamMembers(next)
+      saveMut.mutate({ body: { team: next }, successMsg: `Added ${newMembers.length} member(s) from "${team.teamName}".` })
+    } else {
+      msgApi.info('All team members are already in the list.')
+    }
+    setAddTeamSel(null)
   }
 
   // ── Attribute helpers ────────────────────────────────────────────────────────
@@ -1479,6 +1540,8 @@ export default function ArdProjectWorkspacePage() {
         onCancel={() => {
           setTeamModalOpen(false)
           setSelectedBatchUsers([])
+          setAddMode('users')
+          setAddTeamSel(null)
           setTeamRoleFilter(undefined)
           setMyTeamOnly(false)
         }}
@@ -1487,60 +1550,102 @@ export default function ArdProjectWorkspacePage() {
         width={620}
       >
         <div className="space-y-4 pt-2">
-          {/* Only ARD members (Analyst/TL/HOD) plus QA reviewers can be added
-              to a project's team — this used to also offer a bulk "Add Team"
-              mode importing a whole ArdTeam directory entry at once, but that
-              let in roles (Chemist/GL/Super Admin) and a whole second UI path
-              that were never actually wanted here; a single picker covers
-              the real need. */}
-          <div className="bg-indigo-50/70 p-3 rounded-lg border border-indigo-100 space-y-2">
-            {role === 'TL' && (
-              <div className="flex items-center justify-between gap-2 pb-1 border-b border-indigo-100/80">
-                <span className="text-[11px] text-slate-500">Add your whole ARD team in one step, or search individually below.</span>
-                <Button size="small" icon={<Users size={13} />} onClick={handleAddMyTeam}>
-                  Add My Team
+          {/* TL only ever needs their own team (the "Add My Team" shortcut
+              below covers that in one click) — the bulk "import any team"
+              mode is HOD/Admin-only, since only they legitimately manage
+              multiple teams at once. */}
+          {role !== 'TL' && (
+            <Segmented
+              block
+              value={addMode}
+              onChange={(v) => {
+                setAddMode(v as 'users' | 'team')
+                setSelectedBatchUsers([])
+                setAddTeamSel(null)
+              }}
+              options={[
+                { label: <span className="flex items-center justify-center gap-1.5"><UserPlus size={13} />Add Users</span>, value: 'users' },
+                { label: <span className="flex items-center justify-center gap-1.5"><Users size={13} />Add Team</span>, value: 'team' },
+              ]}
+            />
+          )}
+
+          {(role === 'TL' || addMode === 'users') ? (
+            <div className="bg-indigo-50/70 p-3 rounded-lg border border-indigo-100 space-y-2">
+              {role === 'TL' && (
+                <div className="flex items-center justify-between gap-2 pb-1 border-b border-indigo-100/80">
+                  <span className="text-[11px] text-slate-500">Add your whole ARD team in one step, or search individually below.</span>
+                  <Button size="small" icon={<Users size={13} />} onClick={handleAddMyTeam}>
+                    Add My Team
+                  </Button>
+                </div>
+              )}
+              <div className="flex gap-2 flex-wrap">
+                <Select
+                  allowClear
+                  placeholder="Select User Role"
+                  style={{ width: 160 }}
+                  value={teamRoleFilter}
+                  onChange={v => { setTeamRoleFilter(v); setSelectedBatchUsers([]) }}
+                  options={['ANALYST', 'TL', 'HOD', 'QA'].map(r => ({ value: r, label: r }))}
+                />
+                {role === 'TL' && teamRoleFilter === 'ANALYST' && (
+                  <label className="flex items-center gap-1.5 text-xs text-slate-700 font-medium cursor-pointer">
+                    <input type="checkbox" checked={myTeamOnly} onChange={e => setMyTeamOnly(e.target.checked)} className="rounded" />
+                    My Team only
+                  </label>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <Select
+                  mode="multiple"
+                  showSearch
+                  optionFilterProp="label"
+                  className="flex-1 text-xs"
+                  placeholder={teamRoleFilter ? `Search ${teamRoleFilter} users...` : 'Search & select users...'}
+                  value={selectedBatchUsers}
+                  options={filteredDbUserOptions}
+                  onChange={setSelectedBatchUsers}
+                  maxTagCount="responsive"
+                />
+                <Button
+                  type="primary"
+                  icon={<UserPlus size={14} />}
+                  disabled={!selectedBatchUsers.length}
+                  onClick={handleBatchAddUsers}
+                  className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium border-none shrink-0"
+                >
+                  Add Selected
                 </Button>
               </div>
-            )}
-            <div className="flex gap-2 flex-wrap">
-              <Select
-                allowClear
-                placeholder="Select User Role"
-                style={{ width: 160 }}
-                value={teamRoleFilter}
-                onChange={v => { setTeamRoleFilter(v); setSelectedBatchUsers([]) }}
-                options={['ANALYST', 'TL', 'HOD', 'QA'].map(r => ({ value: r, label: r }))}
-              />
-              {role === 'TL' && teamRoleFilter === 'ANALYST' && (
-                <label className="flex items-center gap-1.5 text-xs text-slate-700 font-medium cursor-pointer">
-                  <input type="checkbox" checked={myTeamOnly} onChange={e => setMyTeamOnly(e.target.checked)} className="rounded" />
-                  My Team only
-                </label>
-              )}
             </div>
-            <div className="flex gap-2">
-              <Select
-                mode="multiple"
-                showSearch
-                optionFilterProp="label"
-                className="flex-1 text-xs"
-                placeholder={teamRoleFilter ? `Search ${teamRoleFilter} users...` : 'Search & select users...'}
-                value={selectedBatchUsers}
-                options={filteredDbUserOptions}
-                onChange={setSelectedBatchUsers}
-                maxTagCount="responsive"
-              />
-              <Button
-                type="primary"
-                icon={<UserPlus size={14} />}
-                disabled={!selectedBatchUsers.length}
-                onClick={handleBatchAddUsers}
-                className="bg-indigo-600 hover:bg-indigo-700 text-white font-medium border-none shrink-0"
-              >
-                Add Selected
-              </Button>
+          ) : (
+            <div className="bg-violet-50/70 p-3 rounded-lg border border-violet-100 space-y-2">
+              <div className="flex gap-2">
+                <Select
+                  showSearch
+                  allowClear
+                  optionFilterProp="label"
+                  className="flex-1 text-xs"
+                  placeholder="Select a team to add all members..."
+                  value={addTeamSel}
+                  onChange={setAddTeamSel}
+                  options={(teamDirData?.items ?? [])
+                    .filter((t: any) => t.active !== false)
+                    .map((t: any) => ({ value: t.id, label: t.teamName }))}
+                />
+                <Button
+                  type="primary"
+                  icon={<Users size={14} />}
+                  disabled={!addTeamSel}
+                  onClick={handleAddWholeTeam}
+                  className="bg-violet-600 hover:bg-violet-700 text-white font-medium border-none shrink-0"
+                >
+                  Add Team
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex items-start justify-between pt-1 gap-3 flex-wrap">
             <span className="text-xs font-bold text-slate-700 uppercase tracking-wide">

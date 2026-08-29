@@ -7,6 +7,7 @@ import { clearAuth, selectUser } from '../../store/authSlice'
 import { clearPrivileges } from '../../store/privilegesSlice'
 import { authApi } from '../../api/auth'
 import { glassModalProps } from '../../utils/modalStyles'
+import { queryClient } from '../../queryClient'
 
 const COLLAPSED_W = 52
 const EXPANDED_W = 240
@@ -51,6 +52,10 @@ export default function UserProfileMenu() {
     try { await authApi.logout() } catch { /* ignore */ }
     dispatch(clearAuth())
     dispatch(clearPrivileges())
+    // Logout is a client-side navigate, not a full reload — without this the
+    // next person to log into this tab would see the previous user's cached
+    // dashboards/pickers/lists until each query's staleTime happened to expire.
+    queryClient.clear()
     navigate('/login', { replace: true })
   }
 

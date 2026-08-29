@@ -12,6 +12,7 @@ import { setPrivileges } from '../../store/privilegesSlice'
 import { authApi } from '../../api/auth'
 import { ApiError, apiGet, apiPost } from '../../api/client'
 import { isSuperAdmin, resolveGrants } from '../../utils/privileges'
+import { queryClient } from '../../queryClient'
 
 const schema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -48,6 +49,11 @@ export default function LoginPage() {
       localStorage.setItem('access_token', tokens.access_token)
       localStorage.setItem('refresh_token', tokens.refresh_token)
       const me = await authApi.me()
+      // Belt-and-suspenders alongside the logout-time clear() — guards
+      // against any query left in cache from a previous session in this
+      // same browser tab (e.g. a session that ended without going through
+      // the normal logout action) leaking into this one.
+      queryClient.clear()
       dispatch(setAuth({ user: me, accessToken: tokens.access_token }))
       dispatch(setPrivileges({
         keys: resolveGrants(me),

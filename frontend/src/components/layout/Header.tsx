@@ -9,6 +9,7 @@ import { clearPrivileges } from '../../store/privilegesSlice'
 import { authApi } from '../../api/auth'
 import { ardOpsApi } from '../../api/ard'
 import { glassModalProps } from '../../utils/modalStyles'
+import { queryClient } from '../../queryClient'
 
 // Mirrors the gate in AdminProtectedRoute — QA/QC department users OR SUPER_ADMIN.
 const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC']
@@ -56,6 +57,7 @@ export default function Header({ onToggle, isMobile = false, breadcrumbs = [] }:
     try { await authApi.logout() } catch { /* ignore */ }
     dispatch(clearAuth())
     dispatch(clearPrivileges())
+    queryClient.clear()
     navigate('/login', { replace: true })
   }
 

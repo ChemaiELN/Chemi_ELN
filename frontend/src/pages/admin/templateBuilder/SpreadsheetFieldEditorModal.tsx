@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react'
-import { Modal, Button, Input, Select, Form, message, Popconfirm, Segmented } from 'antd'
+import {   Button, Input, Select, Form, message, Popconfirm, Segmented } from 'antd'
+import { AdminModal } from '../../../components/ui/AdminModal'
 import { useQuery } from '@tanstack/react-query'
 import { Plus, Lock, Unlock, Trash2 } from 'lucide-react'
 import { createUniver, LocaleType, mergeLocales } from '@univerjs/presets'
@@ -8,7 +9,7 @@ import type { IUniverSheetsCorePresetConfig } from '@univerjs/preset-sheets-core
 import sheetsCoreEnUS from '@univerjs/preset-sheets-core/locales/en-US'
 import '@univerjs/preset-sheets-core/lib/index.css'
 import type { FUniver } from '@univerjs/core/lib/facade'
-import { glassModalProps, glassModalStyles } from '../../../utils/modalStyles'
+import { glassModalStyles } from '../../../utils/modalStyles'
 import type { IWorkbookData } from '@univerjs/core'
 // Univer does not publish this internal facade type in the installed package.
 // Rules are only retained as opaque handles for the active editor session.
@@ -213,7 +214,7 @@ export default function SpreadsheetFieldEditorModal({ open, spreadsheet, onSave,
   }
 
   return (
-    <Modal
+    <AdminModal
       title="Edit Spreadsheet"
       open={open}
       onCancel={onClose}
@@ -310,7 +311,7 @@ export default function SpreadsheetFieldEditorModal({ open, spreadsheet, onSave,
         </div>
       )}
 
-      <Modal
+      <AdminModal
         title="Mark Selected Range as a Field"
         open={fieldModalOpen}
         onOk={confirmMarkField}
@@ -318,8 +319,7 @@ export default function SpreadsheetFieldEditorModal({ open, spreadsheet, onSave,
         okText="Add Field"
         destroyOnHidden
         centered
-        {...glassModalProps}
-      >
+        >
         <Form form={fieldForm} layout="vertical">
           <Form.Item label="Field Key (internal, unique)" name="key" rules={[
             { required: true, message: 'Required' },
@@ -337,7 +337,7 @@ export default function SpreadsheetFieldEditorModal({ open, spreadsheet, onSave,
             ]} />
           </Form.Item>
         </Form>
-      </Modal>
-    </Modal>
+      </AdminModal>
+    </AdminModal>
   )
 }

@@ -6,7 +6,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { Plus, Pencil, Trash2, Hash, MoreVertical } from 'lucide-react'
 import { idSequenceApi, type IdSequenceConfig, type IdSequenceConfigCreate } from '../../api/admin'
 import { ApiError } from '../../api/client'
-import { glassModalStyles } from '../../utils/modalStyles'
+import { AdminModal } from '../../components/ui/AdminModal'
 
 // Preview e.g. "SAMPLE/26/00001" from the current form values, so the admin
 // sees exactly what a generated ID will look like before saving.
@@ -116,7 +116,7 @@ export default function IdSequencesPage() {
         <Table rowKey="id" columns={columns} dataSource={configs} loading={isLoading} pagination={false} />
       </div>
 
-      <Modal
+      <AdminModal
         title={editing ? 'Edit ID Format' : 'New ID Format'}
         open={modalOpen}
         onCancel={() => setModalOpen(false)}
@@ -125,7 +125,6 @@ export default function IdSequencesPage() {
         destroyOnClose
         centered
         width={480}
-        styles={glassModalStyles}
       >
         <Form form={form} layout="vertical" onFinish={v => saveMut.mutate(v)}>
           <Form.Item label="Label" name="label" rules={[{ required: true }]}>
@@ -164,7 +163,7 @@ export default function IdSequencesPage() {
             Preview: <code className="text-slate-600">{previewId(previewValues ?? {})}</code>
           </div>
         </Form>
-      </Modal>
+      </AdminModal>
     </div>
   )
 }

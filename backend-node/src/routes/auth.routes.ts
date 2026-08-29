@@ -18,6 +18,7 @@ import { Department } from '../models/Department.model'
 import { Lab } from '../models/Lab.model'
 import { sequelize } from '../database/connection'
 import { resolveUserPrivileges } from '../shared/deptPrivileges'
+import { resolveAdminPrivileges } from '../shared/privileges'
 
 const router = Router()
 
@@ -81,8 +82,18 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
       throw new UnauthorizedError('Invalid username or password.')
     }
 
-    // Reset failed count on success
-    const loginUpdates: Partial<User> = { failedLoginCount: 0, lockedUntil: null } as Partial<User>
+    const role = user.role as Role | undefined
+    if (!user.departmentId && role?.code !== 'SUPER_ADMIN' && role?.code !== 'DQA') {
+      throw new UnauthorizedError('Your account has not been assigned to a department. Contact your administrator.')
+    }
+
+    // Reset failed count on success; bump tokenVersion to invalidate other sessions (BUG-2)
+    const newTokenVersion = user.tokenVersion + 1
+    const loginUpdates: Partial<User> = {
+      failedLoginCount: 0,
+      lockedUntil: null,
+      tokenVersion: newTokenVersion,
+    } as Partial<User>
 
     // Password expiry: force a reset once the current password is older than
     // the configured limit. Accounts created before password_changed_at
@@ -98,6 +109,7 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
     }
 
     await user.update(loginUpdates)
+    await user.reload()
 
     const accessToken = createAccessToken(user.id, user.tokenVersion)
     const refreshToken = createRefreshToken(user.id, user.tokenVersion)
@@ -113,6 +125,8 @@ router.post('/login', async (req: Request, res: Response, next: NextFunction) =>
 })
 
 // POST /api/auth/refresh
+// TODO: for full session security, persist refresh token hash per user in DB
+// and invalidate explicitly on login. tokenVersion covers the common case for now.
 router.post('/refresh', async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { refresh_token } = z.object({
@@ -134,6 +148,11 @@ router.post('/refresh', async (req: Request, res: Response, next: NextFunction) 
     // tokens (see createRefreshToken).
     if (user.tokenVersion !== payload.ver) {
       throw new UnauthorizedError('Session has been invalidated. Please log in again.')
+    }
+
+    const role = await Role.findByPk(user.roleId || '')
+    if (!user.departmentId && role?.code !== 'SUPER_ADMIN' && role?.code !== 'DQA') {
+      throw new UnauthorizedError('Your account has not been assigned to a department. Contact your administrator.')
     }
 
     const accessToken = createAccessToken(user.id, user.tokenVersion)
@@ -186,6 +205,9 @@ router.get('/me', authenticate, async (req: Request, res: Response, next: NextFu
 
     // Fine-grained (department, role) operation grants — drives module UI gating.
     const privileges = await resolveUserPrivileges(user)
+    const adminPrivileges = await resolveAdminPrivileges(user)
+    const securityQuestionCount = await UserSecurityQuestion.count({ where: { userId: user.id } })
+    const settings = await GlobalSettings.findOne()
 
     res.json(successResponse('User profile retrieved successfully.', {
       id: user.id,
@@ -194,8 +216,12 @@ router.get('/me', authenticate, async (req: Request, res: Response, next: NextFu
       email: user.email,
       is_active: user.isActive ?? true,
       privileges,
+      admin_privileges: adminPrivileges,
       dashboard_reference: user.dashboardReference,
       must_reset_password: user.mustResetPassword,
+      terms_accepted: !!user.termsAcceptedAt,
+      has_security_questions: securityQuestionCount > 0,
+      enable_security_questions: settings?.enableSecurityQuestions ?? true,
       allow_settings_update: user.allowSettingsUpdate,
       // Flat role fields (frontend expects role_code, role_name, role_id)
       role_id: role?.id ?? null,
@@ -210,6 +236,73 @@ router.get('/me', authenticate, async (req: Request, res: Response, next: NextFu
       department: dept ? { id: dept.id, code: dept.code, name: dept.name } : null,
       lab: lab ? { id: lab.id, code: lab.code, name: lab.name } : null,
     }))
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/auth/change-password — in-app password change (first-login or voluntary)
+router.post('/change-password', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const body = z.object({
+      old_password: z.string().optional(),
+      new_password: PasswordSchema,
+      security_answers: z.array(z.object({
+        index: z.number().int(),
+        answer: z.string().min(1),
+      })).optional(),
+    }).parse(req.body)
+
+    const user = req.user!
+    let verified = false
+
+    if (body.old_password) {
+      verified = await verifyPassword(body.old_password, user.passwordHash)
+      if (!verified) throw new BadRequestError('Current password is incorrect.', 'WRONG_PASSWORD')
+    } else if (body.security_answers?.length) {
+      const savedQuestions = await UserSecurityQuestion.findAll({ where: { userId: user.id } })
+      if (savedQuestions.length === 0) {
+        throw new BadRequestError('No security questions configured for this account.', 'NO_SECURITY_QUESTIONS')
+      }
+      for (const ans of body.security_answers) {
+        const saved = savedQuestions.find(q => q.questionIndex === ans.index)
+        if (!saved) throw new BadRequestError('Invalid security question.', 'INVALID_QUESTION')
+        const match = await verifyPassword(ans.answer.toLowerCase().trim(), saved.answerHash)
+        if (!match) throw new BadRequestError('Security answer is incorrect.', 'WRONG_ANSWER')
+      }
+      verified = true
+    } else {
+      throw new BadRequestError('Provide current password or security question answers.', 'VERIFICATION_REQUIRED')
+    }
+
+    const hashed = await hashPassword(body.new_password)
+    await user.update({
+      passwordHash: hashed,
+      mustResetPassword: false,
+      passwordChangedAt: new Date(),
+      tokenVersion: user.tokenVersion + 1,
+    } as Partial<User>)
+    await user.reload()
+
+    const accessToken = createAccessToken(user.id, user.tokenVersion)
+    const refreshToken = createRefreshToken(user.id, user.tokenVersion)
+
+    res.json({
+      access_token: accessToken,
+      refresh_token: refreshToken,
+      token_type: 'bearer',
+    })
+  } catch (err) {
+    next(err)
+  }
+})
+
+// POST /api/auth/accept-terms — record T&C acceptance during first-login flow
+router.post('/accept-terms', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    z.object({ accepted: z.literal(true) }).parse(req.body)
+    await req.user!.update({ termsAcceptedAt: new Date() } as Partial<User>)
+    res.status(204).send()
   } catch (err) {
     next(err)
   }

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useNavigate, useParams } from 'react-router-dom'
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
 import { Button, Input, Modal, Select, Tag, message, Popconfirm, Form, Alert, Checkbox } from 'antd'
+import { AdminModal } from '../../../components/ui/AdminModal'
 import { ArrowLeft, FileSpreadsheet, Lock, Plus, Save, Send, Trash2, Unlock } from 'lucide-react'
 import { createUniver, LocaleType, mergeLocales } from '@univerjs/presets'
 import { UniverSheetsCorePreset } from '@univerjs/preset-sheets-core'
@@ -414,7 +415,7 @@ export default function CalcTemplateBuilderPage({ scope }: CalcTemplateBuilderPa
 
       {/* Post-import review — an import is lossy by design, so what did and
           did NOT come across is stated plainly before anything gets published. */}
-      <Modal
+      <AdminModal
         title="Excel imported"
         open={!!importSummary}
         onCancel={() => setImportSummary(null)}
@@ -426,7 +427,7 @@ export default function CalcTemplateBuilderPage({ scope }: CalcTemplateBuilderPa
         // straight through this dialog's default (token-driven) surface — the
         // summary text ended up unreadable over the cells behind it. Pin the
         // surface to an explicit opaque colour instead of inheriting it.
-        styles={{ container: { background: '#ffffff' } }}
+        styles={{ body: { background: '#ffffff' } }}
       >
         {importSummary && (
           <div className="space-y-3 text-sm">
@@ -480,9 +481,9 @@ export default function CalcTemplateBuilderPage({ scope }: CalcTemplateBuilderPa
             </p>
           </div>
         )}
-      </Modal>
+      </AdminModal>
 
-      <Modal
+      <AdminModal
         title="Mark Selected Range as a Field"
         open={fieldModalOpen}
         onOk={confirmMarkField}
@@ -507,7 +508,7 @@ export default function CalcTemplateBuilderPage({ scope }: CalcTemplateBuilderPa
             ]} />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
     </div>
   )
 }

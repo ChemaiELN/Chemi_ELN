@@ -1,6 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Table, Button, Modal, Form, Input, Select, Dropdown, message, Switch, Tooltip } from 'antd'
+import { Table, Button, Form, Input, Select, Dropdown, message, Switch, Tooltip, Modal } from 'antd'
+import { AdminModal } from '../../components/ui/AdminModal'
 import type { MenuProps } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { withEmptyValue } from '../../components/ui/EmptyValue'
@@ -8,7 +9,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { Pencil, Trash2, ShieldCheck, Search, MoreVertical } from 'lucide-react'
 import { adminApi, type Role } from '../../api/admin'
 import { ApiError } from '../../api/client'
-import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
+import { glassModalStyles } from '../../utils/modalStyles'
 import { useServerTable } from '../../hooks/useServerTable'
 
 export default function RolesPage() {
@@ -218,7 +219,7 @@ export default function RolesPage() {
       </div>
 
       {/* Create */}
-      <Modal
+      <AdminModal
         open={createOpen}
         closable={false}
         title="New Role"
@@ -229,8 +230,7 @@ export default function RolesPage() {
         width={440}
         centered
         destroyOnHidden
-        {...glassModalProps}
-      >
+        >
         <Form form={createForm} layout="vertical" onFinish={(v) => onCreate.mutate(v)}>
           <Form.Item name="code" label="Code" rules={[{ required: true, max: 20 }]}>
             <Input placeholder="e.g. ANALYST" className="uppercase  " />
@@ -251,10 +251,10 @@ export default function RolesPage() {
             <Input.TextArea rows={2} placeholder="Optional" />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
 
       {/* Edit */}
-      <Modal
+      <AdminModal
         open={editTarget !== null}
         closable={false}
         title={`Edit — ${editTarget?.name}`}
@@ -265,8 +265,7 @@ export default function RolesPage() {
         width={440}
         centered
         destroyOnHidden
-        {...glassModalProps}
-      >
+        >
         <Form
           form={editForm}
           layout="vertical"
@@ -304,7 +303,7 @@ export default function RolesPage() {
             <Input.TextArea rows={2} placeholder="Optional" />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
     </div>
   )
 }

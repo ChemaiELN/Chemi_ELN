@@ -1,21 +1,36 @@
 import type { PrivilegeKey } from '../store/privilegesSlice'
 import type { MeResponse } from '../api/auth'
 
-type PrivilegeUser = Pick<MeResponse, 'role_code' | 'department_code'> | null | undefined
+type PrivilegeUser = Pick<MeResponse, 'role_code' | 'department_code' | 'admin_privileges'> | null | undefined
 
 const ROLE_GRANTS: Record<string, PrivilegeKey[]> = {
   HOD: ['master_data.manage'],
 }
 
-// SUPER_ADMIN role has unconditional full access regardless of department.
-// Legacy: a HOD in the QA department retains admin authority during migration.
-// Mirrors the backend bypass in app/shared/privileges.py::user_has_privilege.
+const ALL_ADMIN_KEYS: PrivilegeKey[] = [
+  'admin.settings',
+  'admin.excel_templates',
+  'admin.notifications',
+  'admin.role_privileges',
+  'users.manage',
+  'departments.manage',
+  'master_data.manage',
+]
+
 export function isSuperAdmin(user: PrivilegeUser): boolean {
   return user?.role_code === 'SUPER_ADMIN' ||
+    user?.role_code === 'DQA' ||
     (user?.role_code === 'HOD' && user?.department_code === 'QA')
 }
 
+export function isAdminPrivilegedRole(roleCode: string | null | undefined): boolean {
+  return roleCode === 'SUPER_ADMIN' || roleCode === 'DQA'
+}
+
 export function resolveGrants(user: PrivilegeUser): PrivilegeKey[] {
+  if (isSuperAdmin(user)) return ALL_ADMIN_KEYS
+  const fromApi = (user?.admin_privileges ?? []) as PrivilegeKey[]
+  if (fromApi.length > 0) return fromApi
   return ROLE_GRANTS[user?.role_code ?? ''] ?? []
 }
 

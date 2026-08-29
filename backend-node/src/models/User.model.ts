@@ -15,6 +15,7 @@ export class User extends Model<InferAttributes<User>, InferCreationAttributes<U
   declare tokenVersion: CreationOptional<number>
   declare mustResetPassword: CreationOptional<boolean>
   declare passwordChangedAt: Date | null
+  declare termsAcceptedAt: Date | null
   declare allowSettingsUpdate: CreationOptional<boolean>
   declare dashboardReference: string | null
   declare isActive: CreationOptional<boolean>
@@ -48,6 +49,7 @@ User.init({
   tokenVersion: { type: DataTypes.INTEGER, defaultValue: 1, field: 'token_version' },
   mustResetPassword: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'must_reset_password' },
   passwordChangedAt: { type: DataTypes.DATE, allowNull: true, field: 'password_changed_at' },
+  termsAcceptedAt: { type: DataTypes.DATE, allowNull: true, field: 'terms_accepted_at' },
   allowSettingsUpdate: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'allow_settings_update' },
   dashboardReference: { type: DataTypes.STRING(255), allowNull: true, field: 'dashboard_reference' },
   isActive: { type: DataTypes.BOOLEAN, defaultValue: true, field: 'is_active' },

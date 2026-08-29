@@ -1,12 +1,12 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
-import { Table, Button, Modal, Form, Input, Select, Space, Tooltip, message, Switch } from 'antd'
+import { Table, Button, Form, Input, Select, Space, Tooltip, message, Switch } from 'antd'
+import { AdminModal } from '../../components/ui/AdminModal'
 import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType } from 'antd/es/table'
 import { Pencil, Building2, Search } from 'lucide-react'
 import { adminApi, type DepartmentOut } from '../../api/admin'
 import { ApiError } from '../../api/client'
-import { glassModalProps } from '../../utils/modalStyles'
 import { useServerTable } from '../../hooks/useServerTable'
 
 export default function DepartmentsPage() {
@@ -151,7 +151,7 @@ export default function DepartmentsPage() {
       </div>
 
       {/* Create Modal */}
-      <Modal
+      <AdminModal
         open={createOpen}
         closable={false}
         title="New Department"
@@ -162,8 +162,7 @@ export default function DepartmentsPage() {
         width={440}
         centered
         destroyOnHidden
-        {...glassModalProps}
-      >
+        >
         <Form form={createForm} layout="vertical" onFinish={(v) => onCreate.mutate(v)}>
           <Form.Item name="code" label="Code" rules={[{ required: true, max: 20 }]}>
             <Input placeholder="e.g. QC" className="uppercase  " onChange={e => createForm.setFieldValue('code', e.target.value.toUpperCase())} />
@@ -175,10 +174,10 @@ export default function DepartmentsPage() {
             <Input.TextArea rows={2} placeholder="Optional" />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
 
       {/* Edit Modal */}
-      <Modal
+      <AdminModal
         open={editTarget !== null}
         closable={false}
         title={`Edit — ${editTarget?.name}`}
@@ -189,8 +188,7 @@ export default function DepartmentsPage() {
         width={440}
         centered
         destroyOnHidden
-        {...glassModalProps}
-      >
+        >
         <Form
           form={editForm}
           layout="vertical"
@@ -207,7 +205,7 @@ export default function DepartmentsPage() {
             <Input.TextArea rows={2} placeholder="Optional" />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
     </div>
   )
 }

@@ -18,6 +18,7 @@ export class GlobalSettings extends Model<InferAttributes<GlobalSettings>, Infer
   declare smtpUsername: string | null
   declare smtpPassword: string | null
   declare enableEmailNotifications: CreationOptional<boolean>
+  declare enableSecurityQuestions: CreationOptional<boolean>
 }
 
 GlobalSettings.init({
@@ -37,6 +38,7 @@ GlobalSettings.init({
   smtpUsername: { type: DataTypes.STRING(255), allowNull: true, field: 'smtp_username' },
   smtpPassword: { type: DataTypes.STRING(255), allowNull: true, field: 'smtp_password' },
   enableEmailNotifications: { type: DataTypes.BOOLEAN, defaultValue: false, field: 'enable_email_notifications' },
+  enableSecurityQuestions: { type: DataTypes.BOOLEAN, defaultValue: true, field: 'enable_security_questions' },
 }, {
   sequelize,
   tableName: 'global_settings',

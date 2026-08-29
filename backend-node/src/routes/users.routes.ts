@@ -4,19 +4,32 @@ import { Op } from 'sequelize'
 import { authenticate } from '../middleware/auth.middleware'
 import { requirePrivilege } from '../shared/privileges'
 import { successResponse, listResponse, parsePagination, buildPagination, parseSort } from '../utils/response'
-import { NotFoundError, ConflictError } from '../utils/errors'
+import { NotFoundError, ConflictError, BadRequestError } from '../utils/errors'
 import { hashPassword, PasswordSchema } from '../utils/auth.utils'
 import { User } from '../models/User.model'
 import { Role } from '../models/Role.model'
 import { Department } from '../models/Department.model'
 import { Lab, UserLab } from '../models/Lab.model'
 import { createUploader } from '../middleware/upload.middleware'
+import multer from 'multer'
 import { config } from '../config'
 import path from 'path'
 import { logAdminAudit } from '../utils/adminAudit'
 
 const router = Router()
 const jobDescUploader = createUploader('user-job-descriptions')
+const bulkCsvUploader = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 2 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
+    const ext = path.extname(file.originalname).toLowerCase()
+    if (ext !== '.csv') {
+      cb(new BadRequestError('Bulk upload accepts .csv files only.', 'INVALID_FILE_TYPE'))
+      return
+    }
+    cb(null, true)
+  },
+})
 
 // Username doubles as the employee identifier now, so it's restricted to a
 // predictable, URL/login-safe charset: letters, digits, dot, underscore, hyphen.
@@ -246,6 +259,112 @@ router.post('/', authenticate, requirePrivilege('users.manage'), jobDescUploader
 
     const full = await User.findByPk(user.id, { include: userIncludes })
     res.status(201).json(successResponse('User created successfully.', userOut(full!)))
+  } catch (err) {
+    next(err)
+  }
+})
+
+function parseCsvLine(line: string): string[] {
+  const result: string[] = []
+  let current = ''
+  let inQuotes = false
+  for (let i = 0; i < line.length; i++) {
+    const c = line[i]
+    if (inQuotes) {
+      if (c === '"') {
+        if (line[i + 1] === '"') {
+          current += '"'
+          i++
+        } else {
+          inQuotes = false
+        }
+      } else {
+        current += c
+      }
+    } else if (c === '"') {
+      inQuotes = true
+    } else if (c === ',') {
+      result.push(current.trim())
+      current = ''
+    } else {
+      current += c
+    }
+  }
+  result.push(current.trim())
+  return result
+}
+
+// POST /api/users/bulk-upload — CSV bulk user creation (no department auto-assignment)
+router.post('/bulk-upload', authenticate, requirePrivilege('users.manage'), bulkCsvUploader.single('file'), async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    if (!req.file?.buffer) throw new BadRequestError('Upload file is required.')
+    const content = req.file.buffer.toString('utf-8')
+    const lines = content.split(/\r?\n/).map(l => l.trim()).filter(Boolean)
+    if (lines.length < 2) throw new BadRequestError('CSV must include a header row and at least one data row.')
+
+    const headers = parseCsvLine(lines[0]).map(h => h.trim().toLowerCase())
+    const required = ['username', 'title', 'first_name', 'last_name', 'display_name', 'designation']
+    for (const col of required) {
+      if (!headers.includes(col)) throw new BadRequestError(`Missing required column: ${col}`)
+    }
+
+    const created: string[] = []
+    const errors: { row: number; message: string }[] = []
+    const hashed = await hashPassword(DEFAULT_PASSWORD)
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseCsvLine(lines[i])
+      const row: Record<string, string> = {}
+      headers.forEach((h, idx) => { row[h] = cols[idx] ?? '' })
+
+      try {
+        const body = UserCreateSchema.parse({
+          username: row.username,
+          email: row.email || '',
+          title: row.title,
+          first_name: row.first_name,
+          middle_initials: row.middle_initials || undefined,
+          last_name: row.last_name,
+          display_name: row.display_name,
+          designation: row.designation,
+          contact_no: row.contact_no || undefined,
+        })
+
+        if (await User.findOne({ where: { username: body.username } })) {
+          throw new Error('Username already exists.')
+        }
+        if (await User.findOne({ where: { displayName: body.display_name } })) {
+          throw new Error('Display name already exists.')
+        }
+
+        await User.create({
+          username: body.username,
+          email: body.email || null,
+          passwordHash: hashed,
+          passwordChangedAt: new Date(),
+          title: body.title,
+          firstName: body.first_name,
+          middleInitials: body.middle_initials || null,
+          lastName: body.last_name,
+          displayName: body.display_name,
+          designation: body.designation,
+          contactNo: body.contact_no || null,
+          mustResetPassword: true,
+          allowSettingsUpdate: false,
+          isActive: true,
+        })
+
+        created.push(body.username)
+      } catch (e) {
+        if (e instanceof z.ZodError) {
+          errors.push({ row: i + 1, message: e.errors.map(err => err.message).join('; ') })
+        } else {
+          errors.push({ row: i + 1, message: e instanceof Error ? e.message : 'Failed to create user.' })
+        }
+      }
+    }
+
+    res.json(successResponse('Bulk upload processed.', { created_count: created.length, created, errors }))
   } catch (err) {
     next(err)
   }

@@ -11,8 +11,9 @@ import { setAuth } from '../../store/authSlice'
 import { setPrivileges } from '../../store/privilegesSlice'
 import { authApi } from '../../api/auth'
 import { ApiError, apiGet, apiPost } from '../../api/client'
-import { isSuperAdmin, resolveGrants } from '../../utils/privileges'
+import { isSuperAdmin, isAdminPrivilegedRole, resolveGrants } from '../../utils/privileges'
 import { queryClient } from '../../queryClient'
+import { getPostLoginPath } from '../../utils/postLoginRedirect'
 
 const schema = z.object({
   username: z.string().min(1, 'Username is required'),
@@ -59,9 +60,9 @@ export default function LoginPage() {
         keys: resolveGrants(me),
         isQA: isSuperAdmin(me),
         deptPrivileges: me.privileges ?? [],
-        isSuperAdmin: me.role_code === 'SUPER_ADMIN',
+        isSuperAdmin: isAdminPrivilegedRole(me.role_code),
       }))
-      navigate('/', { replace: true })
+      navigate(getPostLoginPath(me), { replace: true })
     } catch (err) {
       setServerError(err instanceof ApiError ? err.detail : 'An unexpected error occurred.')
     }
@@ -99,7 +100,7 @@ export default function LoginPage() {
               <input
                 {...register('username')}
                 type="text"
-                autoComplete="username"
+                autoComplete="off"
                 autoFocus
                 disabled={isSubmitting}
                 placeholder="Enter your username"
@@ -117,7 +118,7 @@ export default function LoginPage() {
                 <input
                   {...register('password')}
                   type={showPw ? 'text' : 'password'}
-                  autoComplete="current-password"
+                  autoComplete="off"
                   disabled={isSubmitting}
                   placeholder="Enter your password"
                   className="w-full px-4 py-3 pr-11 rounded-xl text-sm text-slate-800 placeholder-slate-400 bg-white border border-gray-300 focus:border-violet-400 focus:ring-2 focus:ring-violet-400/20 outline-none transition-all disabled:opacity-50"

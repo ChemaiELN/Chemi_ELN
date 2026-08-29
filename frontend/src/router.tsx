@@ -180,7 +180,7 @@ function AdcUnrestrictedRoute({ children }: { children: React.ReactNode }) {
 // Administration is only for QA/QC department users or SUPER_ADMIN — mirrors
 // the backend gate in app/shared/privileges.py. Blocking direct URL navigation
 // here is defense-in-depth; every admin API call is also gated.
-const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC']
+const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC', 'IT']
 const ADMIN_ALLOWED_ROLES = ['SUPER_ADMIN', 'ADMIN', 'HOD', 'QA']
 
 function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -195,8 +195,8 @@ function AdminProtectedRoute({ children }: { children: React.ReactNode }) {
   if (!initialized) return null
   // /me resolved but failed (expired token etc.) → login.
   if (!user) return <Navigate to="/login" replace />
-  const isSuperAdminRole = user.role_code === 'SUPER_ADMIN'
-  const isAllowedRole = ADMIN_ALLOWED_ROLES.includes(user.role_code ?? '')
+  const isSuperAdminRole = user.role_code === 'SUPER_ADMIN' || user.role_code === 'DQA'
+  const isAllowedRole = ADMIN_ALLOWED_ROLES.includes(user.role_code ?? '') || user.role_code === 'DQA'
   const isAllowedDept = ADMIN_MODULE_DEPARTMENT_CODES.includes(user.department_code ?? '')
   if (!isSuperAdminRole && !isAllowedRole && !isAllowedDept) {
     return <Navigate to="/" replace />

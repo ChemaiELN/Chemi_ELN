@@ -51,6 +51,7 @@ const SettingsSchema = z.object({
   smtp_username: z.string().optional().nullable(),
   smtp_password: z.string().optional().nullable(),
   enable_email_notifications: z.boolean().optional(),
+  enable_security_questions: z.boolean().optional(),
 })
 
 // PATCH /api/admin/settings
@@ -77,6 +78,7 @@ router.patch('/settings', authenticate, requirePrivilege('admin.settings'), asyn
       ...(body.smtp_username !== undefined && { smtpUsername: body.smtp_username }),
       ...(body.smtp_password !== undefined && { smtpPassword: body.smtp_password }),
       ...(body.enable_email_notifications !== undefined && { enableEmailNotifications: body.enable_email_notifications }),
+      ...(body.enable_security_questions !== undefined && { enableSecurityQuestions: body.enable_security_questions }),
     })
     await logAdminAudit({
       req, eventType: 'UPDATE', entityType: 'SETTINGS', entityId: settings.id, entityRef: 'Global Settings',
@@ -91,7 +93,7 @@ router.patch('/settings', authenticate, requirePrivilege('admin.settings'), asyn
 // ── ID Sequences ─────────────────────────────────────────────────────────────
 
 // GET /api/admin/id-sequences
-router.get('/id-sequences', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/id-sequences', authenticate, requirePrivilege('admin.settings'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const configs = await IdSequenceConfig.findAll({ order: [['createdAt', 'DESC']] })
     res.json(successResponse('ID sequence configurations retrieved successfully.', configs))
@@ -113,7 +115,7 @@ const IdSeqSchema = z.object({
 })
 
 // POST /api/admin/id-sequences
-router.post('/id-sequences', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.post('/id-sequences', authenticate, requirePrivilege('admin.settings'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const body = IdSeqSchema.parse(req.body)
     const config = await IdSequenceConfig.create({
@@ -139,7 +141,7 @@ router.post('/id-sequences', authenticate, async (req: Request, res: Response, n
 })
 
 // PATCH /api/admin/id-sequences/:config_id
-router.patch('/id-sequences/:configId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.patch('/id-sequences/:configId', authenticate, requirePrivilege('admin.settings'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const config = await IdSequenceConfig.findByPk(req.params.configId as string)
     if (!config) throw new NotFoundError('ID sequence configuration')
@@ -166,7 +168,7 @@ router.patch('/id-sequences/:configId', authenticate, async (req: Request, res: 
 })
 
 // DELETE /api/admin/id-sequences/:config_id
-router.delete('/id-sequences/:configId', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.delete('/id-sequences/:configId', authenticate, requirePrivilege('admin.settings'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const config = await IdSequenceConfig.findByPk(req.params.configId as string)
     if (!config) throw new NotFoundError('ID sequence configuration')

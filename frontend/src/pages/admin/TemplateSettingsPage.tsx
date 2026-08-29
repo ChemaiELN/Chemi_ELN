@@ -1,11 +1,11 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { Tabs, Checkbox, Button, message, Table, Input, Modal, Form, Space, Tooltip, Switch } from 'antd'
+import {  Tabs, Checkbox, Button, message, Table, Input,  Form, Space, Tooltip, Switch } from 'antd'
+import { AdminModal } from '../../components/ui/AdminModal'
 import type { ColumnsType } from 'antd/es/table'
 import { LayoutTemplate, Plus, Pencil, Trash2 } from 'lucide-react'
 import { templateSettingsApi, type CgtProcess, type TemplateWithEnabled } from '../../api/templateSettings'
 import { ApiError } from '../../api/client'
-import { glassModalProps } from '../../utils/modalStyles'
 
 // ── ADC tab ─────────────────────────────────────────────────────────────────
 function AdcTemplateSettings() {
@@ -200,7 +200,7 @@ function CgtTemplateSettings() {
         </div>
       )}
 
-      <Modal
+      <AdminModal
         title={editTarget ? 'Edit Process' : 'Add Process'}
         open={processModal}
         onCancel={() => { setProcessModal(false); setEditTarget(null); form.resetFields() }}
@@ -209,8 +209,7 @@ function CgtTemplateSettings() {
         confirmLoading={createProcess.isPending || updateProcess.isPending}
         centered
         destroyOnHidden
-        {...glassModalProps}
-      >
+        >
         <Form
           form={form}
           layout="vertical"
@@ -224,7 +223,7 @@ function CgtTemplateSettings() {
             <Input placeholder="e.g. Molecular Biology" />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
     </div>
   )
 }

@@ -1,8 +1,8 @@
 import { useState } from 'react'
-import { Modal, Tooltip, Button } from 'antd'
+import {   Tooltip, Button } from 'antd'
+import { AdminModal } from '../../../components/ui/AdminModal'
 import { Plus, Trash2 } from 'lucide-react'
 import { useQueryClient } from '@tanstack/react-query'
-import { glassModalProps } from '../../../utils/modalStyles'
 import FieldPreview from './FieldPreview'
 import { applyAutoFill, resolveMappingAutoFills } from './useInventoryOptions'
 import { INVENTORY_SOURCES, type InventorySourceKey } from './inventorySources'
@@ -427,15 +427,14 @@ export default function PreviewModal({ open, onClose, definition, title }: {
   title: string
 }) {
   return (
-    <Modal
+    <AdminModal
       title={`Preview — ${title}`}
       open={open}
       onCancel={onClose}
       footer={null}
       centered
       destroyOnHidden
-      {...glassModalProps}
-      width={1100}
+            width={1100}
     >
       <div className="max-h-[72vh] overflow-y-auto space-y-5 pr-1 -mr-1">
         {definition.sections.length === 0 && (
@@ -459,6 +458,6 @@ export default function PreviewModal({ open, onClose, definition, title }: {
           )
         ))}
       </div>
-    </Modal>
+    </AdminModal>
   )
 }

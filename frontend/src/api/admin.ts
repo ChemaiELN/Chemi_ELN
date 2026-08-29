@@ -249,6 +249,14 @@ export const adminApi = {
   resetToDefaultPassword: (id: string) => apiPost<void>(`/api/users/${id}/reset-to-default`),
   unlockUser: (id: string) => apiPost<void>(`/api/users/${id}/unlock`),
   deactivateUser: (id: string) => apiDelete(`/api/users/${id}`),
+  bulkUploadUsers: (file: File) => {
+    const fd = new FormData()
+    fd.set('file', file)
+    return apiUpload<{ created_count: number; created: string[]; errors: { row: number; message: string }[] }>(
+      '/api/users/bulk-upload',
+      fd,
+    )
+  },
 
 }
 

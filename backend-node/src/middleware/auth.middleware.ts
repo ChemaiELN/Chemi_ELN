@@ -40,6 +40,9 @@ export async function authenticate(req: Request, _res: Response, next: NextFunct
       throw new UnauthorizedError('Session has been invalidated. Please log in again.')
     }
 
+    // Department assignment is enforced at login/refresh — not here — so existing
+    // in-flight sessions for edge-case accounts are not cut off mid-request.
+
     req.user = user
     next()
   } catch (err) {

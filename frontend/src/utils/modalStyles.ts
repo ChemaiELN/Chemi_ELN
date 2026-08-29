@@ -2,9 +2,9 @@ import type { ModalProps } from 'antd'
 
 export const glassModalStyles = {
   mask: {
-    backdropFilter: 'blur(6px)',
-    WebkitBackdropFilter: 'blur(6px)',
-    background: 'rgba(109, 40, 217, 0.10)',
+    backdropFilter: 'blur(2px)',
+    WebkitBackdropFilter: 'blur(2px)',
+    background: 'rgba(15, 23, 42, 0.18)',
   },
   content: {
     background: '#FEFEFA',
@@ -18,25 +18,24 @@ export const glassModalStyles = {
   },
   header: {
     background: 'transparent',
-    // borderBottom: '1px solid rgba(196,181,253,0.35)',
     padding: '16px 24px 0px',
     margin: 0,
+    cursor: 'move',
   },
   body: {
     background: 'transparent',
     padding: '14px 22px 8px',
   },
   footer: {
-    // background: 'rgba(245,243,255,0.6)',
-    // borderTop: '1px solid rgba(196,181,253,0.3)',
     padding: '12px 22px 16px',
     margin: 0,
   },
 }
 
-export const glassModalProps: Pick<ModalProps, 'styles' | 'width'> = {
+export const glassModalProps: Pick<ModalProps, 'styles' | 'width' | 'maskClosable'> = {
   styles: glassModalStyles,
   width: 780,
+  maskClosable: false,
 }
 
 export function useModalStyles(): ModalProps['styles'] {

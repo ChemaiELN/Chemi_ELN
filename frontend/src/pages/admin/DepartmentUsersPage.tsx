@@ -1,9 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  Table, Button, Modal, Form, Input, Select, Checkbox,
-  Tooltip, message, Dropdown,
+import { 
+  Table, Button, Form, Input, Select, Checkbox,
+  Tooltip, message, Dropdown, Modal,
 } from 'antd'
+import { AdminModal } from '../../components/ui/AdminModal'
 import type { MenuProps } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { withEmptyValue } from '../../components/ui/EmptyValue'
@@ -11,7 +12,7 @@ import type { ColumnsType } from 'antd/es/table'
 import { UserPlus, Pencil, Trash2, Search, MoreVertical } from 'lucide-react'
 import { adminApi, type UserOut } from '../../api/admin'
 import { ApiError } from '../../api/client'
-import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
+import { glassModalStyles } from '../../utils/modalStyles'
 import { useServerTable } from '../../hooks/useServerTable'
 
 export default function DepartmentUsersPage() {
@@ -246,7 +247,7 @@ export default function DepartmentUsersPage() {
       </div>
 
       {/* Add */}
-      <Modal
+      <AdminModal
         open={addOpen}
         closable={false}
         title="Add User to Department"
@@ -257,8 +258,7 @@ export default function DepartmentUsersPage() {
         width={520}
         centered
         destroyOnHidden
-        {...glassModalProps}
-      >
+        >
         <Form form={addForm} layout="vertical" onFinish={(v) => onAdd.mutate(v)}>
           <Form.Item label="Department Name">
             <Input value={depts.find((d) => d.id === deptId)?.name ?? ''} disabled />
@@ -307,10 +307,10 @@ export default function DepartmentUsersPage() {
             </Checkbox.Group>
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
 
       {/* Edit */}
-      <Modal
+      <AdminModal
         open={editTarget !== null}
         closable={false}
         title={`Edit — ${editTarget?.display_name || editTarget?.username}`}
@@ -321,8 +321,7 @@ export default function DepartmentUsersPage() {
         width={440}
         centered
         destroyOnHidden
-        {...glassModalProps}
-      >
+        >
         <Form
           form={editForm}
           layout="vertical"
@@ -355,7 +354,7 @@ export default function DepartmentUsersPage() {
             />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
     </div>
   )
 }

@@ -1,18 +1,19 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { Modal, Dropdown, Badge, Tooltip } from 'antd'
+import { Dropdown, Badge, Tooltip } from 'antd'
+import { isAdminPrivilegedRole } from '../../utils/privileges'
+import { AdminModal } from '../ui/AdminModal'
 import { Menu as MenuIcon, ChevronRight, ChevronDown, LogOut, LayoutGrid, ShieldCheck, Package2, Atom, Dna, FlaskConical, Bell } from 'lucide-react'
 import { useAppDispatch, useAppSelector } from '../../store'
 import { clearAuth, selectUser, selectLoginTime } from '../../store/authSlice'
 import { clearPrivileges } from '../../store/privilegesSlice'
 import { authApi } from '../../api/auth'
 import { ardOpsApi } from '../../api/ard'
-import { glassModalProps } from '../../utils/modalStyles'
 import { queryClient } from '../../queryClient'
 
 // Mirrors the gate in AdminProtectedRoute — QA/QC department users OR SUPER_ADMIN.
-const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC']
+const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC', 'IT']
 // ADC and CGT are each scoped to their own department — a user only ever
 // works in one, so the module switcher shouldn't advertise the other.
 // QA is included for ADC because QA department users are the ones who create
@@ -62,7 +63,7 @@ export default function Header({ onToggle, isMobile = false, breadcrumbs = [] }:
   }
 
   const initials = user?.username?.slice(0, 2).toUpperCase() ?? 'U'
-  const isSuperAdmin = user?.role_code === 'SUPER_ADMIN'
+  const isSuperAdmin = isAdminPrivilegedRole(user?.role_code)
   const canSeeAdmin = isSuperAdmin || ADMIN_MODULE_DEPARTMENT_CODES.includes(user?.department_code ?? '')
   const canSeeAdc   = isSuperAdmin || ADC_MODULE_DEPARTMENT_CODES.includes(user?.department_code ?? '')
   const canSeeCgt   = isSuperAdmin || CGT_MODULE_DEPARTMENT_CODES.includes(user?.department_code ?? '')
@@ -227,7 +228,7 @@ export default function Header({ onToggle, isMobile = false, breadcrumbs = [] }:
       {/* Floating profile pill — commented out in favour of the inline logout above.
       <UserProfileMenu /> */}
 
-      <Modal
+      <AdminModal
         title="Sign out"
         open={confirmOpen}
         onOk={handleLogout}
@@ -237,10 +238,9 @@ export default function Header({ onToggle, isMobile = false, breadcrumbs = [] }:
         okButtonProps={{ danger: true }}
         centered
         closable={false}
-        {...glassModalProps}
       >
         <p className="text-sm text-slate-600">Are you sure you want to sign out?</p>
-      </Modal>
+      </AdminModal>
     </header>
   )
 }

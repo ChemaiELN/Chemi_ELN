@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useState } from 'react'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import {
-  Table, Button, Modal, Form, Input, Select, Switch, Upload,
+  Table, Button, Form, Input, Select, Switch, Upload,
   Dropdown, message, Grid,
 } from 'antd'
 import type { MenuProps } from 'antd'
@@ -12,7 +12,7 @@ import { UserPlus, Pencil, KeyRound, UserX, UserCheck, Search, UploadCloud, More
 import { adminApi, type UserOut } from '../../api/admin'
 import { ApiError } from '../../api/client'
 import { useAppSelector } from '../../store'
-import { glassModalProps } from '../../utils/modalStyles'
+import { AdminModal } from '../../components/ui/AdminModal'
 import { selectUser } from '../../store/authSlice'
 import { useServerTable } from '../../hooks/useServerTable'
 
@@ -28,6 +28,9 @@ export default function UsersPage() {
   const [createOpen, setCreateOpen] = useState(false)
   const [editTarget, setEditTarget] = useState<UserOut | null>(null)
   const [resetTarget, setResetTarget] = useState<UserOut | null>(null)
+  const [bulkOpen, setBulkOpen] = useState(false)
+  const [bulkFile, setBulkFile] = useState<File | null>(null)
+  const [bulkError, setBulkError] = useState('')
 
   const [createForm] = Form.useForm()
   const [editForm] = Form.useForm()
@@ -71,6 +74,34 @@ export default function UsersPage() {
     onSuccess: () => { setResetTarget(null); resetForm.resetFields(); msg.success('Password reset.') },
     onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Failed.'),
   })
+  const onBulkUpload = useMutation({
+    mutationFn: (file: File) => adminApi.bulkUploadUsers(file),
+    onSuccess: (res) => {
+      inv()
+      setBulkOpen(false)
+      setBulkFile(null)
+      setBulkError('')
+      msg.success(`Created ${res.created_count} user(s).${res.errors.length ? ` ${res.errors.length} row(s) failed.` : ''}`)
+    },
+    onError: (e) => msg.error(e instanceof ApiError ? e.detail : 'Bulk upload failed.'),
+  })
+
+  const handleBulkUpload = () => {
+    setBulkError('')
+    if (!bulkFile) {
+      setBulkError('Select a CSV file to upload.')
+      return
+    }
+    if (!bulkFile.name.toLowerCase().endsWith('.csv')) {
+      setBulkError('Only .csv files are accepted.')
+      return
+    }
+    if (bulkFile.size === 0) {
+      setBulkError('The selected file is empty.')
+      return
+    }
+    onBulkUpload.mutate(bulkFile)
+  }
 
   const openEdit = (u: UserOut) => {
     setEditTarget(u)
@@ -191,6 +222,12 @@ export default function UsersPage() {
         >
           {screens.sm ? 'New User' : 'New'}
         </Button>
+        <Button
+          icon={<UploadCloud size={14} />}
+          onClick={() => { setBulkOpen(true); setBulkFile(null) }}
+        >
+          Bulk Upload
+        </Button>
         <div className="flex items-center gap-2">
           <Switch
             size="small"
@@ -213,7 +250,7 @@ export default function UsersPage() {
       </div>
 
       {/* Create */}
-      <Modal
+      <AdminModal
         open={createOpen}
         closable={false}
         title="New User"
@@ -224,7 +261,6 @@ export default function UsersPage() {
         width={screens.md ? 560 : '95vw'}
         centered
         destroyOnHidden
-        {...glassModalProps}
       >
         <Form form={createForm} layout="vertical" onFinish={(v) => onCreate.mutate(v)}>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4">
@@ -291,10 +327,10 @@ export default function UsersPage() {
             <span className="text-slate-500">Password@123</span>
           </p>
         </Form>
-      </Modal>
+      </AdminModal>
 
       {/* Edit */}
-      <Modal
+      <AdminModal
         open={editTarget !== null}
         closable={false}
         title={`Edit — ${editTarget?.username}`}
@@ -305,7 +341,6 @@ export default function UsersPage() {
         width={screens.md ? 560 : '95vw'}
         centered
         destroyOnHidden
-        {...glassModalProps}
       >
         <Form
           form={editForm}
@@ -358,10 +393,10 @@ export default function UsersPage() {
             <Switch />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
 
       {/* Reset Password */}
-      <Modal
+      <AdminModal
         open={resetTarget !== null}
         closable={false}
         title={`Reset Password — ${resetTarget?.username}`}
@@ -373,7 +408,6 @@ export default function UsersPage() {
         width={screens.md ? 400 : '95vw'}
         centered
         destroyOnHidden
-        {...glassModalProps}
       >
         <Form
           form={resetForm}
@@ -413,7 +447,44 @@ export default function UsersPage() {
             <Input.Password placeholder="Repeat password" />
           </Form.Item>
         </Form>
-      </Modal>
+      </AdminModal>
+
+      <AdminModal
+        open={bulkOpen}
+        closable={false}
+        title="Bulk Upload Users"
+        onCancel={() => { setBulkOpen(false); setBulkFile(null); setBulkError('') }}
+        onOk={handleBulkUpload}
+        okText="Upload"
+        okButtonProps={{ disabled: !bulkFile, loading: onBulkUpload.isPending }}
+      >
+        <p className="text-sm text-slate-600 mb-3">
+          Upload a CSV with columns: username, title, first_name, last_name, display_name, designation (email optional).
+          Users are created without a department — assign via Department Users.
+        </p>
+        <Upload
+          accept=".csv"
+          maxCount={1}
+          beforeUpload={(file) => {
+            setBulkError('')
+            if (!file.name.toLowerCase().endsWith('.csv')) {
+              setBulkError('Only .csv files are accepted.')
+              return Upload.LIST_IGNORE
+            }
+            if (file.size === 0) {
+              setBulkError('The selected file is empty.')
+              return Upload.LIST_IGNORE
+            }
+            setBulkFile(file)
+            return false
+          }}
+          onRemove={() => setBulkFile(null)}
+          fileList={bulkFile ? [{ uid: '-1', name: bulkFile.name, status: 'done' }] : []}
+        >
+          <Button icon={<UploadCloud size={14} />}>Select CSV</Button>
+        </Upload>
+        {bulkError && <p className="text-xs text-red-500 mt-2">{bulkError}</p>}
+      </AdminModal>
     </div>
   )
 }

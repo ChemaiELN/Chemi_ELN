@@ -3,8 +3,9 @@ import { useAppDispatch, useAppSelector } from '../store'
 import { clearAuth, setAuth, setInitialized, selectAuthInitialized, selectAccessToken } from '../store/authSlice'
 import { setPrivileges } from '../store/privilegesSlice'
 import { authApi } from '../api/auth'
-import { isSuperAdmin, resolveGrants } from '../utils/privileges'
+import { isSuperAdmin, isAdminPrivilegedRole, resolveGrants } from '../utils/privileges'
 import { useIdleSession } from '../hooks/useIdleSession'
+import FirstLoginGuard from './auth/FirstLoginGuard'
 
 export default function AuthInitializer({ children }: { children: React.ReactNode }) {
   const dispatch = useAppDispatch()
@@ -27,7 +28,7 @@ export default function AuthInitializer({ children }: { children: React.ReactNod
           keys: resolveGrants(user),
           isQA: isSuperAdmin(user),
           deptPrivileges: user.privileges ?? [],
-          isSuperAdmin: user.role_code === 'SUPER_ADMIN',
+          isSuperAdmin: isAdminPrivilegedRole(user.role_code),
         }))
       })
       .catch(() => {
@@ -44,5 +45,10 @@ export default function AuthInitializer({ children }: { children: React.ReactNod
     )
   }
 
-  return <>{children}</>
+  return (
+    <>
+      <FirstLoginGuard />
+      {children}
+    </>
+  )
 }

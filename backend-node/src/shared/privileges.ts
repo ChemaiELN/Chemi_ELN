@@ -22,15 +22,38 @@ export const PRIVILEGE_CATALOG: Record<string, string> = {
   'ard.manage': 'Manage ARD module',
 }
 
-// QA/QC/AD departments always have access; HOD in QA too (legacy bypass)
-const PRIVILEGED_DEPT_CODES = ['QA', 'QC', 'AD']
+// QA/QC/AD/IT departments always have access; HOD in QA too (legacy bypass)
+const PRIVILEGED_DEPT_CODES = ['QA', 'QC', 'AD', 'IT']
+
+export async function resolveAdminPrivileges(user: User): Promise<string[]> {
+  const role = user.role as Role | undefined || await Role.findByPk(user.roleId || '')
+  if (!role) return []
+
+  if (role.code === 'SUPER_ADMIN' || role.code === 'DQA') {
+    return Object.keys(PRIVILEGE_CATALOG)
+  }
+
+  const dept = user.department as Department | undefined ||
+    (user.departmentId ? await Department.findByPk(user.departmentId) : null)
+
+  if (!dept || !PRIVILEGED_DEPT_CODES.includes(dept.code)) return []
+
+  if (role.code === 'HOD' && dept.code === 'QA') {
+    return Object.keys(PRIVILEGE_CATALOG)
+  }
+
+  const grants = await RolePrivilege.findAll({
+    where: { roleId: user.roleId || '', isGranted: true },
+  })
+  return grants.map(g => g.privilegeKey)
+}
 
 export async function userHasPrivilege(user: User, key: string): Promise<boolean> {
   const role = user.role as Role | undefined || await Role.findByPk(user.roleId || '')
   if (!role) return false
 
-  // Super admin always has all privileges
-  if (role.code === 'SUPER_ADMIN') return true
+  // Super admin and DQA always have all privileges
+  if (role.code === 'SUPER_ADMIN' || role.code === 'DQA') return true
 
   // Must be in privileged department
   const dept = user.department as Department | undefined ||

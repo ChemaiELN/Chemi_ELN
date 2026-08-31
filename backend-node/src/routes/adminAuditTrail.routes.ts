@@ -1,6 +1,7 @@
 import { Router, Request, Response, NextFunction } from 'express'
 import { Op, QueryTypes } from 'sequelize'
 import { authenticate } from '../middleware/auth.middleware'
+import { requirePrivilege } from '../shared/privileges'
 import { AdminAuditTrail } from '../models/AdminAuditTrail.model'
 import { sequelize } from '../database/connection'
 import { listResponse, buildPagination, parsePagination, parseSort, successResponse } from '../utils/response'
@@ -10,7 +11,7 @@ const router = Router()
 // GET /api/admin/audit-trail — paginated with filters. Readable by anyone
 // with Admin access (no dedicated privilege), same as the rest of the
 // Admin area's read-only screens.
-router.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+router.get('/', authenticate, requirePrivilege('users.manage'), async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query, 10)
     const order = parseSort(req.query as Record<string, unknown>, AdminAuditTrail, [['performedAt', 'DESC']])
@@ -49,7 +50,7 @@ router.get('/', authenticate, async (req: Request, res: Response, next: NextFunc
 })
 
 // GET /api/admin/audit-trail/event-types — distinct event types
-router.get('/event-types', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/event-types', authenticate, requirePrivilege('users.manage'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const rows = await sequelize.query<{ event_type: string }>(
       'SELECT DISTINCT event_type FROM admin_audit_trail ORDER BY event_type ASC',
@@ -62,7 +63,7 @@ router.get('/event-types', authenticate, async (_req: Request, res: Response, ne
 })
 
 // GET /api/admin/audit-trail/entity-types — distinct entity types
-router.get('/entity-types', authenticate, async (_req: Request, res: Response, next: NextFunction) => {
+router.get('/entity-types', authenticate, requirePrivilege('users.manage'), async (_req: Request, res: Response, next: NextFunction) => {
   try {
     const rows = await sequelize.query<{ entity_type: string }>(
       'SELECT DISTINCT entity_type FROM admin_audit_trail ORDER BY entity_type ASC',

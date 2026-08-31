@@ -22,14 +22,13 @@ export interface MeResponse {
   department_id: string | null
   is_active: boolean
   must_reset_password: boolean
+  terms_accepted?: boolean
+  has_security_questions?: boolean
+  enable_security_questions?: boolean
+  admin_privileges?: string[]
   dashboard_reference: string | null
   department_name?: string | null
   department_code?: string | null
-  /**
-   * Fine-grained (department, role) operation grants, e.g. 'adc.project.create'.
-   * Drives module UI gating via privilegesSlice / useCan(). Optional so that a
-   * stale cached response can't crash the app.
-   */
   privileges?: string[]
 }
 
@@ -47,4 +46,14 @@ export const authApi = {
   me: () => apiGet<MeResponse>('/api/auth/me'),
   verifyPassword: (password: string) =>
     apiPost<VerifyPasswordResponse>('/api/auth/verify-password', { password }),
+  changePassword: (body: {
+    old_password?: string
+    new_password: string
+    security_answers?: { index: number; answer: string }[]
+  }) => apiPost<TokenResponse>('/api/auth/change-password', body),
+  acceptTerms: () => apiPost<void>('/api/auth/accept-terms', { accepted: true }),
+  securityQuestions: () =>
+    apiGet<{ questions: { index: number; text: string }[] }>('/api/auth/security-questions'),
+  saveSecurityQuestions: (questions: { index: number; answer: string }[]) =>
+    apiPost<void>('/api/auth/me/security-questions', { questions }),
 }

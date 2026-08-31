@@ -1,13 +1,19 @@
+import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { ShieldCheck, Package2, ChevronRight, Atom, FileText, Dna, FlaskConical } from 'lucide-react'
-import { useAppSelector } from '../store'
-import { selectUser } from '../store/authSlice'
+import { ShieldCheck, Package2, ChevronRight, Atom, Dna, FlaskConical, LogOut } from 'lucide-react'
+import { AdminModal } from '../components/ui/AdminModal'
+import { useAppDispatch, useAppSelector } from '../store'
+import { clearAuth, selectUser } from '../store/authSlice'
+import { clearPrivileges } from '../store/privilegesSlice'
+import { authApi } from '../api/auth'
+import { queryClient } from '../queryClient'
 import { useCan } from '../hooks/usePrivilege'
 import { useIsAdcAssignedOnly } from '../hooks/useAdcLanding'
+import { isAdminPrivilegedRole } from '../utils/privileges'
 
 // Administration is visible to QA/QC department users and SUPER_ADMIN — mirrors
 // AdminProtectedRoute and app/shared/privileges.py.
-const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC']
+const ADMIN_MODULE_DEPARTMENT_CODES = ['QA', 'QC', 'IT']
 // CGT and ARD are still department-scoped. ADC has moved to the configurable
 // department-role privilege matrix ('adc.module.access'); these follow once
 // their privilege catalogs are added.
@@ -18,8 +24,10 @@ const ARD_MODULE_DEPARTMENT_CODES = ['AD', 'QA']
 
 export default function ModuleSelectorPage() {
   const navigate = useNavigate()
+  const dispatch = useAppDispatch()
   const user = useAppSelector(selectUser)
-  const isSuperAdmin = user?.role_code === 'SUPER_ADMIN'
+  const [confirmLogout, setConfirmLogout] = useState(false)
+  const isSuperAdmin = isAdminPrivilegedRole(user?.role_code)
   const canSeeAdmin = isSuperAdmin || ADMIN_MODULE_DEPARTMENT_CODES.includes(user?.department_code ?? '')
   const canSeeAdc   = useCan('adc.module.access')
   // Landing follows the dashboard privileges — see useAdcLanding.
@@ -32,6 +40,37 @@ export default function ModuleSelectorPage() {
 
       {/* Background */}
       <div className="fixed inset-0 -z-20" style={{ backgroundColor: '#f4f4f8' }} />
+
+      {/* Top bar with logout */}
+      <header className="relative z-10 flex items-center justify-end gap-3 px-6 py-3">
+        <span className="text-sm text-slate-600">{user?.username}</span>
+        <button
+          type="button"
+          onClick={() => setConfirmLogout(true)}
+          className="inline-flex items-center gap-1.5 text-sm text-slate-600 hover:text-violet-700 transition-colors"
+        >
+          <LogOut size={15} />
+          Sign out
+        </button>
+      </header>
+
+      <AdminModal
+        open={confirmLogout}
+        title="Sign out?"
+        onCancel={() => setConfirmLogout(false)}
+        onOk={async () => {
+          try { await authApi.logout() } catch { /* proceed with local cleanup */ }
+          dispatch(clearAuth())
+          dispatch(clearPrivileges())
+          queryClient.clear()
+          navigate('/login', { replace: true })
+        }}
+        okText="Sign out"
+        cancelText="Cancel"
+        width={400}
+      >
+        <p className="text-sm text-slate-600">Are you sure you want to sign out?</p>
+      </AdminModal>
 
       {/* Main content */}
       <main className="flex-1 flex flex-col items-center justify-center px-4 py-6">

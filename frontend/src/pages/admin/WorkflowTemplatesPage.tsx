@@ -1,8 +1,9 @@
 import { useState, useCallback, type CSSProperties } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import {
-  Tag, Button, Modal, Form, Input, Select, Switch, Popconfirm, Tooltip, message,
+import { 
+  Tag, Button,  Form, Input, Select, Switch, Popconfirm, Tooltip, message,
 } from 'antd'
+import { AdminModal } from '../../components/ui/AdminModal'
 import {
   ChevronRight, ChevronLeft, Settings2, Layers, Hash, FileText,
   FlaskConical, Beaker, TestTube2, Microscope, Package, Waves,
@@ -20,7 +21,6 @@ import {
 import { CSS } from '@dnd-kit/utilities'
 import { workflowTemplateApi } from '../../api/adc'
 import type { WorkflowTemplate } from '../../api/adc'
-import { glassModalProps } from '../../utils/modalStyles'
 
 function moveItem<T>(arr: T[], idx: number, dir: -1 | 1): T[] {
   const next = [...arr]
@@ -172,7 +172,7 @@ function FieldModal({
     : { type: 'text', required: false, columns: [] }
 
   return (
-    <Modal
+    <AdminModal
       title={initial ? 'Edit Field' : 'Add Field'}
       open={open}
       onOk={handleOk}
@@ -181,8 +181,7 @@ function FieldModal({
       width={isTable ? 700 : 560}
       centered
       destroyOnHidden
-      {...glassModalProps}
-    >
+      >
       <Form
         form={form}
         layout="vertical"
@@ -261,7 +260,7 @@ function FieldModal({
           </div>
         )}
       </Form>
-    </Modal>
+    </AdminModal>
   )
 }
 
@@ -348,7 +347,7 @@ function ScreenModal({
     })
   }
   return (
-    <Modal
+    <AdminModal
       title={initial?.key ? 'Edit Screen' : 'Add Screen'}
       open={open}
       onOk={handleOk}
@@ -357,8 +356,7 @@ function ScreenModal({
       width={480}
       centered
       destroyOnHidden
-      {...glassModalProps}
-    >
+      >
       <Form
         form={form}
         layout="vertical"
@@ -390,7 +388,7 @@ function ScreenModal({
           </Form.Item>
         </div>
       </Form>
-    </Modal>
+    </AdminModal>
   )
 }
 
@@ -405,7 +403,7 @@ function SectionModal({
 }) {
   const [form] = Form.useForm()
   return (
-    <Modal
+    <AdminModal
       title={initial?.key ? 'Edit Section' : 'Add Section'}
       open={open}
       onOk={() => form.validateFields().then(v => { onOk(v); form.resetFields() })}
@@ -414,8 +412,7 @@ function SectionModal({
       width={440}
       centered
       destroyOnHidden
-      {...glassModalProps}
-    >
+      >
       <Form
         form={form}
         layout="vertical"
@@ -433,7 +430,7 @@ function SectionModal({
           <Input placeholder="buffer_preparation" className="  text-xs" />
         </Form.Item>
       </Form>
-    </Modal>
+    </AdminModal>
   )
 }
 

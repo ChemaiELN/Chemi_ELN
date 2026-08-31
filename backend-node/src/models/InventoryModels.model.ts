@@ -528,6 +528,7 @@ export class InvEquipmentCatalogue extends Model<InferAttributes<InvEquipmentCat
   declare isActive: CreationOptional<boolean>
   declare departmentId: string | null
   declare storageLocationId: number | null
+  declare attachedFilePath: string | null
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 }
@@ -555,6 +556,7 @@ InvEquipmentCatalogue.init({
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: 'is_active' },
   departmentId: { type: DataTypes.UUID, allowNull: true, field: 'department_id' },
   storageLocationId: { type: DataTypes.INTEGER, allowNull: true, field: 'storage_location_id' },
+  attachedFilePath: { type: DataTypes.STRING(500), allowNull: true, field: 'attached_file_path' },
   createdAt: { type: DataTypes.DATE, allowNull: false, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, allowNull: false, field: 'updated_at' },
 }, { sequelize, tableName: 'inv_equipment_catalogue', timestamps: false })
@@ -591,6 +593,9 @@ export class InvInstrumentCatalogue extends Model<InferAttributes<InvInstrumentC
   declare isActive: CreationOptional<boolean>
   declare departmentId: string | null
   declare storageLocationId: number | null
+  declare allowParallelUse: CreationOptional<boolean>
+  declare hasColumn: CreationOptional<boolean>
+  declare attachedFilePath: string | null
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 }
@@ -625,6 +630,9 @@ InvInstrumentCatalogue.init({
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: 'is_active' },
   departmentId: { type: DataTypes.UUID, allowNull: true, field: 'department_id' },
   storageLocationId: { type: DataTypes.INTEGER, allowNull: true, field: 'storage_location_id' },
+  allowParallelUse: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'allow_parallel_use' },
+  hasColumn: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false, field: 'has_column' },
+  attachedFilePath: { type: DataTypes.STRING(500), allowNull: true, field: 'attached_file_path' },
   createdAt: { type: DataTypes.DATE, allowNull: false, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, allowNull: false, field: 'updated_at' },
 }, { sequelize, tableName: 'inv_instrument_catalogue', timestamps: false })
@@ -653,6 +661,7 @@ export class InvColumnCatalogue extends Model<InferAttributes<InvColumnCatalogue
   declare status: CreationOptional<string>
   declare isActive: CreationOptional<boolean>
   declare departmentId: string | null
+  declare attachedFilePath: string | null
   declare createdAt: CreationOptional<Date>
   declare updatedAt: CreationOptional<Date>
 }
@@ -679,6 +688,7 @@ InvColumnCatalogue.init({
   status: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'ACTIVE' },
   isActive: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true, field: 'is_active' },
   departmentId: { type: DataTypes.UUID, allowNull: true, field: 'department_id' },
+  attachedFilePath: { type: DataTypes.STRING(500), allowNull: true, field: 'attached_file_path' },
   createdAt: { type: DataTypes.DATE, allowNull: false, field: 'created_at' },
   updatedAt: { type: DataTypes.DATE, allowNull: false, field: 'updated_at' },
 }, { sequelize, tableName: 'inv_column_catalogue', timestamps: false })
@@ -1177,6 +1187,9 @@ export class InvGatePassItem extends Model<InferAttributes<InvGatePassItem>, Inf
   declare returnedQty: CreationOptional<number>
   declare sourceBatchId: number | null
   declare sourcePackId: number | null
+  declare itemType: CreationOptional<string>
+  declare equipmentId: number | null
+  declare instrumentId: number | null
 }
 InvGatePassItem.init({
   id: { type: DataTypes.INTEGER, primaryKey: true, autoIncrement: true },
@@ -1193,6 +1206,9 @@ InvGatePassItem.init({
   returnedQty: { type: DataTypes.DECIMAL(14, 3), allowNull: false, defaultValue: 0, field: 'returned_qty' },
   sourceBatchId: { type: DataTypes.INTEGER, allowNull: true, field: 'source_batch_id' },
   sourcePackId: { type: DataTypes.INTEGER, allowNull: true, field: 'source_pack_id' },
+  itemType: { type: DataTypes.STRING(20), allowNull: false, defaultValue: 'MATERIAL', field: 'item_type' },
+  equipmentId: { type: DataTypes.INTEGER, allowNull: true, field: 'equipment_id' },
+  instrumentId: { type: DataTypes.INTEGER, allowNull: true, field: 'instrument_id' },
 }, { sequelize, tableName: 'inv_gate_pass_items', timestamps: false })
 
 // ── Gate Pass Returns ─────────────────────────────────────────────────────────

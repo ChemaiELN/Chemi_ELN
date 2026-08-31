@@ -83,7 +83,7 @@ function serializeMapping(row: InstanceType<typeof InvManufacturerMapping>) {
 
 mappingsRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, materialId, manufacturerId } = req.query as Record<string, string>
+    const { search, materialId, manufacturerId, catalogueNo, materialName, manufacturerName } = req.query as Record<string, string>
     const { page: pg, limit: lim, offset } = parsePagination(req.query)
 
     const where: any = {}
@@ -93,8 +93,16 @@ mappingsRouter.get('/', authenticate, async (req: Request, res: Response, next: 
       where[Op.or] = [
         { catalogueNo: { [Op.iLike]: `%${search}%` } },
         { technicalGrade: { [Op.iLike]: `%${search}%` } },
+        { '$material.name$': { [Op.iLike]: `%${search}%` } },
+        { '$manufacturer.name$': { [Op.iLike]: `%${search}%` } },
       ]
     }
+    // Per-column search filters (Mappings table)
+    const andConditions: unknown[] = []
+    if (catalogueNo) andConditions.push({ catalogueNo: { [Op.iLike]: `%${catalogueNo}%` } })
+    if (materialName) andConditions.push({ '$material.name$': { [Op.iLike]: `%${materialName}%` } })
+    if (manufacturerName) andConditions.push({ '$manufacturer.name$': { [Op.iLike]: `%${manufacturerName}%` } })
+    if (andConditions.length) where[Op.and as any] = andConditions
 
     const { count, rows } = await InvManufacturerMapping.findAndCountAll({
       where,

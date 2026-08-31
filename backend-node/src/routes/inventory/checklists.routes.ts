@@ -34,7 +34,7 @@ function requireQaDepartment(req: Request) {
 
 checklistRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, checklistType, targetKind, status, activeOnly } = req.query as Record<string, string>
+    const { search, checklistType, targetKind, status, activeOnly, name, version } = req.query as Record<string, string>
     const { page, limit, offset } = parsePagination(req.query)
 
     const where: any = {}
@@ -54,6 +54,9 @@ checklistRouter.get('/', authenticate, async (req: Request, res: Response, next:
     if (targetKind) where.targetKind = targetKind
     if (status) where.status = status
     if (activeOnly === 'true' || activeOnly === '1') where.isActive = true
+    // Per-column search filters (Checklists table)
+    if (name) where.name = { [Op.iLike]: `%${name}%` }
+    if (version) where.version = { [Op.iLike]: `%${version}%` }
 
     const { count, rows } = await InvChecklist.findAndCountAll({
       where,

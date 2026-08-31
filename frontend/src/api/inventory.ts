@@ -59,8 +59,8 @@ export interface MaintenanceCalibrationDue { type: 'Maintenance' | 'Calibration'
 export interface EquipmentStatusBreakdown { equipment: { status: string; count: number }[]; instruments: { status: string; count: number }[] }
 export interface ExpiryTimelinePoint { month: string; count: number; qty: number }
 export interface ExpiringBatch { id: number; batch_no: string; inhouse_batch_no: string | null; material_id: number; qty_available: number; unit: string; expiry_date: string }
-export interface EquipmentCatalogue { id: number; asset_id: string; equipment_type_id: number | null; name: string; make: string | null; model: string | null; serial_no: string | null; location: string | null; usage_type: string | null; movable: boolean; gross_capacity: number | null; capacity_unit: string | null; description: string | null; maintenance_status: string; status: string; effective_status: string | null; last_maintenance_date: string | null; next_maintenance_date: string | null; maintenance_type: string | null; maintenance_frequency_value: number | null; maintenance_frequency_unit: string | null; is_active: boolean; department_id: string | null; storage_location_id: number | null; storage_location?: { id: number; name: string } | null; created_at: string; updated_at: string }
-export interface InstrumentCatalogue { id: number; asset_id: string; instrument_type_id: number | null; name: string; make: string | null; model: string | null; serial_no: string | null; location: string | null; usage_type: string | null; movable: boolean; gross_capacity: number | null; capacity_unit: string | null; lower_operating_range: number | null; lower_uom: string | null; upper_operating_range: number | null; upper_uom: string | null; required_calibration: boolean; description: string | null; calibration_status: string; status: string; effective_status: string | null; last_calibration_date: string | null; next_calibration_date: string | null; calibration_type: string | null; calibration_frequency_value: number | null; calibration_frequency_unit: string | null; last_maintenance_date: string | null; next_maintenance_date: string | null; is_active: boolean; department_id: string | null; storage_location_id: number | null; storage_location?: { id: number; name: string } | null; created_at: string; updated_at: string }
+export interface EquipmentCatalogue { id: number; asset_id: string; equipment_type_id: number | null; name: string; make: string | null; model: string | null; serial_no: string | null; location: string | null; usage_type: string | null; movable: boolean; gross_capacity: number | null; capacity_unit: string | null; description: string | null; maintenance_status: string; status: string; effective_status: string | null; last_maintenance_date: string | null; next_maintenance_date: string | null; maintenance_type: string | null; maintenance_frequency_value: number | null; maintenance_frequency_unit: string | null; is_active: boolean; department_id: string | null; storage_location_id: number | null; storage_location?: { id: number; name: string } | null; attached_file_path: string | null; created_at: string; updated_at: string }
+export interface InstrumentCatalogue { id: number; asset_id: string; instrument_type_id: number | null; name: string; make: string | null; model: string | null; serial_no: string | null; location: string | null; usage_type: string | null; movable: boolean; gross_capacity: number | null; capacity_unit: string | null; lower_operating_range: number | null; lower_uom: string | null; upper_operating_range: number | null; upper_uom: string | null; required_calibration: boolean; description: string | null; calibration_status: string; status: string; effective_status: string | null; last_calibration_date: string | null; next_calibration_date: string | null; calibration_type: string | null; calibration_frequency_value: number | null; calibration_frequency_unit: string | null; last_maintenance_date: string | null; next_maintenance_date: string | null; is_active: boolean; department_id: string | null; storage_location_id: number | null; storage_location?: { id: number; name: string } | null; allow_parallel_use: boolean; has_column: boolean; attached_file_path: string | null; created_at: string; updated_at: string }
 export interface ColumnCatalogue {
   id: number; column_id: string; column_type_id: number | null; name: string; manufacturer: string | null
   length_value: number | null; length_unit: string | null
@@ -70,7 +70,7 @@ export interface ColumnCatalogue {
   film_thickness_value: number | null; film_thickness_unit: string | null
   outer_diameter_value: number | null; outer_diameter_unit: string | null
   max_injections: number; cumulative_injections: number; injections_remaining: number
-  status: string; is_active: boolean; department_id: string | null; created_at: string; updated_at: string
+  status: string; is_active: boolean; department_id: string | null; attached_file_path: string | null; created_at: string; updated_at: string
 }
 export interface EquipType { id: number; code: string; name: string; description: string | null; is_active: boolean; created_at: string; message?: string | null }
 export interface ColumnType { id: number; code: string; name: string; description: string | null; length_mm: number | null; particle_size_um: number | null; pore_size_angstrom: number | null; is_active: boolean; created_at: string; message?: string | null }
@@ -131,6 +131,7 @@ export interface GatePassItem {
   material_name: string; description: string | null; quantity: number; uom: string | null
   rate: number | null; total_value: number; returned_qty: number
   source_batch_id: number | null; source_pack_id: number | null
+  item_type: 'MATERIAL' | 'EQUIPMENT' | 'INSTRUMENT'; equipment_id: number | null; instrument_id: number | null
 }
 export interface GatePassReturn {
   id: number; return_gp_number: string; return_date: string; item_sr_no: number
@@ -440,6 +441,12 @@ export const equipmentCatalogueApi = {
     const fd = new FormData(); fd.append('file', file)
     return apiUpload<EquipmentUploadResult>('/api/inventory/equipment/upload', fd)
   },
+  uploadAttachment: (id: number, file: File) => {
+    const fd = new FormData(); fd.append('file', file)
+    return apiUpload<EquipmentCatalogue>(`/api/inventory/equipment/${id}/attachment`, fd)
+  },
+  downloadAttachment: (id: number) => apiDownloadBlob(`/api/inventory/equipment/${id}/attachment`),
+  deleteAttachment: (id: number) => apiDelete<EquipmentCatalogue>(`/api/inventory/equipment/${id}/attachment`),
 }
 
 export const instrumentCatalogueApi = {
@@ -457,6 +464,12 @@ export const instrumentCatalogueApi = {
     const fd = new FormData(); fd.append('file', file)
     return apiUpload<InstrumentUploadResult>('/api/inventory/instruments/upload', fd)
   },
+  uploadAttachment: (id: number, file: File) => {
+    const fd = new FormData(); fd.append('file', file)
+    return apiUpload<InstrumentCatalogue>(`/api/inventory/instruments/${id}/attachment`, fd)
+  },
+  downloadAttachment: (id: number) => apiDownloadBlob(`/api/inventory/instruments/${id}/attachment`),
+  deleteAttachment: (id: number) => apiDelete<InstrumentCatalogue>(`/api/inventory/instruments/${id}/attachment`),
 }
 
 export const columnCatalogueApi = {
@@ -469,6 +482,12 @@ export const columnCatalogueApi = {
   create: (body: unknown) => apiPost<ColumnCatalogue>('/api/inventory/columns', body),
   update: (id: number, body: unknown) => apiPatch<ColumnCatalogue>(`/api/inventory/columns/${id}`, body),
   deactivate: (id: number) => apiDelete<ColumnCatalogue>(`/api/inventory/columns/${id}/deactivate`),
+  uploadAttachment: (id: number, file: File) => {
+    const fd = new FormData(); fd.append('file', file)
+    return apiUpload<ColumnCatalogue>(`/api/inventory/columns/${id}/attachment`, fd)
+  },
+  downloadAttachment: (id: number) => apiDownloadBlob(`/api/inventory/columns/${id}/attachment`),
+  deleteAttachment: (id: number) => apiDelete<ColumnCatalogue>(`/api/inventory/columns/${id}/attachment`),
 }
 
 export const equipmentTypeApi = {

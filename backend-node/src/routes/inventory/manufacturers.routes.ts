@@ -39,7 +39,7 @@ const qualificationUploader = createUploader('inv-manufacturer-docs')
 
 manufacturersRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, activeOnly } = req.query as Record<string, string>
+    const { search, activeOnly, code, name, country, contactPerson, email, phone } = req.query as Record<string, string>
     const { page: pg, limit: lim, offset } = parsePagination(req.query)
 
     const where: any = {}
@@ -54,6 +54,13 @@ manufacturersRouter.get('/', authenticate, async (req: Request, res: Response, n
         { phone: { [Op.iLike]: `%${search}%` } },
       ]
     }
+    // Per-column search filters (Manufacturers table)
+    if (code) where.code = { [Op.iLike]: `%${code}%` }
+    if (name) where.name = { [Op.iLike]: `%${name}%` }
+    if (country) where.country = { [Op.iLike]: `%${country}%` }
+    if (contactPerson) where.contactPerson = { [Op.iLike]: `%${contactPerson}%` }
+    if (email) where.email = { [Op.iLike]: `%${email}%` }
+    if (phone) where.phone = { [Op.iLike]: `%${phone}%` }
 
     const { count, rows } = await InvManufacturer.findAndCountAll({
       where,

@@ -77,14 +77,6 @@
     @apply antialiased;
   }
   #root { min-height: 100dvh; display: flex; flex-direction: column; }
-
-  * {
-    -ms-overflow-style: none;
-    scrollbar-width: none;
-  }
-  *::-webkit-scrollbar {
-    display: none;
-  }
 }
 
 @layer utilities {

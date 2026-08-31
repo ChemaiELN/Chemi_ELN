@@ -17,6 +17,7 @@ import { departmentApi, type Department } from '../../api/adc'
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import NewBatchModal from './NewBatchModal'
 import { useDepartmentFilterLock } from '../../hooks/useDepartmentFilterLock'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 const API_BASE =
   (typeof window !== 'undefined' && (window as { __APP_CONFIG__?: { API_URL?: string } }).__APP_CONFIG__?.API_URL) ||
@@ -140,6 +141,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
   const [allocateForm] = Form.useForm()
   const [requestForm] = Form.useForm()
   const [editForm] = Form.useForm()
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const handleSearchChange = (value: string) => {
     setSearchInput(value)
@@ -156,6 +158,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
       if (statusFilter === 'non_available') params.status_group = 'non_available'
       else if (statusFilter === 'historic') params.status = 'CONSUMED'
+      Object.assign(params, columnFilters)
       await batchApi.exportXlsx(params)
     } catch (e: unknown) { message.error((e as Error).message) }
     finally { setExporting(false) }
@@ -170,14 +173,15 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
       if (statusFilter === 'non_available') params.status_group = 'non_available'
       else if (statusFilter === 'historic') params.status = 'CONSUMED'
+      Object.assign(params, columnFilters)
       const { items, total } = await batchApi.listPaged(params)
       setBatches(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, deptFilter, page, pageSize, sortBy, sortDir, statusFilter])
+  }, [search, deptFilter, page, pageSize, sortBy, sortDir, statusFilter, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search, deptFilter, statusFilter])
+  useEffect(() => { setPage(1) }, [search, deptFilter, statusFilter, columnFilters])
   useEffect(() => () => { if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
   useEffect(() => { departmentApi.list().then(setDepartments).catch(() => setDepartments([])) }, [])
@@ -330,6 +334,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
       ellipsis: true,
       width: 140,
       sorter: true,
+      ...getColumnSearchProps('batch_no', 'MFG Batch No'),
       render: (v) => <span className=" text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -338,6 +343,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
       ellipsis: true,
       width: 160,
       sorter: true,
+      ...getColumnSearchProps('inhouse_batch_no', 'Inhouse Batch'),
       render: (v) => v
         ? <span className=" text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -356,23 +362,23 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
     },
     {
       title: 'Material',
-      key: 'material',
       dataIndex: 'material_name',
       ellipsis: true,
       // Sorted through the joined material association server-side.
       sorter: true,
+      ...getColumnSearchProps('material_name', 'Material'),
       render: (_, r) => (
         <span className="text-[13px] text-slate-800">{r.material_name ?? r.material_id}</span>
       ),
     },
     {
       title: 'Manufacturer',
-      key: 'manufacturer',
       dataIndex: 'manufacturer_name',
       ellipsis: true,
       width: 160,
       // Sorted through the joined manufacturer association server-side.
       sorter: true,
+      ...getColumnSearchProps('manufacturer_name', 'Manufacturer'),
       render: (_: unknown, r: FlatRow) => (
         r.manufacturer_name
           ? <span className="text-[13px] text-slate-800">{r.manufacturer_name}</span>
@@ -399,6 +405,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
       ellipsis: true,
       width: 100,
       sorter: true,
+      ...getColumnSearchProps('bin', 'Bin'),
       render: (v) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -557,7 +564,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
           // page down to a single row. Render pagination manually below
           // instead and let the Table show exactly what the server sent.
           pagination={false}
-          onChange={(_pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(_pagination: TablePaginationConfig, filters, sorter) => {
             const s = sorter as SorterResult<FlatRow>
             if (s.order && typeof s.field === 'string') {
               setSortBy(s.field)
@@ -565,6 +572,7 @@ export default function BatchesPage({ statusFilter }: { statusFilter?: 'non_avai
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
           onRow={r => ({ onClick: () => openDetail(r), style: { cursor: 'pointer' } })}
         />

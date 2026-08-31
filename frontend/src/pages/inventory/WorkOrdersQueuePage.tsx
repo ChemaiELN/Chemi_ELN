@@ -7,6 +7,7 @@ import { Search } from 'lucide-react'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { workOrderApi, type WorkOrder } from '../../api/inventory'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 const STATUS_COLOR: Record<string, string> = {
   RAISED: 'gold', IN_PROGRESS: 'blue', PENDING_VERIFICATION: 'orange', PENDING_APPROVAL: 'purple', APPROVED: 'green',
@@ -27,6 +28,7 @@ export default function WorkOrdersQueuePage() {
   const [total, setTotal] = useState(0)
   const [sortBy, setSortBy] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -35,14 +37,15 @@ export default function WorkOrdersQueuePage() {
       if (kind) params.kind = kind
       if (search) params.search = search
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await workOrderApi.listPaged(params)
       setRows(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [kind, search, page, pageSize, sortBy, sortDir])
+  }, [kind, search, page, pageSize, sortBy, sortDir, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [kind, search])
+  useEffect(() => { setPage(1) }, [kind, search, columnFilters])
 
   const columns: ColumnsType<WorkOrder> = [
     {
@@ -51,6 +54,7 @@ export default function WorkOrdersQueuePage() {
       ellipsis: true,
       width: 150,
       sorter: true,
+      ...getColumnSearchProps('workorder_no', 'Workorder No'),
       render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/work-orders/${r.id}`)}>{v}</a>,
     },
     {
@@ -89,6 +93,7 @@ export default function WorkOrdersQueuePage() {
       ellipsis: true,
       width: 150,
       sorter: true,
+      ...getColumnSearchProps('raised_by', 'Raised By'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -126,7 +131,7 @@ export default function WorkOrdersQueuePage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} work orders`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<WorkOrder>
@@ -136,6 +141,7 @@ export default function WorkOrdersQueuePage() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>

@@ -63,7 +63,7 @@ async function attachUsageLogCodes(rows: InstanceType<typeof InvUsageLog>[]) {
 usageLogRouter.get('/usage-logs', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { targetKind, equipmentId, instrumentId, columnId, fromDate, toDate, status, sortBy, sortDir } = req.query as Record<string, string>
+    const { targetKind, equipmentId, instrumentId, columnId, fromDate, toDate, status, sortBy, sortDir, referenceNo, startedBy, endedBy } = req.query as Record<string, string>
 
     if (!targetKind) {
       return res.status(400).json({ success: false, message: 'targetKind is required' })
@@ -84,6 +84,10 @@ usageLogRouter.get('/usage-logs', authenticate, async (req: Request, res: Respon
       if (fromDate) (where.startedAt as any)[Op.gte] = new Date(fromDate)
       if (toDate) (where.startedAt as any)[Op.lte] = new Date(toDate)
     }
+    // Per-column search filters (Usage Logs table)
+    if (referenceNo) where.referenceNo = { [Op.iLike]: `%${referenceNo}%` }
+    if (startedBy) where.startedBy = { [Op.iLike]: `%${startedBy}%` }
+    if (endedBy) where.endedBy = { [Op.iLike]: `%${endedBy}%` }
 
     const sortColumn = SORTABLE_COLUMNS[sortBy] ?? 'startedAt'
     const { count, rows } = await InvUsageLog.findAndCountAll({

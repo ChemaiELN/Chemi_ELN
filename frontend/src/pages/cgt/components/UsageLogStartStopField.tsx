@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { Button, message, Tooltip } from 'antd'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Play, Square } from 'lucide-react'
-import { usageLogApi, type UsageLog, type UsageLogCreateBody } from '../../../api/inventory'
+import { usageLogApi, instrumentCatalogueApi, type UsageLog, type UsageLogCreateBody } from '../../../api/inventory'
 
 // ── Equipment/Instrument Start/Stop advanced element — runtime (CGT + ADC
 // experiment screens) ───────────────────────────────────────────────────────
@@ -61,11 +61,28 @@ export default function UsageLogStartStopField({ value, onChange, disabled, targ
   })
   const activeLog = activeQuery.data?.items[0] as UsageLog | undefined
 
+  // Instruments flagged "Parallel Use" (e.g. multi-slot equipment) support
+  // more than one concurrent session, so another placement's active session
+  // must NOT block Start here — this field then tracks only its own
+  // start/end pair instead of deferring to the live "someone has it" check.
+  const catalogueQuery = useQuery({
+    queryKey: ['instrument-catalogue-parallel-use', catalogueId],
+    queryFn: () => instrumentCatalogueApi.get(catalogueId!),
+    enabled: targetKind === 'INSTRUMENT' && !!catalogueId,
+    staleTime: 60_000,
+  })
+  const allowParallelUse = targetKind === 'INSTRUMENT' && catalogueQuery.data?.allow_parallel_use === true
+
   // A running session found by the live check always wins (it's the true
   // current state, wherever it was started); otherwise fall back to this
-  // field's own locally recorded status.
-  const status: 'RUNNING' | 'ENDED' | undefined = activeLog ? 'RUNNING' : value?.status
-  const usageLogId = activeLog ? String(activeLog.id) : value?.usageLogId
+  // field's own locally recorded status. Parallel-use instruments skip the
+  // live check entirely so a busy instrument stays available for others.
+  const status: 'RUNNING' | 'ENDED' | undefined = allowParallelUse
+    ? value?.status
+    : (activeLog ? 'RUNNING' : value?.status)
+  const usageLogId = allowParallelUse
+    ? value?.usageLogId
+    : (activeLog ? String(activeLog.id) : value?.usageLogId)
 
   async function handleStart() {
     if (!catalogueId) return

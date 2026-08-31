@@ -8,6 +8,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { StatusTag } from '../../components/ui/StatusTag'
 import BrandSpinner from '../../components/ui/BrandSpinner'
 import { useServerTable } from '../../hooks/useServerTable'
+import { useBreadcrumbLabel } from '../../hooks/useBreadcrumbLabel'
 import {
   instrumentCatalogueApi, instrumentTypeApi, auditTrailApi,
   type InstrumentCatalogue, type EquipType, type AuditTrailEntry,
@@ -96,6 +97,7 @@ export default function InstrumentDetailPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { instrumentTypeApi.list().then(setTypes) }, [])
+  useBreadcrumbLabel(item?.asset_id)
 
   if (loading) return <div className="flex items-center justify-center h-64"><BrandSpinner fullScreen={false} label="Loading instrument details…" /></div>
   if (!item) return <div className="p-6"><Empty description="Instrument not found" /></div>
@@ -117,6 +119,8 @@ export default function InstrumentDetailPage() {
       <Field label="Location" value={item.location} />
       <Field label="Movable" value={item.movable ? 'Yes' : 'No'} />
       <Field label="Required Calibration" value={item.required_calibration ? 'Yes' : 'No'} />
+      <Field label="Parallel Use" value={item.allow_parallel_use ? 'Yes' : 'No'} />
+      <Field label="Has Column" value={item.has_column ? 'Yes' : 'No'} />
       <Field label="Gross Capacity" value={item.gross_capacity != null ? `${item.gross_capacity} ${item.capacity_unit ?? ''}`.trim() : null} />
       <Field label="Lower Operating Range" value={range(item.lower_operating_range, item.lower_uom)} />
       <Field label="Upper Operating Range" value={range(item.upper_operating_range, item.upper_uom)} />

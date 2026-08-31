@@ -11,6 +11,8 @@ import {
   InvBatch,
   InvBatchPack,
   InvManufacturer,
+  InvEquipmentCatalogue,
+  InvInstrumentCatalogue,
 } from '../../models/InventoryModels.model'
 import { successResponse, listResponse, buildPagination, parsePagination, wantsPagination } from '../../utils/response'
 import { enforceEsignature, ESIGN_FLAGS } from '../../shared/ardSettings'
@@ -95,6 +97,42 @@ async function restoreGatePassItemStock(item: { quantity: number; sourceBatchId?
 
   const newQty = Number(batch.qtyAvailable) + Number(item.quantity)
   await batch.update({ qtyAvailable: newQty, status: newQty > 0 ? 'PARTIALLY_CONSUMED' : batch.status, updatedAt: new Date() }, { transaction })
+}
+
+// Equipment/Instrument line items have no batch/stock quantity — instead,
+// dispatching the gate pass marks the asset itself unavailable on-site
+// (mirrors deductGatePassItemStock's role for materials). Only flips an
+// AVAILABLE asset — one already UNDER_MAINTENANCE/IN_USE/etc. from some other
+// flow is left alone rather than clobbered.
+async function markGatePassItemAssetOut(item: { itemType?: string | null; equipmentId?: number | null; instrumentId?: number | null }, transaction: any) {
+  if (item.itemType === 'EQUIPMENT' && item.equipmentId) {
+    await InvEquipmentCatalogue.update(
+      { status: 'OUT_FOR_SERVICE' },
+      { where: { id: item.equipmentId, status: 'AVAILABLE' }, transaction },
+    )
+  } else if (item.itemType === 'INSTRUMENT' && item.instrumentId) {
+    await InvInstrumentCatalogue.update(
+      { status: 'OUT_FOR_SERVICE' },
+      { where: { id: item.instrumentId, status: 'AVAILABLE' }, transaction },
+    )
+  }
+}
+
+// Reverses markGatePassItemAssetOut once the item is fully returned (or the
+// whole gate pass is edited before ever being dispatched — see restoreGatePassItemStock's
+// analogous role). Only reverts an asset this gate pass itself put OUT_FOR_SERVICE.
+async function restoreGatePassItemAsset(item: { itemType?: string | null; equipmentId?: number | null; instrumentId?: number | null }, transaction: any) {
+  if (item.itemType === 'EQUIPMENT' && item.equipmentId) {
+    await InvEquipmentCatalogue.update(
+      { status: 'AVAILABLE' },
+      { where: { id: item.equipmentId, status: 'OUT_FOR_SERVICE' }, transaction },
+    )
+  } else if (item.itemType === 'INSTRUMENT' && item.instrumentId) {
+    await InvInstrumentCatalogue.update(
+      { status: 'AVAILABLE' },
+      { where: { id: item.instrumentId, status: 'OUT_FOR_SERVICE' }, transaction },
+    )
+  }
 }
 
 // â”€â”€ Reports (must be defined before :id routes) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -394,6 +432,9 @@ gatePassRouter.post('/gate-passes', authenticate, async (req: Request, res: Resp
             totalValue: item.totalValue ?? (rate != null ? quantity * rate : 0),
             sourceBatchId: item.sourceBatchId ?? null,
             sourcePackId: item.sourcePackId ?? null,
+            itemType: item.itemType ?? 'MATERIAL',
+            equipmentId: item.equipmentId ?? null,
+            instrumentId: item.instrumentId ?? null,
           }, { transaction: t })
           await deductGatePassItemStock(created, t)
         }
@@ -468,6 +509,9 @@ gatePassRouter.put('/gate-passes/:id', authenticate, async (req: Request, res: R
             totalValue: item.totalValue ?? (rate != null ? quantity * rate : 0),
             sourceBatchId: item.sourceBatchId ?? null,
             sourcePackId: item.sourcePackId ?? null,
+            itemType: item.itemType ?? 'MATERIAL',
+            equipmentId: item.equipmentId ?? null,
+            instrumentId: item.instrumentId ?? null,
           }, { transaction: t })
           await deductGatePassItemStock(created, t)
         }
@@ -491,7 +535,7 @@ gatePassRouter.put('/gate-passes/:id', authenticate, async (req: Request, res: R
 gatePassRouter.get('/gate-passes', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { docType, status, search, fromDate, toDate } = req.query as Record<string, string>
+    const { docType, status, search, fromDate, toDate, gpNumber, vendorName } = req.query as Record<string, string>
 
     const where: Record<string, unknown> = {}
     if (docType) where.docType = docType
@@ -504,6 +548,9 @@ gatePassRouter.get('/gate-passes', authenticate, async (req: Request, res: Respo
         { status: { [Op.iLike]: `%${search}%` } },
       ]
     }
+    // Per-column search filters (Gate Pass tables)
+    if (gpNumber) where.gpNumber = { [Op.iLike]: `%${gpNumber}%` }
+    if (vendorName) where.vendorName = { [Op.iLike]: `%${vendorName}%` }
     if (fromDate || toDate) {
       where.gpDate = {}
       if (fromDate) (where.gpDate as any)[Op.gte] = fromDate
@@ -632,6 +679,13 @@ gatePassRouter.post('/gate-passes/:id/dispatch', authenticate, async (req: Reque
       dispatchedBy: req.body.dispatchedBy ?? getPerformedBy(req),
     })
 
+    // Equipment/Instrument line items have no stock to deduct (unlike
+    // materials, handled at create/edit time) — instead the asset's own
+    // status flips to OUT_FOR_SERVICE right here, at the point it actually
+    // leaves the site, not while the pass was still a DRAFT/CREATED/APPROVED.
+    const dispatchedItems = await InvGatePassItem.findAll({ where: { gatePassId: gp.id } })
+    for (const item of dispatchedItems) await markGatePassItemAssetOut(item, undefined)
+
     // Same full-detail shape as GET /gate-passes/:id — a bare gp (no items
     // include, no aggregates) crashed the detail page the same way approve's
     // old { gp, sig } response did.
@@ -728,6 +782,16 @@ gatePassRouter.post('/gate-passes/:id/returns', authenticate, async (req: Reques
     const freshItems = await InvGatePassItem.findAll({ where: { gatePassId } })
     const allFullyReturned = freshItems.every((i) => Number(i.returnedQty ?? 0) >= Number(i.quantity))
     await gp.update({ status: allFullyReturned ? 'CLOSED' : 'PARTIALLY_RETURNED' })
+
+    // An equipment/instrument item is back on-site the moment its own return
+    // entry makes it fully returned — revert it to AVAILABLE right then, not
+    // only once every other line item on the pass also closes out.
+    const returnedSrNos = new Set(validEntries.map((e) => e.itemSrNo))
+    for (const item of freshItems) {
+      if (returnedSrNos.has(item.srNo) && Number(item.returnedQty ?? 0) >= Number(item.quantity)) {
+        await restoreGatePassItemAsset(item, undefined)
+      }
+    }
 
     // The frontend reads `updated.status` off this response (to confirm the
     // gate pass closed) — a bare InvGatePassReturn row has no `status` field,

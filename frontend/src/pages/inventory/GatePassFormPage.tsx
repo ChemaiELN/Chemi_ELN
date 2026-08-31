@@ -7,8 +7,8 @@ import { Plus, Trash2, Save, Send, ArrowLeft } from 'lucide-react'
 import { StatusTag } from '../../components/ui/StatusTag'
 import BrandSpinner from '../../components/ui/BrandSpinner'
 import {
-  gatePassApi, manufacturerApi, materialApi, batchApi,
-  type Manufacturer, type Material, type GatePassDetail, type Batch,
+  gatePassApi, manufacturerApi, materialApi, batchApi, equipmentCatalogueApi, instrumentCatalogueApi,
+  type Manufacturer, type Material, type GatePassDetail, type Batch, type EquipmentCatalogue, type InstrumentCatalogue,
 } from '../../api/inventory'
 
 const UOM_OPTIONS = ['Nos', 'Kg', 'Ltrs', 'Mtrs', 'Gms', 'Set', 'Box', 'Pair', 'Roll'].map(u => ({ value: u, label: u }))
@@ -16,11 +16,25 @@ const DOC_OPTIONS = [
   { value: 'RETURNABLE', label: 'RGP (Returnable Gate Pass)' },
   { value: 'NON_RETURNABLE', label: 'NRGP (Non-Returnable Gate Pass)' },
 ]
+const ITEM_TYPE_OPTIONS = [
+  { value: 'MATERIAL', label: 'Material' },
+  { value: 'EQUIPMENT', label: 'Equipment' },
+  { value: 'INSTRUMENT', label: 'Instrument' },
+]
 const inr = (n: number) => (n || 0).toLocaleString('en-IN')
+
+type ItemType = 'MATERIAL' | 'EQUIPMENT' | 'INSTRUMENT'
 
 interface ItemRow {
   key: number
+  item_type: ItemType
   material_id: number | null
+  equipment_id: number | null
+  instrument_id: number | null
+  // Reused as the generic "code"/"name" display fields regardless of item
+  // type — an Equipment/Instrument row stores its asset code/name in these
+  // same two fields, so the backend's existing material_code/material_name
+  // columns (and every view that reads them) need no changes at all.
   material_code: string | null
   material_name: string
   description: string
@@ -33,7 +47,7 @@ interface ItemRow {
 }
 
 const blankItem = (key: number): ItemRow => ({
-  key, material_id: null, material_code: null, material_name: '',
+  key, item_type: 'MATERIAL', material_id: null, equipment_id: null, instrument_id: null, material_code: null, material_name: '',
   description: '', quantity: null, uom: 'Nos', rate: null,
   source_batch_id: null, source_pack_id: null, available_qty: null,
 })
@@ -62,6 +76,10 @@ export default function GatePassFormPage() {
   const [matSearching, setMatSearching] = useState(false)
   const [packOptions, setPackOptions] = useState<Record<number, Batch[]>>({})
   const [packLoading, setPackLoading] = useState<Record<number, boolean>>({})
+  const [equipOptions, setEquipOptions] = useState<EquipmentCatalogue[]>([])
+  const [equipSearching, setEquipSearching] = useState(false)
+  const [instOptions, setInstOptions] = useState<InstrumentCatalogue[]>([])
+  const [instSearching, setInstSearching] = useState(false)
 
   // Packs (SKUs) with stock left, for the row's currently selected material —
   // picking one auto-fills UOM from the pack's own unit and caps the
@@ -79,6 +97,17 @@ export default function GatePassFormPage() {
   useEffect(() => {
     manufacturerApi.list({ limit: 200 }).then(setVendors).catch(() => {})
     materialApi.list({ limit: 50 }).then(setMatOptions).catch(() => {})
+    equipmentCatalogueApi.list({ active_only: true, limit: 50 }).then(setEquipOptions).catch(() => {})
+    instrumentCatalogueApi.list({ active_only: true, limit: 50 }).then(setInstOptions).catch(() => {})
+  }, [])
+
+  const searchEquipment = useCallback((term: string) => {
+    setEquipSearching(true)
+    equipmentCatalogueApi.list({ search: term, active_only: true, limit: 50 }).then(setEquipOptions).finally(() => setEquipSearching(false))
+  }, [])
+  const searchInstruments = useCallback((term: string) => {
+    setInstSearching(true)
+    instrumentCatalogueApi.list({ search: term, active_only: true, limit: 50 }).then(setInstOptions).finally(() => setInstSearching(false))
   }, [])
 
   useEffect(() => {
@@ -91,7 +120,9 @@ export default function GatePassFormPage() {
       setGpDate(dayjs(gp.gp_date))
       setPrNumber(gp.pr_number ?? ''); setWorkOrder(gp.work_order_no ?? ''); setRemarks(gp.remarks ?? '')
       const rows = gp.items.map((it, i) => ({
-        key: i + 1, material_id: it.material_id, material_code: it.material_code,
+        key: i + 1, item_type: (it.item_type ?? 'MATERIAL') as ItemType,
+        material_id: it.material_id, equipment_id: it.equipment_id ?? null, instrument_id: it.instrument_id ?? null,
+        material_code: it.material_code,
         material_name: it.material_name, description: it.description ?? '',
         quantity: Number(it.quantity), uom: it.uom ?? 'Nos', rate: it.rate != null ? Number(it.rate) : null,
         source_batch_id: it.source_batch_id, source_pack_id: it.source_pack_id, available_qty: null,
@@ -128,7 +159,8 @@ export default function GatePassFormPage() {
     items: items
       .filter(r => r.material_name.trim() || r.quantity)
       .map(r => ({
-        material_id: r.material_id, material_code: r.material_code, material_name: r.material_name.trim(),
+        item_type: r.item_type, material_id: r.material_id, equipment_id: r.equipment_id, instrument_id: r.instrument_id,
+        material_code: r.material_code, material_name: r.material_name.trim(),
         description: r.description || null, quantity: Number(r.quantity) || 0, uom: r.uom, rate: r.rate,
         source_batch_id: r.source_batch_id, source_pack_id: r.source_pack_id,
       })),
@@ -141,8 +173,11 @@ export default function GatePassFormPage() {
     const rows = items.filter(r => r.material_name.trim() || r.quantity)
     if (!rows.length) return 'At least one line item is required.'
     for (let i = 0; i < rows.length; i++) {
-      if (!rows[i].material_name.trim()) return `Item ${i + 1}: material name is required.`
-      if (!rows[i].quantity || Number(rows[i].quantity) <= 0) return `Item ${i + 1}: quantity must be greater than zero.`
+      const r = rows[i]
+      if (r.item_type === 'EQUIPMENT' && !r.equipment_id) return `Item ${i + 1}: please select an equipment.`
+      if (r.item_type === 'INSTRUMENT' && !r.instrument_id) return `Item ${i + 1}: please select an instrument.`
+      if (!r.material_name.trim()) return `Item ${i + 1}: name is required.`
+      if (!r.quantity || Number(r.quantity) <= 0) return `Item ${i + 1}: quantity must be greater than zero.`
     }
     return null
   }
@@ -177,51 +212,104 @@ export default function GatePassFormPage() {
   const cols: ColumnsType<ItemRow> = [
     { title: '#', width: 40, render: (_v, _r, i) => <span className="text-[13px] text-slate-500">{i + 1}</span> },
     {
-      title: 'Material Code', width: 190, render: (_v, r) => (
+      title: 'Type', width: 120, render: (_v, r) => (
         <Select
-          showSearch allowClear placeholder="Select material" style={{ width: '100%' }}
-          value={r.material_id ?? undefined} filterOption={false} onSearch={searchMaterials} loading={matSearching}
-          notFoundContent={matSearching ? <Spin size="small" /> : null}
-          options={matOptions.map(m => ({ value: m.id, label: `${m.code} — ${m.name}` }))}
-          onChange={(val) => {
-            const m = matOptions.find(x => x.id === val)
-            setItem(r.key, m
-              ? { material_id: m.id, material_code: m.code, material_name: m.name, source_batch_id: null, source_pack_id: null, available_qty: null }
-              : { material_id: null, material_code: null, source_batch_id: null, source_pack_id: null, available_qty: null })
-            if (m) loadPacksForRow(r.key, m.id)
-            else setPackOptions(s => ({ ...s, [r.key]: [] }))
-          }}
+          style={{ width: '100%' }} value={r.item_type} options={ITEM_TYPE_OPTIONS}
+          onChange={(val: ItemType) => setItem(r.key, {
+            item_type: val,
+            material_id: null, equipment_id: null, instrument_id: null,
+            material_code: null, material_name: '',
+            source_batch_id: null, source_pack_id: null, available_qty: null,
+            quantity: val === 'MATERIAL' ? r.quantity : 1,
+          })}
         />
       ),
     },
     {
-      title: 'Pack / SKU', width: 190, render: (_v, r) => (
-        <Select
-          allowClear placeholder={r.material_id ? 'Select pack/SKU' : 'Pick material first'} style={{ width: '100%' }}
-          disabled={!r.material_id} loading={packLoading[r.key]}
-          value={r.source_pack_id ?? (r.source_batch_id ? `batch-${r.source_batch_id}` : undefined)}
-          notFoundContent={packLoading[r.key] ? <Spin size="small" /> : 'No stock available'}
-          options={(packOptions[r.key] ?? []).map(b => ({
-            value: b.pack_id ?? `batch-${b.id}`,
-            label: `${b.pack_sku ?? b.batch_no} — ${b.qty_available} ${b.unit} avail.`,
-          }))}
-          onChange={(val) => {
-            if (val === undefined) {
-              setItem(r.key, { source_batch_id: null, source_pack_id: null, available_qty: null })
-              return
-            }
-            const batch = (packOptions[r.key] ?? []).find(b => (b.pack_id ?? `batch-${b.id}`) === val)
-            if (!batch) return
-            setItem(r.key, {
-              source_batch_id: batch.id, source_pack_id: batch.pack_id ?? null,
-              uom: batch.unit, available_qty: Number(batch.qty_available),
-              quantity: r.quantity != null ? Math.min(Number(r.quantity), Number(batch.qty_available)) : r.quantity,
-            })
-          }}
-        />
-      ),
+      title: 'Code', width: 190, render: (_v, r) => {
+        if (r.item_type === 'EQUIPMENT') {
+          return (
+            <Select
+              showSearch allowClear placeholder="Select equipment" style={{ width: '100%' }}
+              value={r.equipment_id ?? undefined} filterOption={false} onSearch={searchEquipment} loading={equipSearching}
+              notFoundContent={equipSearching ? <Spin size="small" /> : null}
+              options={equipOptions.map(eq => ({ value: eq.id, label: `${eq.asset_id} — ${eq.name}` }))}
+              onChange={(val) => {
+                const eq = equipOptions.find(x => x.id === val)
+                setItem(r.key, eq
+                  ? { equipment_id: eq.id, material_code: eq.asset_id, material_name: eq.name }
+                  : { equipment_id: null, material_code: null })
+              }}
+            />
+          )
+        }
+        if (r.item_type === 'INSTRUMENT') {
+          return (
+            <Select
+              showSearch allowClear placeholder="Select instrument" style={{ width: '100%' }}
+              value={r.instrument_id ?? undefined} filterOption={false} onSearch={searchInstruments} loading={instSearching}
+              notFoundContent={instSearching ? <Spin size="small" /> : null}
+              options={instOptions.map(inst => ({ value: inst.id, label: `${inst.asset_id} — ${inst.name}` }))}
+              onChange={(val) => {
+                const inst = instOptions.find(x => x.id === val)
+                setItem(r.key, inst
+                  ? { instrument_id: inst.id, material_code: inst.asset_id, material_name: inst.name }
+                  : { instrument_id: null, material_code: null })
+              }}
+            />
+          )
+        }
+        return (
+          <Select
+            showSearch allowClear placeholder="Select material" style={{ width: '100%' }}
+            value={r.material_id ?? undefined} filterOption={false} onSearch={searchMaterials} loading={matSearching}
+            notFoundContent={matSearching ? <Spin size="small" /> : null}
+            options={matOptions.map(m => ({ value: m.id, label: `${m.code} — ${m.name}` }))}
+            onChange={(val) => {
+              const m = matOptions.find(x => x.id === val)
+              setItem(r.key, m
+                ? { material_id: m.id, material_code: m.code, material_name: m.name, source_batch_id: null, source_pack_id: null, available_qty: null }
+                : { material_id: null, material_code: null, source_batch_id: null, source_pack_id: null, available_qty: null })
+              if (m) loadPacksForRow(r.key, m.id)
+              else setPackOptions(s => ({ ...s, [r.key]: [] }))
+            }}
+          />
+        )
+      },
     },
-    { title: 'Material Name *', width: 180, render: (_v, r) => <Input value={r.material_name} placeholder="Material name" onChange={e => setItem(r.key, { material_name: e.target.value })} /> },
+    {
+      title: 'Pack / SKU', width: 190, render: (_v, r) => {
+        // Equipment/Instrument aren't stocked in batches/packs — nothing to
+        // pick here, unlike Material.
+        if (r.item_type !== 'MATERIAL') return <span className="text-[13px] text-slate-400">—</span>
+        return (
+          <Select
+            allowClear placeholder={r.material_id ? 'Select pack/SKU' : 'Pick material first'} style={{ width: '100%' }}
+            disabled={!r.material_id} loading={packLoading[r.key]}
+            value={r.source_pack_id ?? (r.source_batch_id ? `batch-${r.source_batch_id}` : undefined)}
+            notFoundContent={packLoading[r.key] ? <Spin size="small" /> : 'No stock available'}
+            options={(packOptions[r.key] ?? []).map(b => ({
+              value: b.pack_id ?? `batch-${b.id}`,
+              label: `${b.pack_sku ?? b.batch_no} — ${b.qty_available} ${b.unit} avail.`,
+            }))}
+            onChange={(val) => {
+              if (val === undefined) {
+                setItem(r.key, { source_batch_id: null, source_pack_id: null, available_qty: null })
+                return
+              }
+              const batch = (packOptions[r.key] ?? []).find(b => (b.pack_id ?? `batch-${b.id}`) === val)
+              if (!batch) return
+              setItem(r.key, {
+                source_batch_id: batch.id, source_pack_id: batch.pack_id ?? null,
+                uom: batch.unit, available_qty: Number(batch.qty_available),
+                quantity: r.quantity != null ? Math.min(Number(r.quantity), Number(batch.qty_available)) : r.quantity,
+              })
+            }}
+          />
+        )
+      },
+    },
+    { title: 'Name *', width: 180, render: (_v, r) => <Input value={r.material_name} placeholder="Name" disabled={r.item_type !== 'MATERIAL'} onChange={e => setItem(r.key, { material_name: e.target.value })} /> },
     { title: 'Description', width: 160, render: (_v, r) => <Input value={r.description} placeholder="Description" onChange={e => setItem(r.key, { description: e.target.value })} /> },
     {
       title: 'Qty *', width: 90, render: (_v, r) => (
@@ -289,7 +377,7 @@ export default function GatePassFormPage() {
       {/* Line items */}
       <div className="glass-card rounded-lg overflow-hidden">
         <div className="px-4 py-3 border-b border-slate-100 flex items-center justify-between">
-          <span className="text-[14px] font-semibold text-slate-700">Material Line Items</span>
+          <span className="text-[14px] font-semibold text-slate-700">Line Items</span>
           <Button size="small" type="primary" icon={<Plus size={14} />} onClick={addItem}>Add Item</Button>
         </div>
         <Table dataSource={items} columns={cols} rowKey="key" size="small" pagination={false} scroll={{ x: 'max-content' }} />

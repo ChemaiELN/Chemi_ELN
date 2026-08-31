@@ -198,6 +198,10 @@ export default function NewBatchModal({
       const packNumber = Number(values.pack_number) || 1
       const payload = {
         ...values,
+        // Select mode="tags" (lets the user type a custom storage location
+        // not in the master list) always returns an array — unwrap it back
+        // to the plain string `location` is stored as on inv_batches.
+        location: Array.isArray(values.location) ? (values.location[0] ?? null) : (values.location ?? null),
         // Single vs Multi is derived from Number of Packs (>1 == Multi) —
         // there's no separate mode selector. A Pack Type on its own always
         // produces at least one SKU/Pack ID row: exactly 1 pack, or Number
@@ -329,7 +333,9 @@ export default function NewBatchModal({
           </Form.Item>
           <Form.Item name="location" label="Storage Location">
             <Select
-              placeholder="Select storage location"
+              placeholder="Select or type a storage location"
+              mode="tags"
+              maxCount={1}
               showSearch
               allowClear
               optionFilterProp="label"

@@ -141,7 +141,10 @@ batchesRouter.get('/next-inhouse-no', authenticate, async (req: Request, res: Re
 
 batchesRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { materialId, materialCode, departmentId, status, category, search, statusGroup } = req.query as Record<string, string>
+    const {
+      materialId, materialCode, departmentId, status, category, search, statusGroup,
+      batchNo, inhouseBatchNo, bin, materialName, manufacturerName,
+    } = req.query as Record<string, string>
     // Frontend sends `expand_packs=1` (BatchesPage.tsx) — accept both the raw
     // query key and a couple of truthy encodings.
     const expandPacksRaw = (req.query.expand_packs ?? req.query.expandPacks) as string | undefined
@@ -192,6 +195,12 @@ batchesRouter.get('/', authenticate, async (req: Request, res: Response, next: N
         ],
       })
     }
+    // Per-column search filters (Batches / Non-Available / Historic Batches tables)
+    if (batchNo) andConditions.push({ batchNo: { [Op.iLike]: `%${batchNo}%` } })
+    if (inhouseBatchNo) andConditions.push({ inhouseBatchNo: { [Op.iLike]: `%${inhouseBatchNo}%` } })
+    if (bin) andConditions.push({ bin: { [Op.iLike]: `%${bin}%` } })
+    if (materialName) andConditions.push({ '$material.name$': { [Op.iLike]: `%${materialName}%` } })
+    if (manufacturerName) andConditions.push({ '$manufacturer.name$': { [Op.iLike]: `%${manufacturerName}%` } })
     if (andConditions.length) where[Op.and as any] = andConditions
 
     const include: any[] = [

@@ -1,9 +1,9 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Space, Tooltip } from 'antd'
+import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Space, Tooltip, Upload } from 'antd'
 import { StatusTag } from '../../components/ui/StatusTag'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import type { SorterResult } from 'antd/es/table/interface'
-import { Plus, Pencil, Search } from 'lucide-react'
+import { Plus, Pencil, Search, Upload as UploadIcon } from 'lucide-react'
 import {
   columnCatalogueApi, columnTypeApi, manufacturerApi, uomApi,
   type ColumnCatalogue, type ColumnType, type Manufacturer, type UomUnit,
@@ -12,6 +12,7 @@ import { departmentApi, type Department } from '../../api/adc'
 import { glassModalProps } from '../../utils/modalStyles'
 import { useDepartmentFilterLock } from '../../hooks/useDepartmentFilterLock'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 const COL_STATUS_COLOR: Record<string, string> = { ACTIVE: 'green', EXHAUSTED: 'red', RETIRED: 'default' }
 
@@ -50,6 +51,8 @@ export default function ColumnsPage() {
   const [editing, setEditing] = useState<ColumnCatalogue | null>(null)
   const [saving, setSaving] = useState(false)
   const [form] = Form.useForm()
+  const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -59,14 +62,15 @@ export default function ColumnsPage() {
       if (statusFilter) params.status = statusFilter
       if (deptFilter) params.department_id = deptFilter
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await columnCatalogueApi.listPaged(params)
       setItems(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, statusFilter, deptFilter, page, pageSize, sortBy, sortDir])
+  }, [search, statusFilter, deptFilter, page, pageSize, sortBy, sortDir, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter])
+  useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter, columnFilters])
   useEffect(() => { columnTypeApi.list().then(setColTypes) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
   useEffect(() => { departmentApi.list().then(setDepartments).catch(() => setDepartments([])) }, [])
@@ -77,28 +81,42 @@ export default function ColumnsPage() {
       .catch(() => setUnitsByDimension({}))
   }, [])
 
-  const openCreate = () => { setEditing(null); form.resetFields(); setModalOpen(true) }
-  const openEdit = (r: ColumnCatalogue) => { setEditing(r); form.setFieldsValue(r); setModalOpen(true) }
+  const openCreate = () => { setEditing(null); form.resetFields(); setPendingAttachment(null); setModalOpen(true) }
+  const openEdit = (r: ColumnCatalogue) => { setEditing(r); form.setFieldsValue(r); setPendingAttachment(null); setModalOpen(true) }
+
+  const handleDownloadAttachment = async (id: number) => {
+    try {
+      const { blob, filename } = await columnCatalogueApi.downloadAttachment(id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+    } catch { message.error('Failed to download attachment.') }
+  }
 
   const handleSave = async (values: Record<string, unknown>) => {
     setSaving(true)
     try {
+      let saved: ColumnCatalogue
       if (editing) {
-        await columnCatalogueApi.update(editing.id, values)
+        saved = await columnCatalogueApi.update(editing.id, values)
         message.success('Column updated')
       } else {
-        await columnCatalogueApi.create(values)
+        saved = await columnCatalogueApi.create(values)
         message.success('Column created')
       }
-      setModalOpen(false); form.resetFields(); load()
+      if (pendingAttachment) {
+        await columnCatalogueApi.uploadAttachment(saved.id, pendingAttachment)
+      }
+      setModalOpen(false); form.resetFields(); setPendingAttachment(null); load()
     } catch (e: unknown) { message.error((e as Error).message) }
     finally { setSaving(false) }
   }
 
   const columns: ColumnsType<ColumnCatalogue> = [
-    { title: 'Column ID', ellipsis: true, dataIndex: 'column_id', width: 140, sorter: true, render: v => <StatusTag color="cyan" className="text-[13px]">{v}</StatusTag> },
-    { title: 'Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
-    { title: 'Manufacturer', ellipsis: true, dataIndex: 'manufacturer', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Column ID', ellipsis: true, dataIndex: 'column_id', width: 140, sorter: true, ...getColumnSearchProps('column_id', 'Column ID'), render: v => <StatusTag color="cyan" className="text-[13px]">{v}</StatusTag> },
+    { title: 'Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, ...getColumnSearchProps('name', 'Name'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Manufacturer', ellipsis: true, dataIndex: 'manufacturer', width: 140, sorter: true, ...getColumnSearchProps('manufacturer', 'Manufacturer'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Length', ellipsis: true, key: 'length', width: 120, render: (_, r) => r.length_value != null ? <span className="text-[13px] text-slate-800">{r.length_value} {r.length_unit}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Particle Size', ellipsis: true, key: 'particle_size', width: 120, render: (_, r) => r.particle_size_value != null ? <span className="text-[13px] text-slate-800">{r.particle_size_value} {r.particle_size_unit}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Pore Size', ellipsis: true, key: 'pore_size', width: 120, render: (_, r) => r.pore_size_value != null ? <span className="text-[13px] text-slate-800">{r.pore_size_value} {r.pore_size_unit}</span> : <span className="text-[13px] text-slate-800">NA</span> },
@@ -145,7 +163,7 @@ export default function ColumnsPage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} columns`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<ColumnCatalogue>
@@ -155,11 +173,12 @@ export default function ColumnsPage() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>
 
-      <Modal title={editing ? 'Edit Column' : 'New Column'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={editing ? 'Edit Column' : 'New Column'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields(); setPendingAttachment(null) }} onOk={() => form.submit()} confirmLoading={saving} width={480} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={handleSave}>
           <div className="grid grid-cols-2 gap-x-3">
             {!editing && (
@@ -212,6 +231,29 @@ export default function ColumnsPage() {
               </Form.Item>
             )}
           </div>
+          <Form.Item label="Attached File">
+            <div className="flex flex-col gap-1">
+              <Upload
+                beforeUpload={(file) => { setPendingAttachment(file); return false }}
+                showUploadList={false}
+              >
+                <Button icon={<UploadIcon size={14} />}>
+                  {pendingAttachment ? pendingAttachment.name : 'Attach File'}
+                </Button>
+              </Upload>
+              {pendingAttachment && (
+                <Button size="small" danger type="text" className="w-fit" onClick={() => setPendingAttachment(null)}>
+                  Remove selected file
+                </Button>
+              )}
+              {!pendingAttachment && editing?.attached_file_path && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[12px] text-slate-500">Existing file attached</span>
+                  <Button size="small" type="link" onClick={() => handleDownloadAttachment(editing.id)}>Download</Button>
+                </div>
+              )}
+            </div>
+          </Form.Item>
         </Form>
       </Modal>
     </div>

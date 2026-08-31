@@ -19,6 +19,7 @@ import { departmentApi, type Department } from '../../api/adc'
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { useDepartmentFilterLock } from '../../hooks/useDepartmentFilterLock'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 // Canonical equipment/instrument lifecycle status vocabulary. Most of these are
 // driven automatically off the Work Order lifecycle (see workOrders.routes.ts
@@ -28,9 +29,9 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 export const STATUS_COLOR: Record<string, string> = {
   AVAILABLE: 'green', IN_USE: 'blue',
   UNDER_MAINTENANCE: 'orange', REVIEW_MAINTENANCE: 'gold', DUE_MAINTENANCE: 'volcano',
-  UNDER_CALIBRATION: 'orange', REVIEW_CALIBRATION: 'gold',
+  UNDER_CALIBRATION: 'orange', REVIEW_CALIBRATION: 'gold', DUE_CALIBRATION: 'volcano',
   UNDER_CLEANING: 'orange', CLEANING_PENDING: 'gold',
-  BREAKDOWN: 'red', DECOMMISSIONED: 'default',
+  BREAKDOWN: 'red', DECOMMISSIONED: 'default', OUT_FOR_SERVICE: 'purple',
 }
 const MAINT_COLOR: Record<string, string> = { OK: 'green', DUE: 'orange', OVERDUE: 'red' }
 
@@ -38,8 +39,9 @@ const MAINT_STATUS_OPTIONS = ['OK', 'DUE', 'OVERDUE'].map(s => ({ value: s, labe
 export const CATALOGUE_STATUSES = [
   'AVAILABLE', 'IN_USE',
   'UNDER_MAINTENANCE', 'REVIEW_MAINTENANCE', 'DUE_MAINTENANCE',
-  'UNDER_CALIBRATION', 'REVIEW_CALIBRATION',
+  'UNDER_CALIBRATION', 'REVIEW_CALIBRATION', 'DUE_CALIBRATION',
   'UNDER_CLEANING', 'CLEANING_PENDING',
+  'OUT_FOR_SERVICE',
   'BREAKDOWN', 'DECOMMISSIONED',
 ]
 const EQUIP_STATUSES = CATALOGUE_STATUSES
@@ -109,6 +111,8 @@ function EquipmentTab() {
   const [qr, setQr] = useState<EquipmentCatalogue | null>(null)
   const [statusTarget, setStatusTarget] = useState<EquipmentCatalogue | null>(null)
   const [statusSaving, setStatusSaving] = useState(false)
+  const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -118,21 +122,22 @@ function EquipmentTab() {
       if (statusFilter) params.status = statusFilter
       if (deptFilter) params.department_id = deptFilter
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await equipmentCatalogueApi.listPaged(params)
       setItems(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, statusFilter, deptFilter, page, pageSize, sortBy, sortDir])
+  }, [search, statusFilter, deptFilter, page, pageSize, sortBy, sortDir, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter])
+  useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter, columnFilters])
   useEffect(() => { equipmentTypeApi.list().then(setEquipTypes) }, [])
   useEffect(() => { adminApi.listLabsLookup().then(setLabs).catch(() => message.error('Failed to load labs.')) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
   useEffect(() => { departmentApi.list().then(setDepartments).catch(() => setDepartments([])) }, [])
   useEffect(() => { storageLocationApi.list().then(rows => setStorageLocations(rows.filter(r => r.is_active))).catch(() => setStorageLocations([])) }, [])
 
-  const openCreate = () => { setEditing(null); form.resetFields(); setModalOpen(true) }
+  const openCreate = () => { setEditing(null); form.resetFields(); setPendingAttachment(null); setModalOpen(true) }
   const openEdit = (r: EquipmentCatalogue) => {
     setEditing(r)
     form.setFieldsValue({
@@ -140,7 +145,18 @@ function EquipmentTab() {
       last_maintenance_date: r.last_maintenance_date ? dayjs(r.last_maintenance_date) : null,
       next_maintenance_date: r.next_maintenance_date ? dayjs(r.next_maintenance_date) : null,
     })
+    setPendingAttachment(null)
     setModalOpen(true)
+  }
+
+  const handleDownloadAttachment = async (id: number) => {
+    try {
+      const { blob, filename } = await equipmentCatalogueApi.downloadAttachment(id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+    } catch { message.error('Failed to download attachment.') }
   }
 
   const handleSave = async (values: Record<string, unknown>) => {
@@ -153,14 +169,18 @@ function EquipmentTab() {
         next_maintenance_date: values.next_maintenance_date
           ? dayjs(values.next_maintenance_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
       }
+      let saved: EquipmentCatalogue
       if (editing) {
-        await equipmentCatalogueApi.update(editing.id, payload)
+        saved = await equipmentCatalogueApi.update(editing.id, payload)
         message.success('Equipment updated')
       } else {
-        await equipmentCatalogueApi.create(payload)
+        saved = await equipmentCatalogueApi.create(payload)
         message.success('Equipment created')
       }
-      setModalOpen(false); form.resetFields(); load()
+      if (pendingAttachment) {
+        await equipmentCatalogueApi.uploadAttachment(saved.id, pendingAttachment)
+      }
+      setModalOpen(false); form.resetFields(); setPendingAttachment(null); load()
     } catch (e: unknown) { message.error((e as Error).message) }
     finally { setSaving(false) }
   }
@@ -195,13 +215,13 @@ function EquipmentTab() {
   }
 
   const columns: ColumnsType<EquipmentCatalogue> = [
-    { title: 'Equipment Code', ellipsis: true, dataIndex: 'asset_id', width: 140, sorter: true, render: (v, r) => <a className=" text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/equipment/${r.id}`)}>{v}</a> },
-    { title: 'Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Equipment Code', ellipsis: true, dataIndex: 'asset_id', width: 140, sorter: true, ...getColumnSearchProps('asset_id', 'Equipment Code'), render: (v, r) => <a className=" text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/equipment/${r.id}`)}>{v}</a> },
+    { title: 'Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, ...getColumnSearchProps('name', 'Name'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     { title: 'Type', ellipsis: true, dataIndex: 'equipment_type_id', width: 140, sorter: true, render: v => { const t = equipTypes.find(x => x.id === v); return t ? <span className="text-[13px] text-slate-800">{t.name}</span> : <span className="text-[13px] text-slate-800">NA</span> } },
-    { title: 'Lab', ellipsis: true, dataIndex: 'location', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Lab', ellipsis: true, dataIndex: 'location', width: 140, sorter: true, ...getColumnSearchProps('location', 'Lab'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Storage Location', ellipsis: true, key: 'storage_location', width: 150, render: (_, r) => r.storage_location?.name ? <span className="text-[13px] text-slate-800">{r.storage_location.name}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 140, sorter: true, ...getColumnSearchProps('usage_type', 'Usage Type'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 140, sorter: true, ...getColumnSearchProps('make', 'Make'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Department', ellipsis: true, dataIndex: 'department_id', width: 140, render: v => { const d = departments.find(x => x.id === v); return d ? <span className="text-[13px] text-slate-800">{d.name}</span> : <span className="text-[13px] text-slate-800">NA</span> } },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, align: 'center', sorter: true, render: (v, r) => { const s = r.effective_status ?? v; return <StatusTag color={STATUS_COLOR[s] ?? 'default'} className="text-[13px]">{String(s).replace(/_/g, ' ')}</StatusTag> } },
     {
@@ -264,7 +284,7 @@ function EquipmentTab() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} equipment`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<EquipmentCatalogue>
@@ -274,11 +294,12 @@ function EquipmentTab() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>
 
-      <Modal title={editing ? 'Edit Equipment' : 'New Equipment'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={640} centered destroyOnHidden {...glassModalProps}>
+      <Modal title={editing ? 'Edit Equipment' : 'New Equipment'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields(); setPendingAttachment(null) }} onOk={() => form.submit()} confirmLoading={saving} width={640} centered destroyOnHidden {...glassModalProps}>
         <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ movable: false }}>
           <div className="grid grid-cols-2 gap-x-3">
             {!editing && (
@@ -368,6 +389,29 @@ function EquipmentTab() {
             </Form.Item>
             <Form.Item name="description" label="Description" className="col-span-2"><Input.TextArea rows={2} /></Form.Item>
           </div>
+          <Form.Item label="Attached File">
+            <div className="flex flex-col gap-1">
+              <Upload
+                beforeUpload={(file) => { setPendingAttachment(file); return false }}
+                showUploadList={false}
+              >
+                <Button icon={<UploadIcon size={14} />}>
+                  {pendingAttachment ? pendingAttachment.name : 'Attach File'}
+                </Button>
+              </Upload>
+              {pendingAttachment && (
+                <Button size="small" danger type="text" className="w-fit" onClick={() => setPendingAttachment(null)}>
+                  Remove selected file
+                </Button>
+              )}
+              {!pendingAttachment && editing?.attached_file_path && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[12px] text-slate-500">Existing file attached</span>
+                  <Button size="small" type="link" onClick={() => handleDownloadAttachment(editing.id)}>Download</Button>
+                </div>
+              )}
+            </div>
+          </Form.Item>
         </Form>
       </Modal>
 
@@ -406,6 +450,8 @@ function InstrumentTab() {
   const [qr, setQr] = useState<InstrumentCatalogue | null>(null)
   const [statusTarget, setStatusTarget] = useState<InstrumentCatalogue | null>(null)
   const [statusSaving, setStatusSaving] = useState(false)
+  const [pendingAttachment, setPendingAttachment] = useState<File | null>(null)
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -415,21 +461,22 @@ function InstrumentTab() {
       if (statusFilter) params.status = statusFilter
       if (deptFilter) params.department_id = deptFilter
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await instrumentCatalogueApi.listPaged(params)
       setItems(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, statusFilter, deptFilter, page, pageSize, sortBy, sortDir])
+  }, [search, statusFilter, deptFilter, page, pageSize, sortBy, sortDir, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter])
+  useEffect(() => { setPage(1) }, [search, statusFilter, deptFilter, columnFilters])
   useEffect(() => { instrumentTypeApi.list().then(setInstrTypes) }, [])
   useEffect(() => { adminApi.listLabsLookup().then(setLabs).catch(() => message.error('Failed to load labs.')) }, [])
   useEffect(() => { manufacturerApi.list({ active_only: true }).then(setManufacturers) }, [])
   useEffect(() => { departmentApi.list().then(setDepartments).catch(() => setDepartments([])) }, [])
   useEffect(() => { storageLocationApi.list().then(rows => setStorageLocations(rows.filter(r => r.is_active))).catch(() => setStorageLocations([])) }, [])
 
-  const openCreate = () => { setEditing(null); form.resetFields(); setModalOpen(true) }
+  const openCreate = () => { setEditing(null); form.resetFields(); setPendingAttachment(null); setModalOpen(true) }
   const openEdit = (r: InstrumentCatalogue) => {
     setEditing(r)
     form.setFieldsValue({
@@ -439,7 +486,18 @@ function InstrumentTab() {
       last_maintenance_date: r.last_maintenance_date ? dayjs(r.last_maintenance_date) : null,
       next_maintenance_date: r.next_maintenance_date ? dayjs(r.next_maintenance_date) : null,
     })
+    setPendingAttachment(null)
     setModalOpen(true)
+  }
+
+  const handleDownloadAttachment = async (id: number) => {
+    try {
+      const { blob, filename } = await instrumentCatalogueApi.downloadAttachment(id)
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url; a.download = filename; a.click()
+      URL.revokeObjectURL(url)
+    } catch { message.error('Failed to download attachment.') }
   }
 
   const handleSave = async (values: Record<string, unknown>) => {
@@ -456,14 +514,18 @@ function InstrumentTab() {
         next_maintenance_date: values.next_maintenance_date
           ? dayjs(values.next_maintenance_date as dayjs.Dayjs).format('YYYY-MM-DD') : null,
       }
+      let saved: InstrumentCatalogue
       if (editing) {
-        await instrumentCatalogueApi.update(editing.id, payload)
+        saved = await instrumentCatalogueApi.update(editing.id, payload)
         message.success('Instrument updated')
       } else {
-        await instrumentCatalogueApi.create(payload)
+        saved = await instrumentCatalogueApi.create(payload)
         message.success('Instrument created')
       }
-      setModalOpen(false); form.resetFields(); load()
+      if (pendingAttachment) {
+        await instrumentCatalogueApi.uploadAttachment(saved.id, pendingAttachment)
+      }
+      setModalOpen(false); form.resetFields(); setPendingAttachment(null); load()
     } catch (e: unknown) { message.error((e as Error).message) }
     finally { setSaving(false) }
   }
@@ -498,13 +560,13 @@ function InstrumentTab() {
   }
 
   const columns: ColumnsType<InstrumentCatalogue> = [
-    { title: 'Instrument Code', ellipsis: true, dataIndex: 'asset_id', width: 140, sorter: true, render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/instruments/${r.id}`)}>{v}</a> },
-    { title: 'Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Instrument Code', ellipsis: true, dataIndex: 'asset_id', width: 140, sorter: true, ...getColumnSearchProps('asset_id', 'Instrument Code'), render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/instruments/${r.id}`)}>{v}</a> },
+    { title: 'Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, ...getColumnSearchProps('name', 'Name'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     { title: 'Type', ellipsis: true, dataIndex: 'instrument_type_id', width: 140, sorter: true, render: v => { const t = instrTypes.find(x => x.id === v); return t ? <span className="text-[13px] text-slate-800">{t.name}</span> : <span className="text-[13px] text-slate-800">NA</span> } },
-    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Make', ellipsis: true, dataIndex: 'make', width: 140, sorter: true, ...getColumnSearchProps('make', 'Make'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Storage Location', ellipsis: true, key: 'storage_location', width: 150, render: (_, r) => r.storage_location?.name ? <span className="text-[13px] text-slate-800">{r.storage_location.name}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 140, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Calibration', ellipsis: true, dataIndex: 'calibration_status', width: 140, sorter: true, render: v => <StatusTag color={MAINT_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag> },
+    { title: 'Usage Type', ellipsis: true, dataIndex: 'usage_type', width: 140, sorter: true, ...getColumnSearchProps('usage_type', 'Usage Type'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Calibration', ellipsis: true, dataIndex: 'calibration_status', width: 140, sorter: true, ...getColumnSearchProps('calibration_status', 'Calibration'), render: v => <StatusTag color={MAINT_COLOR[v] ?? 'default'} className="text-[13px]">{v}</StatusTag> },
     { title: 'Department', ellipsis: true, dataIndex: 'department_id', width: 140, render: v => { const d = departments.find(x => x.id === v); return d ? <span className="text-[13px] text-slate-800">{d.name}</span> : <span className="text-[13px] text-slate-800">NA</span> } },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, align: 'center', sorter: true, render: (v, r) => { const s = r.effective_status ?? v; return <StatusTag color={STATUS_COLOR[s] ?? 'default'} className="text-[13px]">{String(s).replace(/_/g, ' ')}</StatusTag> } },
     {
@@ -567,7 +629,7 @@ function InstrumentTab() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} instruments`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<InstrumentCatalogue>
@@ -577,12 +639,13 @@ function InstrumentTab() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>
 
-      <Modal title={editing ? 'Edit Instrument' : 'New Instrument'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields() }} onOk={() => form.submit()} confirmLoading={saving} width={680} centered destroyOnHidden {...glassModalProps}>
-        <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ movable: false, required_calibration: false }}>
+      <Modal title={editing ? 'Edit Instrument' : 'New Instrument'} open={modalOpen} closable={false} onCancel={() => { setModalOpen(false); form.resetFields(); setPendingAttachment(null) }} onOk={() => form.submit()} confirmLoading={saving} width={680} centered destroyOnHidden {...glassModalProps}>
+        <Form form={form} layout="vertical" onFinish={handleSave} initialValues={{ movable: false, required_calibration: false, allow_parallel_use: false, has_column: false }}>
           <div className="grid grid-cols-2 gap-x-3">
             {!editing && (
               <Form.Item name="asset_id" label="Instrument Code" rules={[{ required: true }]}><Input /></Form.Item>
@@ -638,6 +701,8 @@ function InstrumentTab() {
             </Form.Item>
             <Form.Item name="movable" label="Movable" valuePropName="checked"><Switch /></Form.Item>
             <Form.Item name="required_calibration" label="Required Calibration" valuePropName="checked"><Switch /></Form.Item>
+            <Form.Item name="allow_parallel_use" label="Parallel Use" valuePropName="checked"><Switch /></Form.Item>
+            <Form.Item name="has_column" label="Has Column" valuePropName="checked"><Switch /></Form.Item>
             {editing && (
               <>
                 <Form.Item name="calibration_status" label="Calibration Status">
@@ -682,6 +747,29 @@ function InstrumentTab() {
             </Form.Item>
             <Form.Item name="description" label="Description" className="col-span-2"><Input.TextArea rows={2} /></Form.Item>
           </div>
+          <Form.Item label="Attached File">
+            <div className="flex flex-col gap-1">
+              <Upload
+                beforeUpload={(file) => { setPendingAttachment(file); return false }}
+                showUploadList={false}
+              >
+                <Button icon={<UploadIcon size={14} />}>
+                  {pendingAttachment ? pendingAttachment.name : 'Attach File'}
+                </Button>
+              </Upload>
+              {pendingAttachment && (
+                <Button size="small" danger type="text" className="w-fit" onClick={() => setPendingAttachment(null)}>
+                  Remove selected file
+                </Button>
+              )}
+              {!pendingAttachment && editing?.attached_file_path && (
+                <div className="flex items-center gap-2 mt-1">
+                  <span className="text-[12px] text-slate-500">Existing file attached</span>
+                  <Button size="small" type="link" onClick={() => handleDownloadAttachment(editing.id)}>Download</Button>
+                </div>
+              )}
+            </div>
+          </Form.Item>
         </Form>
       </Modal>
 

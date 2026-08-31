@@ -13,6 +13,7 @@ import {
   type EquipmentCatalogue, type InstrumentCatalogue, type ColumnCatalogue,
 } from '../../api/inventory'
 import { glassModalProps } from '../../utils/modalStyles'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 type Kind = 'EQUIPMENT' | 'INSTRUMENT' | 'COLUMN'
 type CatalogueItem = EquipmentCatalogue | InstrumentCatalogue | ColumnCatalogue
@@ -47,6 +48,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
   const [total, setTotal] = useState(0)
   const [sortBy, setSortBy] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -54,13 +56,14 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
       const params: Record<string, unknown> = { target_kind: targetKind, skip: (page - 1) * pageSize, limit: pageSize }
       if (itemId) params[idField] = itemId
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await usageLogApi.listPaged(params)
       setRows(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [targetKind, itemId, idField, page, pageSize, sortBy, sortDir])
+  }, [targetKind, itemId, idField, page, pageSize, sortBy, sortDir, columnFilters])
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [itemId, targetKind])
+  useEffect(() => { setPage(1) }, [itemId, targetKind, columnFilters])
 
   const openAdd = () => { form.resetFields(); setAddOpen(true) }
   const save = async (v: Record<string, unknown>) => {
@@ -88,9 +91,9 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
 
   const columns: ColumnsType<UsageLog> = [
     { title: KIND_LABEL[targetKind], dataIndex: 'asset_code', ellipsis: true, width: 150, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Started By/On', dataIndex: 'started_by', key: 'started', ellipsis: true, width: 150, sorter: true, render: (_, r) => r.started_by ? <span className="text-[13px] text-slate-800">{r.started_by} <span className="text-slate-400">({r.started_at ? dayjs(r.started_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Ended By/On', dataIndex: 'ended_by', key: 'ended', ellipsis: true, width: 150, sorter: true, render: (_, r) => r.ended_by ? <span className="text-[13px] text-slate-800">{r.ended_by} <span className="text-slate-400">({r.ended_at ? dayjs(r.ended_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : <span className="text-[13px] text-slate-800">NA</span> },
-    { title: 'Reference No.', dataIndex: 'reference_no', ellipsis: true, width: 150, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Started By/On', dataIndex: 'started_by', ellipsis: true, width: 150, sorter: true, ...getColumnSearchProps('started_by', 'Started By'), render: (_, r) => r.started_by ? <span className="text-[13px] text-slate-800">{r.started_by} <span className="text-slate-400">({r.started_at ? dayjs(r.started_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Ended By/On', dataIndex: 'ended_by', ellipsis: true, width: 150, sorter: true, ...getColumnSearchProps('ended_by', 'Ended By'), render: (_, r) => r.ended_by ? <span className="text-[13px] text-slate-800">{r.ended_by} <span className="text-slate-400">({r.ended_at ? dayjs(r.ended_at).format('DD/MM/YYYY HH:mm') : ''})</span></span> : <span className="text-[13px] text-slate-800">NA</span> },
+    { title: 'Reference No.', dataIndex: 'reference_no', ellipsis: true, width: 150, sorter: true, ...getColumnSearchProps('reference_no', 'Reference No.'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Experiment Code', dataIndex: 'experiment_code', ellipsis: true, width: 150, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     { title: 'Project Code', dataIndex: 'project_code', ellipsis: true, width: 150, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <span className="text-[13px] text-slate-800">NA</span> },
     {
@@ -121,7 +124,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
             showSizeChanger: false,
             showTotal: t => `${t} usage logs`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<UsageLog>
@@ -131,6 +134,7 @@ function LogEntriesTab({ targetKind, itemId }: { targetKind: Kind; itemId: numbe
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
           locale={{ emptyText: 'No usage logs' }}
         />

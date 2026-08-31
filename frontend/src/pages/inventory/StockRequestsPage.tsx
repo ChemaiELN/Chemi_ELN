@@ -16,6 +16,14 @@ import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import { isSuperAdmin } from '../../utils/privileges'
 import NewBatchModal, { type FulfillingRequest } from './NewBatchModal'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
+
+// The Material column has no direct `request_no`-style scalar field — antd
+// keys its filters payload by the column's `key` ('material'), which is then
+// translated to the backend's `material_name` param here.
+const COLUMN_FILTER_PARAM_MAP: Record<string, string> = { material: 'material_name' }
+const toColumnFilterParams = (columnFilters: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(columnFilters).map(([k, v]) => [COLUMN_FILTER_PARAM_MAP[k] ?? k, v]))
 
 // Departments whose members can see materials across every department (not
 // just their own) in the Material dropdown — QA/QC/Inventory work across
@@ -54,6 +62,7 @@ export default function StockRequestsPage() {
   const [total, setTotal] = useState(0)
   const [sortBy, setSortBy] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
   const [createOpen, setCreateOpen] = useState(false)
   const [remarkOpen, setRemarkOpen] = useState(false)
   const [remarkAction, setRemarkAction] = useState<{ id: number; action: 'approve' | 'reject' | 'cancel' | 'fulfill' | 'in_progress' } | null>(null)
@@ -109,14 +118,15 @@ export default function StockRequestsPage() {
       if (search) params.search = search
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
       else if (actionableStatuses) params.actionable_statuses = actionableStatuses
+      Object.assign(params, toColumnFilterParams(columnFilters))
       const { items, total } = await stockRequestApi.listPaged(params)
       setRequests(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, page, pageSize, sortBy, sortDir, actionableStatuses])
+  }, [search, page, pageSize, sortBy, sortDir, actionableStatuses, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search])
+  useEffect(() => { setPage(1) }, [search, columnFilters])
   useEffect(() => () => { if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current) }, [])
   useEffect(() => {
     materialApi.list({ active_only: true, limit: 200, ...(materialDeptId ? { department_id: materialDeptId } : {}) }).then(setMaterials)
@@ -221,6 +231,7 @@ export default function StockRequestsPage() {
       ellipsis: true,
       width: 150,
       sorter: true,
+      ...getColumnSearchProps('request_no', 'Request No'),
       render: (v) => <span className=" text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -228,6 +239,7 @@ export default function StockRequestsPage() {
       key: 'material',
       ellipsis: true,
       width: 150,
+      ...getColumnSearchProps('material', 'Material'),
       render: (_, r) => {
         // Prefer the material joined by the backend (always present, regardless
         // of the 200-row cap on the client-side `materials` lookup list below).
@@ -350,7 +362,7 @@ export default function StockRequestsPage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} requests`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<StockRequest>
@@ -360,6 +372,7 @@ export default function StockRequestsPage() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>

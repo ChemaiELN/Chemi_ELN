@@ -125,7 +125,7 @@ async function applyWorkOrderCatalogueStatus(wo: InvWorkOrder, newWoStatus: stri
 // that same kind so the "Raise" button can disable itself.
 workOrderRouter.get('/work-orders/requests', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { kind, targetKind, logType, calibrationSource, sortBy, sortDir, search } = req.query as Record<string, string>
+    const { kind, targetKind, logType, calibrationSource, sortBy, sortDir, search, assetId, name, status } = req.query as Record<string, string>
     const { page, limit, offset } = parsePagination(req.query)
 
     if (kind === 'UNPLANNED' || kind === 'BREAKDOWN') {
@@ -144,6 +144,10 @@ workOrderRouter.get('/work-orders/requests', authenticate, async (req: Request, 
           { name: { [Op.iLike]: `%${search}%` } },
         ]
       }
+      // Per-column search filters (Unplanned/Breakdown request pickers)
+      if (assetId) where.assetId = { [Op.iLike]: `%${assetId}%` }
+      if (name) where.name = { [Op.iLike]: `%${name}%` }
+      if (status) where.status = { [Op.iLike]: `%${status}%` }
 
       const { count, rows } = await Model.findAndCountAll({
         where,
@@ -246,7 +250,7 @@ workOrderRouter.post('/work-orders', authenticate, async (req: Request, res: Res
 workOrderRouter.get('/work-orders', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { page, limit, offset } = parsePagination(req.query)
-    const { kind, targetKind, status, search } = req.query as Record<string, string>
+    const { kind, targetKind, status, search, workorderNo, raisedBy } = req.query as Record<string, string>
 
     const where: Record<string, unknown> = {}
     if (kind) where.kind = kind
@@ -261,6 +265,9 @@ workOrderRouter.get('/work-orders', authenticate, async (req: Request, res: Resp
         { status: { [Op.iLike]: `%${search}%` } },
       ]
     }
+    // Per-column search filters (Work Orders queue table)
+    if (workorderNo) where.workorderNo = { [Op.iLike]: `%${workorderNo}%` }
+    if (raisedBy) where.raisedBy = { [Op.iLike]: `%${raisedBy}%` }
 
     const { count, rows } = await InvWorkOrder.findAndCountAll({
       where,

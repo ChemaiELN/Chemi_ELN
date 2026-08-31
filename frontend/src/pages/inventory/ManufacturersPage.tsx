@@ -9,6 +9,7 @@ import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { ApiError } from '../../api/client'
 import { EmptyValue } from '../../components/ui/EmptyValue'
 import { StatusTag } from '../../components/ui/StatusTag'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 const MANUFACTURERS_TEMPLATE_KEY = 'manufacturers'
 const SEARCH_DEBOUNCE_MS = 300
@@ -28,6 +29,7 @@ export default function ManufacturersPage() {
   const [saving, setSaving] = useState(false)
   const [pendingQualFile, setPendingQualFile] = useState<File | null>(null)
   const [form] = Form.useForm()
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const searchDebounceTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
   useEffect(() => {
@@ -35,7 +37,7 @@ export default function ManufacturersPage() {
     searchDebounceTimer.current = setTimeout(() => setSearch(searchInput), SEARCH_DEBOUNCE_MS)
     return () => { if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current) }
   }, [searchInput])
-  useEffect(() => { setPage(1) }, [search])
+  useEffect(() => { setPage(1) }, [search, columnFilters])
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -43,11 +45,12 @@ export default function ManufacturersPage() {
       const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize }
       if (search) params.search = search
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await manufacturerApi.listPaged(params)
       setManufacturers(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, page, pageSize, sortBy, sortDir])
+  }, [search, page, pageSize, sortBy, sortDir, columnFilters])
 
   useEffect(() => { load() }, [load])
 
@@ -173,6 +176,7 @@ export default function ManufacturersPage() {
       ellipsis: true,
       width: 110,
       sorter: true,
+      ...getColumnSearchProps('code', 'Code'),
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -181,6 +185,7 @@ export default function ManufacturersPage() {
       ellipsis: true,
       width: 200,
       sorter: true,
+      ...getColumnSearchProps('name', 'Name'),
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -189,6 +194,7 @@ export default function ManufacturersPage() {
       ellipsis: true,
       width: 120,
       sorter: true,
+      ...getColumnSearchProps('country', 'Country'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <EmptyValue />,
@@ -199,6 +205,7 @@ export default function ManufacturersPage() {
       ellipsis: true,
       width: 150,
       sorter: true,
+      ...getColumnSearchProps('contact_person', 'Contact Person'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <EmptyValue />,
@@ -209,6 +216,7 @@ export default function ManufacturersPage() {
       ellipsis: true,
       width: 200,
       sorter: true,
+      ...getColumnSearchProps('email', 'Email'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <EmptyValue />,
@@ -219,6 +227,7 @@ export default function ManufacturersPage() {
       ellipsis: true,
       width: 140,
       sorter: true,
+      ...getColumnSearchProps('phone', 'Phone'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <EmptyValue />,
@@ -332,7 +341,7 @@ export default function ManufacturersPage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} manufacturers`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<Manufacturer>
@@ -342,6 +351,7 @@ export default function ManufacturersPage() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>

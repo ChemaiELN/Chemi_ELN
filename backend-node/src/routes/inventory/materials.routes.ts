@@ -197,11 +197,17 @@ materialsRouter.get('/export.xlsx', authenticate, async (req: Request, res: Resp
 
 materialsRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, materialType, consumableTypeId, departmentId, activeOnly } = req.query as Record<string, string>
+    const {
+      search, materialType, materialTypeSearch, consumableTypeId, departmentId, activeOnly,
+      code, name, casNo, molecularFormula, storageCondition, hazardClass,
+    } = req.query as Record<string, string>
     const { page: pg, limit: lim, offset } = parsePagination(req.query)
 
     const where: any = {}
     if (activeOnly === 'true') where.isActive = true
+    // Column-header search box (Materials table) -- partial match, distinct from
+    // the exact-match `materialType` param other pickers/dropdowns rely on.
+    if (materialTypeSearch) where.materialType = { [Op.iLike]: `%${materialTypeSearch}%` }
     if (materialType) where.materialType = materialType
     if (consumableTypeId) where.consumableTypeId = Number(consumableTypeId)
     if (departmentId) where.departmentId = departmentId
@@ -216,6 +222,15 @@ materialsRouter.get('/', authenticate, async (req: Request, res: Response, next:
         { hazardClass: { [Op.iLike]: `%${search}%` } },
       ]
     }
+    // Per-column search filters — each is independent so multiple columns
+    // can be filtered at once, in addition to (or instead of) the single
+    // combined `search` box above.
+    if (code) where.code = { [Op.iLike]: `%${code}%` }
+    if (name) where.name = { [Op.iLike]: `%${name}%` }
+    if (casNo) where.casNo = { [Op.iLike]: `%${casNo}%` }
+    if (molecularFormula) where.molecularFormula = { [Op.iLike]: `%${molecularFormula}%` }
+    if (storageCondition) where.storageCondition = { [Op.iLike]: `%${storageCondition}%` }
+    if (hazardClass) where.hazardClass = { [Op.iLike]: `%${hazardClass}%` }
 
     const { count, rows } = await InvMaterial.findAndCountAll({
       where,

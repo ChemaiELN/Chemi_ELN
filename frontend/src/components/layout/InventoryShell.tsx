@@ -4,17 +4,24 @@ import { Drawer, Grid } from 'antd'
 import { ChevronLeft } from 'lucide-react'
 import { useAppSelector } from '../../store'
 import { selectIsAuthenticated } from '../../store/authSlice'
+import { selectBreadcrumbLabelFor } from '../../store/uiSlice'
 import Sidebar from './Sidebar'
 import Header from './Header'
 import { ErrorBoundary } from '../ErrorBoundary'
 
 function useBreadcrumbs() {
   const { pathname } = useLocation()
+  const overrideLabel = useAppSelector(selectBreadcrumbLabelFor(pathname))
   const segments = pathname.split('/').filter(Boolean)
-  return segments.map((seg, i) => ({
-    label: seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' '),
-    href: '/' + segments.slice(0, i + 1).join('/'),
-  }))
+  return segments.map((seg, i) => {
+    const isLast = i === segments.length - 1
+    return {
+      label: isLast && overrideLabel
+        ? overrideLabel
+        : seg.charAt(0).toUpperCase() + seg.slice(1).replace(/-/g, ' '),
+      href: '/' + segments.slice(0, i + 1).join('/'),
+    }
+  })
 }
 
 // A render error on one Inventory page used to unmount the whole shell —

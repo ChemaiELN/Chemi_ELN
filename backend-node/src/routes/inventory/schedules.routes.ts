@@ -46,10 +46,20 @@ async function withAssetInfo(rows: any[]) {
         : 'Due today'
     }
 
+    // Mirrors withDueMaintenance in catalogue.routes.ts: an AVAILABLE asset
+    // whose own schedule row is still DUE/PLANNED and past due shows as
+    // DUE_MAINTENANCE/DUE_CALIBRATION instead of AVAILABLE — using this
+    // row's own status/dueDate directly, no extra query needed since each
+    // schedule row already represents the asset's own due/overdue state.
+    const isOverdue = ['DUE', 'PLANNED'].includes(r.status) && r.dueDate && r.dueDate <= today
+    const currentStatus = asset?.status === 'AVAILABLE' && isOverdue
+      ? (r.logType === 'CALIBRATION' ? 'DUE_CALIBRATION' : 'DUE_MAINTENANCE')
+      : (asset?.status ?? null)
+
     return {
       ...r,
       equipmentCode: asset?.assetId ?? null,
-      currentStatus: asset?.status ?? null,
+      currentStatus,
       daysLabel,
     }
   })

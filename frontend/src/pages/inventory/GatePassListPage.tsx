@@ -7,6 +7,7 @@ import { Search, FilePlus2 } from 'lucide-react'
 import { StatusTag } from '../../components/ui/StatusTag'
 import { gatePassApi, type GatePass } from '../../api/inventory'
 import { EmptyValue } from '../../components/ui/EmptyValue'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 const STATUS_COLOR: Record<string, string> = {
   DRAFT: 'default', CREATED: 'blue', APPROVED: 'green', DISPATCHED: 'orange',
@@ -42,6 +43,7 @@ export default function GatePassListPage() {
   const [total, setTotal] = useState(0)
   const [sortBy, setSortBy] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   useEffect(() => {
     debounceRef.current = setTimeout(() => setSearch(searchInput), 400)
@@ -56,18 +58,19 @@ export default function GatePassListPage() {
       if (status) params.status = status
       if (search) params.search = search
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await gatePassApi.listPaged(params)
       setRows(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [docType, status, search, page, pageSize, sortBy, sortDir])
+  }, [docType, status, search, page, pageSize, sortBy, sortDir, columnFilters])
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [docType, status, search])
+  useEffect(() => { setPage(1) }, [docType, status, search, columnFilters])
 
   const columns: ColumnsType<GatePass> = [
-    { title: 'GP Number', dataIndex: 'gp_number', ellipsis: true, width: 150, sorter: true, render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/gate-passes/${r.id}`)}>{v}</a> },
+    { title: 'GP Number', dataIndex: 'gp_number', ellipsis: true, width: 150, sorter: true, ...getColumnSearchProps('gp_number', 'GP Number'), render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800" onClick={() => navigate(`/inventory/gate-passes/${r.id}`)}>{v}</a> },
     { title: 'Type', dataIndex: 'doc_type', width: 150, sorter: true, render: v => <StatusTag color={DOC_COLOR[v] ?? 'default'}>{v === 'RETURNABLE' ? 'RGP' : 'NRGP'}</StatusTag> },
-    { title: 'Vendor', dataIndex: 'vendor_name', ellipsis: true, width: 150, sorter: true, render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <EmptyValue /> },
+    { title: 'Vendor', dataIndex: 'vendor_name', ellipsis: true, width: 150, sorter: true, ...getColumnSearchProps('vendor_name', 'Vendor'), render: v => v ? <span className="text-[13px] text-slate-800">{v}</span> : <EmptyValue /> },
     { title: 'Date', dataIndex: 'gp_date', width: 150, sorter: true, render: v => <span className="text-[13px] text-slate-800">{formatDate(v)}</span> },
     { title: 'Items', dataIndex: 'item_count', width: 150, align: 'center', render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     { title: 'Value (₹)', dataIndex: 'total_value', width: 150, align: 'right', render: v => <span className="text-[13px] text-slate-800">{inr(v)}</span> },
@@ -99,7 +102,7 @@ export default function GatePassListPage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} gate passes`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<GatePass>
@@ -109,6 +112,7 @@ export default function GatePassListPage() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>

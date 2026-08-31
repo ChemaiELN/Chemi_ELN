@@ -11,6 +11,7 @@ import { checklistApi, type Checklist, type ChecklistDetail, type ChecklistItem 
 import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 import { EmptyValue, withEmptyValue } from '../../components/ui/EmptyValue'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 export const CHECKLIST_TYPES = ['MAINTENANCE', 'EQUIPMENT_CLEANING', 'EQUIPMENT_CUSTOM', 'SCHEDULER', 'CALIBRATION']
 
@@ -49,6 +50,7 @@ export default function ChecklistsPage() {
   const [viewOpen, setViewOpen] = useState(false)
   const [viewDetail, setViewDetail] = useState<ChecklistDetail | null>(null)
   const [viewLoading, setViewLoading] = useState(false)
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -58,14 +60,15 @@ export default function ChecklistsPage() {
       if (typeFilter) params.checklist_type = typeFilter
       if (statusFilter) params.status = statusFilter
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await checklistApi.listPaged(params)
       setItems(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, typeFilter, statusFilter, page, pageSize, sortBy, sortDir])
+  }, [search, typeFilter, statusFilter, page, pageSize, sortBy, sortDir, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search, typeFilter, statusFilter])
+  useEffect(() => { setPage(1) }, [search, typeFilter, statusFilter, columnFilters])
 
   const openCreate = () => { setEditing(null); form.resetFields(); setModalOpen(true) }
   const openEdit = (r: Checklist) => { setEditing(r); form.setFieldsValue(r); setModalOpen(true) }
@@ -145,8 +148,8 @@ export default function ChecklistsPage() {
   ]
 
   const columns: ColumnsType<Checklist> = [
-    { title: 'Checklist Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800 font-medium" onClick={() => navigate(`/inventory/checklists/${r.id}`)}>{v}</a> },
-    { title: 'Version', ellipsis: true, dataIndex: 'version', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{v}</span> },
+    { title: 'Checklist Name', ellipsis: true, dataIndex: 'name', width: 140, sorter: true, ...getColumnSearchProps('name', 'Checklist Name'), render: (v, r) => <a className="text-[13px] text-violet-600 hover:text-violet-800 font-medium" onClick={() => navigate(`/inventory/checklists/${r.id}`)}>{v}</a> },
+    { title: 'Version', ellipsis: true, dataIndex: 'version', width: 140, sorter: true, ...getColumnSearchProps('version', 'Version'), render: v => <span className="text-[13px] text-slate-800">{v}</span> },
     { title: 'Checklist Type', ellipsis: true, dataIndex: 'checklist_type', width: 140, sorter: true, render: v => <span className="text-[13px] text-slate-800">{titleCase(v)}</span> },
     { title: 'Status', ellipsis: true, dataIndex: 'status', width: 140, align: 'center', sorter: true, render: v => <StatusTag color={CHECKLIST_STATUS_COLOR[v] ?? 'default'} className="text-[13px]">{CHECKLIST_STATUS_LABEL[v] ?? v}</StatusTag> },
     {
@@ -200,7 +203,7 @@ export default function ChecklistsPage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} checklists`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<Checklist>
@@ -210,6 +213,7 @@ export default function ChecklistsPage() {
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>

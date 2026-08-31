@@ -8,6 +8,7 @@ import { StatusTag } from '../../components/ui/StatusTag'
 import { workOrderApi, type RequestItem } from '../../api/inventory'
 import { glassModalStyles } from '../../utils/modalStyles'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
 
 type Kind = 'EQUIPMENT' | 'INSTRUMENT'
 
@@ -32,6 +33,7 @@ function DirectPickTab({ targetKind, kind, search }: { targetKind: Kind; kind: '
   const [sortBy, setSortBy] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc')
   const navigate = useNavigate()
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -39,13 +41,14 @@ function DirectPickTab({ targetKind, kind, search }: { targetKind: Kind; kind: '
       const params: Record<string, unknown> = { kind, target_kind: targetKind, skip: (page - 1) * pageSize, limit: pageSize }
       if (search) params.search = search
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, columnFilters)
       const { items, total } = await workOrderApi.requestsPaged(params)
       setRows(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [kind, targetKind, search, page, pageSize, sortBy, sortDir])
+  }, [kind, targetKind, search, page, pageSize, sortBy, sortDir, columnFilters])
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [kind, targetKind, search])
+  useEffect(() => { setPage(1) }, [kind, targetKind, search, columnFilters])
 
   const raise = (r: RequestItem) => Modal.confirm({
     title: `${kind === 'BREAKDOWN' ? 'Breakdown' : 'Maintenance'} Request Confirmation`,
@@ -68,6 +71,7 @@ function DirectPickTab({ targetKind, kind, search }: { targetKind: Kind; kind: '
       ellipsis: true,
       width: 180,
       sorter: true,
+      ...getColumnSearchProps('asset_id', isEquipment ? 'Equipment Code' : 'Instrument Code'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -78,6 +82,7 @@ function DirectPickTab({ targetKind, kind, search }: { targetKind: Kind; kind: '
       ellipsis: true,
       width: 180,
       sorter: true,
+      ...getColumnSearchProps('name', 'Name'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -88,6 +93,7 @@ function DirectPickTab({ targetKind, kind, search }: { targetKind: Kind; kind: '
       ellipsis: true,
       width: 180,
       sorter: true,
+      ...getColumnSearchProps('status', 'Status'),
       render: (v: string | null) => v
         ? <StatusTag color="default">{String(v).replace(/_/g, ' ')}</StatusTag>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -120,7 +126,7 @@ function DirectPickTab({ targetKind, kind, search }: { targetKind: Kind; kind: '
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} requests`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<RequestItem>
@@ -130,6 +136,7 @@ function DirectPickTab({ targetKind, kind, search }: { targetKind: Kind; kind: '
             } else {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>

@@ -74,7 +74,7 @@ function getPerformedBy(req: Request): string {
 
 stockRequestsRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, status, criticality, materialId, actionableStatuses } =
+    const { search, status, criticality, materialId, actionableStatuses, requestNo, materialName, materialCode } =
       req.query as Record<string, string>
     const { page, limit, offset } = parsePagination(req.query)
 
@@ -91,6 +91,12 @@ stockRequestsRouter.get('/', authenticate, async (req: Request, res: Response, n
         { '$material.code$': { [Op.iLike]: `%${search}%` } },
       ]
     }
+    // Per-column search filters (Stock Requests table)
+    const andConditions: unknown[] = []
+    if (requestNo) andConditions.push({ requestNo: { [Op.iLike]: `%${requestNo}%` } })
+    if (materialName) andConditions.push({ '$material.name$': { [Op.iLike]: `%${materialName}%` } })
+    if (materialCode) andConditions.push({ '$material.code$': { [Op.iLike]: `%${materialCode}%` } })
+    if (andConditions.length) (where as any)[Op.and as any] = andConditions
 
     // sort_by/sort_dir were being ignored here, so the table's column sorters
     // did nothing at all.

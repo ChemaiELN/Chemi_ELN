@@ -1,6 +1,7 @@
 ﻿import { Router, Request, Response, NextFunction } from 'express'
 import { Op } from 'sequelize'
 import multer from 'multer'
+import path from 'path'
 import { authenticate } from '../../middleware/auth.middleware'
 import {
   successResponse,
@@ -10,6 +11,8 @@ import {
 } from '../../utils/response'
 import { NotFoundError, BadRequestError } from '../../utils/errors'
 import { createUploader } from '../../middleware/upload.middleware'
+import { saveUpload, deleteFile } from '../../utils/files'
+import { config } from '../../config'
 import {
   InvEquipmentCatalogue,
   InvEquipmentType,
@@ -84,12 +87,22 @@ async function withDueMaintenance<T extends { id: number; status: string }>(
       status: { [Op.in]: ['DUE', 'PLANNED'] },
       dueDate: { [Op.lte]: new Date().toISOString().slice(0, 10) },
     },
-    attributes: [idField],
+    attributes: [idField, 'logType', 'dueDate'],
+    order: [['dueDate', 'ASC']],
   })
-  const dueIds = new Set(overdue.map((s: any) => s[idField]))
+  // A given asset can have both MAINTENANCE and CALIBRATION schedules overdue
+  // at once (instruments especially) — the earliest-due one wins the label,
+  // since `overdue` is already sorted by dueDate ascending and this only
+  // keeps the first (earliest) logType seen per asset id.
+  const labelById = new Map<number, string>()
+  for (const s of overdue as any[]) {
+    if (!labelById.has(s[idField])) {
+      labelById.set(s[idField], s.logType === 'CALIBRATION' ? 'DUE_CALIBRATION' : 'DUE_MAINTENANCE')
+    }
+  }
   return rows.map((r) => ({
     ...r,
-    effective_status: r.status === 'AVAILABLE' && dueIds.has(r.id) ? 'DUE_MAINTENANCE' : r.status,
+    effective_status: r.status === 'AVAILABLE' && labelById.has(r.id) ? labelById.get(r.id)! : r.status,
   }))
 }
 
@@ -101,10 +114,11 @@ export const equipmentRouter = Router()
 
 const excelUploader = createUploader('inventory/uploads')
 const memUploader = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } })
+const attachmentUploader = createUploader('inv-catalogue-attachments')
 
 equipmentRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, equipmentTypeId, departmentId, status, activeOnly } = req.query as Record<string, string>
+    const { search, equipmentTypeId, departmentId, status, activeOnly, assetId, name, make, location, usageType } = req.query as Record<string, string>
     const { page, limit, offset } = parsePagination(req.query)
 
     const where: any = {}
@@ -123,6 +137,12 @@ equipmentRouter.get('/', authenticate, async (req: Request, res: Response, next:
     if (departmentId) where.departmentId = departmentId
     if (status) where.status = status
     if (activeOnly === 'true' || activeOnly === '1') where.isActive = true
+    // Per-column search filters (Equipment table)
+    if (assetId) where.assetId = { [Op.iLike]: `%${assetId}%` }
+    if (name) where.name = { [Op.iLike]: `%${name}%` }
+    if (make) where.make = { [Op.iLike]: `%${make}%` }
+    if (location) where.location = { [Op.iLike]: `%${location}%` }
+    if (usageType) where.usageType = { [Op.iLike]: `%${usageType}%` }
 
     const { count, rows } = await InvEquipmentCatalogue.findAndCountAll({
       where,
@@ -262,6 +282,52 @@ equipmentRouter.delete('/:id/deactivate', authenticate, async (req: Request, res
   } catch (err) { next(err) }
 })
 
+equipmentRouter.post(
+  '/:id/attachment',
+  authenticate,
+  attachmentUploader.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id as string
+      const record = await InvEquipmentCatalogue.findByPk(id)
+      if (!record) throw new NotFoundError('Equipment not found')
+      if (!req.file) throw new BadRequestError('No file uploaded', 'NO_FILE')
+
+      if (record.attachedFilePath) {
+        deleteFile(path.resolve(config.uploadDir, record.attachedFilePath))
+      }
+      const { storedPath } = saveUpload(req.file.path, req.file.originalname, 'inv-catalogue-attachments')
+      const relativePath = path.relative(config.uploadDir, storedPath)
+      await record.update({ attachedFilePath: relativePath })
+
+      res.json(successResponse('Attachment uploaded', record))
+    } catch (err) { next(err) }
+  },
+)
+
+equipmentRouter.get('/:id/attachment', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string
+    const record = await InvEquipmentCatalogue.findByPk(id)
+    if (!record) throw new NotFoundError('Equipment not found')
+    if (!record.attachedFilePath) throw new NotFoundError('No attachment on record')
+    const absPath = path.resolve(config.uploadDir, record.attachedFilePath)
+    res.download(absPath, path.basename(record.attachedFilePath))
+  } catch (err) { next(err) }
+})
+
+equipmentRouter.delete('/:id/attachment', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string
+    const record = await InvEquipmentCatalogue.findByPk(id)
+    if (!record) throw new NotFoundError('Equipment not found')
+    if (!record.attachedFilePath) throw new NotFoundError('No attachment on record')
+    deleteFile(path.resolve(config.uploadDir, record.attachedFilePath))
+    await record.update({ attachedFilePath: null })
+    res.json(successResponse('Attachment deleted', record))
+  } catch (err) { next(err) }
+})
+
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Instrument Router
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -270,7 +336,7 @@ export const instrumentRouter = Router()
 
 instrumentRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, instrumentTypeId, departmentId, status, activeOnly } = req.query as Record<string, string>
+    const { search, instrumentTypeId, departmentId, status, activeOnly, assetId, name, make, usageType, calibrationStatus } = req.query as Record<string, string>
     const { page, limit, offset } = parsePagination(req.query)
 
     const where: any = {}
@@ -289,6 +355,12 @@ instrumentRouter.get('/', authenticate, async (req: Request, res: Response, next
     if (departmentId) where.departmentId = departmentId
     if (status) where.status = status
     if (activeOnly === 'true' || activeOnly === '1') where.isActive = true
+    // Per-column search filters (Instrument table)
+    if (assetId) where.assetId = { [Op.iLike]: `%${assetId}%` }
+    if (name) where.name = { [Op.iLike]: `%${name}%` }
+    if (make) where.make = { [Op.iLike]: `%${make}%` }
+    if (usageType) where.usageType = { [Op.iLike]: `%${usageType}%` }
+    if (calibrationStatus) where.calibrationStatus = { [Op.iLike]: `%${calibrationStatus}%` }
 
     const { count, rows } = await InvInstrumentCatalogue.findAndCountAll({
       where,
@@ -446,6 +518,52 @@ instrumentRouter.delete('/:id/deactivate', authenticate, async (req: Request, re
   } catch (err) { next(err) }
 })
 
+instrumentRouter.post(
+  '/:id/attachment',
+  authenticate,
+  attachmentUploader.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id as string
+      const record = await InvInstrumentCatalogue.findByPk(id)
+      if (!record) throw new NotFoundError('Instrument not found')
+      if (!req.file) throw new BadRequestError('No file uploaded', 'NO_FILE')
+
+      if (record.attachedFilePath) {
+        deleteFile(path.resolve(config.uploadDir, record.attachedFilePath))
+      }
+      const { storedPath } = saveUpload(req.file.path, req.file.originalname, 'inv-catalogue-attachments')
+      const relativePath = path.relative(config.uploadDir, storedPath)
+      await record.update({ attachedFilePath: relativePath })
+
+      res.json(successResponse('Attachment uploaded', record))
+    } catch (err) { next(err) }
+  },
+)
+
+instrumentRouter.get('/:id/attachment', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string
+    const record = await InvInstrumentCatalogue.findByPk(id)
+    if (!record) throw new NotFoundError('Instrument not found')
+    if (!record.attachedFilePath) throw new NotFoundError('No attachment on record')
+    const absPath = path.resolve(config.uploadDir, record.attachedFilePath)
+    res.download(absPath, path.basename(record.attachedFilePath))
+  } catch (err) { next(err) }
+})
+
+instrumentRouter.delete('/:id/attachment', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string
+    const record = await InvInstrumentCatalogue.findByPk(id)
+    if (!record) throw new NotFoundError('Instrument not found')
+    if (!record.attachedFilePath) throw new NotFoundError('No attachment on record')
+    deleteFile(path.resolve(config.uploadDir, record.attachedFilePath))
+    await record.update({ attachedFilePath: null })
+    res.json(successResponse('Attachment deleted', record))
+  } catch (err) { next(err) }
+})
+
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // Column Router
 // â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -454,7 +572,7 @@ export const columnRouter = Router()
 
 columnRouter.get('/', authenticate, async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const { search, columnTypeId, departmentId, status, activeOnly } = req.query as Record<string, string>
+    const { search, columnTypeId, departmentId, status, activeOnly, columnId, name, manufacturer } = req.query as Record<string, string>
     const { page, limit, offset } = parsePagination(req.query)
 
     const where: any = {}
@@ -470,6 +588,10 @@ columnRouter.get('/', authenticate, async (req: Request, res: Response, next: Ne
     if (departmentId) where.departmentId = departmentId
     if (status) where.status = status
     if (activeOnly === 'true' || activeOnly === '1') where.isActive = true
+    // Per-column search filters (Column table)
+    if (columnId) where.columnId = { [Op.iLike]: `%${columnId}%` }
+    if (name) where.name = { [Op.iLike]: `%${name}%` }
+    if (manufacturer) where.manufacturer = { [Op.iLike]: `%${manufacturer}%` }
 
     const { count, rows } = await InvColumnCatalogue.findAndCountAll({
       where,
@@ -515,6 +637,52 @@ columnRouter.delete('/:id/deactivate', authenticate, async (req: Request, res: R
     if (!record) throw new NotFoundError('Column not found')
     await record.update({ isActive: false })
     res.json(successResponse('Column deactivated', record))
+  } catch (err) { next(err) }
+})
+
+columnRouter.post(
+  '/:id/attachment',
+  authenticate,
+  attachmentUploader.single('file'),
+  async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const id = req.params.id as string
+      const record = await InvColumnCatalogue.findByPk(id)
+      if (!record) throw new NotFoundError('Column not found')
+      if (!req.file) throw new BadRequestError('No file uploaded', 'NO_FILE')
+
+      if (record.attachedFilePath) {
+        deleteFile(path.resolve(config.uploadDir, record.attachedFilePath))
+      }
+      const { storedPath } = saveUpload(req.file.path, req.file.originalname, 'inv-catalogue-attachments')
+      const relativePath = path.relative(config.uploadDir, storedPath)
+      await record.update({ attachedFilePath: relativePath })
+
+      res.json(successResponse('Attachment uploaded', record))
+    } catch (err) { next(err) }
+  },
+)
+
+columnRouter.get('/:id/attachment', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string
+    const record = await InvColumnCatalogue.findByPk(id)
+    if (!record) throw new NotFoundError('Column not found')
+    if (!record.attachedFilePath) throw new NotFoundError('No attachment on record')
+    const absPath = path.resolve(config.uploadDir, record.attachedFilePath)
+    res.download(absPath, path.basename(record.attachedFilePath))
+  } catch (err) { next(err) }
+})
+
+columnRouter.delete('/:id/attachment', authenticate, async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const id = req.params.id as string
+    const record = await InvColumnCatalogue.findByPk(id)
+    if (!record) throw new NotFoundError('Column not found')
+    if (!record.attachedFilePath) throw new NotFoundError('No attachment on record')
+    deleteFile(path.resolve(config.uploadDir, record.attachedFilePath))
+    await record.update({ attachedFilePath: null })
+    res.json(successResponse('Attachment deleted', record))
   } catch (err) { next(err) }
 })
 

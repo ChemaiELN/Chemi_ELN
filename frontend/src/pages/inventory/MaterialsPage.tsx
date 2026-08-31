@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react'
-import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Collapse, Switch, Upload, Dropdown } from 'antd'
+import { Table, Button, Input, Select, Modal, Form, InputNumber, message, Collapse, Switch, Upload, Dropdown, Space } from 'antd'
 import type { ColumnsType, TablePaginationConfig } from 'antd/es/table'
 import type { SorterResult } from 'antd/es/table/interface'
 import type { MenuProps } from 'antd'
@@ -13,6 +13,15 @@ import { useDepartmentFilterLock } from '../../hooks/useDepartmentFilterLock'
 import { useDebouncedValue } from '../../hooks/useDebouncedValue'
 
 const MATERIALS_TEMPLATE_KEY = 'materials'
+
+// The Material Type column's search box must partial-match (Op.iLike), but the
+// `material_type` query param is already an exact-match filter relied on by
+// other pickers/dropdowns across the app (e.g. materialApi.list({ material_type:
+// 'Consumables' })) — so this column's value is sent under a different param
+// name the backend treats as partial-match, instead of reusing `material_type`.
+const COLUMN_FILTER_PARAM_MAP: Record<string, string> = { material_type: 'material_type_search' }
+const toColumnFilterParams = (columnFilters: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(columnFilters).map(([k, v]) => [COLUMN_FILTER_PARAM_MAP[k] ?? k, v]))
 
 // Material Type options are sourced from the Lookup master (inv_general_lookup)
 // where lookup_type = 'Material Type'. Manage them under Inventory Master Data.
@@ -43,7 +52,10 @@ export default function MaterialsPage() {
   const [deptFilter, setDeptFilter] = useState<string | null>(null)
   const { isLocked: deptFilterLocked, lockedDepartmentId } = useDepartmentFilterLock()
   useEffect(() => { if (lockedDepartmentId) setDeptFilter(lockedDepartmentId) }, [lockedDepartmentId])
-  const [typeFilter, setTypeFilter] = useState<string | null>(null)
+  // Per-column search filters (Code / Name / CAS No / Formula / Storage /
+  // Hazard Class) — sent to the backend as individual query params on every
+  // load(), not filtered client-side over the already-fetched page.
+  const [columnFilters, setColumnFilters] = useState<Record<string, string>>({})
   const [page, setPage] = useState(1)
   const [pageSize, setPageSize] = useState(10)
   const [total, setTotal] = useState(0)
@@ -57,6 +69,7 @@ export default function MaterialsPage() {
   const [exporting, setExporting] = useState(false)
   const [form] = Form.useForm()
   const selectedMaterialType = Form.useWatch('material_type', form)
+  const selectedTechnicalGrade = Form.useWatch('cp_grade', form)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -64,13 +77,13 @@ export default function MaterialsPage() {
       const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize }
       if (search) params.search = search
       if (deptFilter) params.department_id = deptFilter
-      if (typeFilter) params.material_type = typeFilter
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, toColumnFilterParams(columnFilters))
       const { items, total } = await materialApi.listPaged(params)
       setMaterials(items)
       setTotal(total)
     } finally { setLoading(false) }
-  }, [search, deptFilter, typeFilter, page, pageSize, sortBy, sortDir])
+  }, [search, deptFilter, page, pageSize, sortBy, sortDir, columnFilters])
 
   const handleExport = async () => {
     setExporting(true)
@@ -78,15 +91,15 @@ export default function MaterialsPage() {
       const params: Record<string, unknown> = {}
       if (search) params.search = search
       if (deptFilter) params.department_id = deptFilter
-      if (typeFilter) params.material_type = typeFilter
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, toColumnFilterParams(columnFilters))
       await materialApi.exportXlsx(params)
     } catch (e: unknown) { message.error(e instanceof ApiError ? e.detail : 'Export failed.') }
     finally { setExporting(false) }
   }
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search, deptFilter, typeFilter])
+  useEffect(() => { setPage(1) }, [search, deptFilter, columnFilters])
   useEffect(() => { consumableTypeApi.list().then(setCtypes) }, [])
   useEffect(() => { departmentApi.list().then(setDepartments).catch(() => setDepartments([])) }, [])
   useEffect(() => {
@@ -130,13 +143,34 @@ export default function MaterialsPage() {
     setModalOpen(true)
   }
 
+  // Existing materials whose stored grade isn't among the current Technical
+  // Grade lookup values are custom ("Others") entries — re-select "Others" and
+  // surface the stored text once the lookup list has actually loaded, so the
+  // Select doesn't just render the raw value as an unmatched/blank option.
+  useEffect(() => {
+    if (!editing || !technicalGrades.length) return
+    const grade = editing.chemical_props?.grade
+    if (grade && !technicalGrades.includes(grade)) {
+      form.setFieldsValue({ cp_grade: 'Others', cp_grade_other: grade })
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [technicalGrades, editing])
+
   const handleSave = async (values: Record<string, unknown>) => {
     setSaving(true)
     try {
+      // "Others" is a UI-only placeholder selection — the actual grade to
+      // persist is whatever the user typed into cp_grade_other.
+      const resolved = { ...values }
+      if (resolved.cp_grade === 'Others') {
+        resolved.cp_grade = resolved.cp_grade_other
+      }
+      delete resolved.cp_grade_other
+
       // Separate core fields from chemical props (cp_* prefix)
       const coreFields: Record<string, unknown> = {}
       const cpFields: Record<string, unknown> = {}
-      for (const [k, v] of Object.entries(values)) {
+      for (const [k, v] of Object.entries(resolved)) {
         if (k.startsWith('cp_')) cpFields[k.slice(3)] = v
         else coreFields[k] = v
       }
@@ -215,6 +249,37 @@ export default function MaterialsPage() {
     return false
   }
 
+  // Per-column search — a small filter icon that expands into an inline
+  // search box, matching the pattern used elsewhere (e.g. ArdAtrsPage). That
+  // pattern filters client-side over already-loaded rows; here the value is
+  // instead written into columnFilters (via Table's onChange filters payload
+  // below), which triggers a real backend request. `onFilter` is a no-op
+  // (always true) because the rows we get back are already server-filtered.
+  const getColumnSearchProps = (field: string, title: string) => ({
+    filteredValue: columnFilters[field] ? [columnFilters[field]] : null,
+    filterDropdown: ({ setSelectedKeys, selectedKeys, confirm, clearFilters }: any) => (
+      <div
+        style={{ padding: 8, background: '#fafafa', borderRadius: 8, boxShadow: '0 6px 24px rgba(15, 23, 42, 0.15)', border: '1px solid #e2e8f0' }}
+        onKeyDown={(e) => e.stopPropagation()}
+      >
+        <Input
+          placeholder={`Search ${title}`}
+          value={selectedKeys[0]}
+          onChange={(e) => setSelectedKeys(e.target.value ? [e.target.value] : [])}
+          onPressEnter={() => confirm()}
+          autoComplete="off"
+          style={{ width: 180, marginBottom: 8, display: 'block' }}
+        />
+        <Space>
+          <Button type="primary" size="small" onClick={() => confirm()} style={{ width: 88 }}>Search</Button>
+          <Button size="small" onClick={() => { clearFilters?.(); confirm() }} style={{ width: 88 }}>Reset</Button>
+        </Space>
+      </div>
+    ),
+    filterIcon: (filtered: boolean) => <Search size={12} color={filtered ? '#4f46e5' : '#94a3b8'} />,
+    onFilter: () => true,
+  })
+
   const columns: ColumnsType<Material> = [
     {
       title: 'Code',
@@ -222,6 +287,7 @@ export default function MaterialsPage() {
       ellipsis: true,
       width: 110,
       sorter: true,
+      ...getColumnSearchProps('code', 'Code'),
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -230,6 +296,7 @@ export default function MaterialsPage() {
       ellipsis: true,
       width:200,
       sorter: true,
+      ...getColumnSearchProps('name', 'Name'),
       render: (v) => <span className="text-[13px] text-slate-800">{v}</span>,
     },
     {
@@ -238,6 +305,7 @@ export default function MaterialsPage() {
       ellipsis: true,
       width: 130,
       sorter: true,
+      ...getColumnSearchProps('material_type', 'Material Type'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -260,6 +328,7 @@ export default function MaterialsPage() {
       ellipsis: true,
       width: 130,
       sorter: true,
+      ...getColumnSearchProps('cas_no', 'CAS No'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -270,6 +339,7 @@ export default function MaterialsPage() {
       ellipsis: true,
       width: 120,
       sorter: true,
+      ...getColumnSearchProps('molecular_formula', 'Formula'),
       render: (v: string | null) => v
         ? <span className=" text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -291,6 +361,7 @@ export default function MaterialsPage() {
       ellipsis: true,
       width: 130,
       sorter: true,
+      ...getColumnSearchProps('storage_condition', 'Storage'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -301,6 +372,7 @@ export default function MaterialsPage() {
       ellipsis: true,
       width: 120,
       sorter: true,
+      ...getColumnSearchProps('hazard_class', 'Hazard Class'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -377,16 +449,6 @@ export default function MaterialsPage() {
           optionFilterProp="label"
           disabled={deptFilterLocked}
         />
-        <Select
-          value={typeFilter ?? undefined}
-          onChange={v => setTypeFilter(v ?? null)}
-          options={materialTypes.map(t => ({ value: t, label: t }))}
-          placeholder="Filter by material type"
-          style={{ width: 200 }}
-          allowClear
-          showSearch
-          optionFilterProp="label"
-        />
         <Button type="primary" icon={<Plus size={14} />} onClick={openCreate} className="rounded-md font-medium">
           New Material
         </Button>
@@ -421,7 +483,7 @@ export default function MaterialsPage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} materials`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<Material>
@@ -431,6 +493,12 @@ export default function MaterialsPage() {
             } else {
               setSortBy(null)
             }
+            const nextColumnFilters: Record<string, string> = {}
+            for (const [field, value] of Object.entries(filters)) {
+              const v = (value as string[] | null)?.[0]
+              if (v) nextColumnFilters[field] = v
+            }
+            setColumnFilters(nextColumnFilters)
           }}
         />
       </div>
@@ -492,10 +560,19 @@ export default function MaterialsPage() {
               <Select
                 allowClear
                 showSearch
-                options={technicalGrades.map(t => ({ value: t, label: t }))}
+                options={[...technicalGrades.map(t => ({ value: t, label: t })), { value: 'Others', label: 'Others' }]}
                 placeholder="Select technical grade"
               />
             </Form.Item>
+            {selectedTechnicalGrade === 'Others' && (
+              <Form.Item
+                name="cp_grade_other"
+                label="Specify Technical Grade"
+                rules={[{ required: true, message: 'Please enter the Technical Grade' }]}
+              >
+                <Input placeholder="Enter technical grade" />
+              </Form.Item>
+            )}
             <Form.Item name="cas_no" label="CAS No">
               <Input placeholder="e.g. 75-05-8" />
             </Form.Item>

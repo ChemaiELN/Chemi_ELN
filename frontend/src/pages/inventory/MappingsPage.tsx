@@ -18,6 +18,17 @@ import { glassModalProps, glassModalStyles } from '../../utils/modalStyles'
 import { useAppSelector } from '../../store'
 import { selectUser } from '../../store/authSlice'
 import { isSuperAdmin } from '../../utils/privileges'
+import { useColumnSearch } from '../../hooks/useColumnSearch'
+
+// Material/Manufacturer columns filter by joined-record name (backend params
+// `material_name`/`manufacturer_name`), not the FK id these columns render —
+// map the antd filter keys (their dataIndex) to the actual param names.
+const COLUMN_FILTER_PARAM_MAP: Record<string, string> = {
+  material_id: 'material_name',
+  manufacturer_id: 'manufacturer_name',
+}
+const toColumnFilterParams = (columnFilters: Record<string, string>): Record<string, string> =>
+  Object.fromEntries(Object.entries(columnFilters).map(([k, v]) => [COLUMN_FILTER_PARAM_MAP[k] ?? k, v]))
 
 const MAPPINGS_TEMPLATE_KEY = 'mappings'
 
@@ -47,6 +58,7 @@ export default function MappingsPage() {
   const [total, setTotal] = useState(0)
   const [sortBy, setSortBy] = useState<string | null>(null)
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
+  const { columnFilters, getColumnSearchProps, handleTableFilters } = useColumnSearch()
   const [modalOpen, setModalOpen] = useState(false)
 
   const handleDownloadSds = async (r: Mapping) => {
@@ -67,6 +79,10 @@ export default function MappingsPage() {
   const [editing, setEditing] = useState<Mapping | null>(null)
   const [saving, setSaving] = useState(false)
   const [dsdFile, setDsdFile] = useState<UploadFile | null>(null)
+  // One material can map to several manufacturers at once (New Mapping only —
+  // each row below becomes its own mapping record on submit); rowFiles stays
+  // index-aligned with the Form.List "manufacturers" fields.
+  const [rowFiles, setRowFiles] = useState<(UploadFile | null)[]>([null])
   const [form] = Form.useForm()
 
   // Dropdown-specific search results for the New/Edit Mapping modal — kept
@@ -102,7 +118,7 @@ export default function MappingsPage() {
     manufacturerSearchTimer.current = setTimeout(async () => {
       setManufacturerSearching(true)
       try {
-        setManufacturerOptions(q ? await manufacturerApi.list({ search: q, limit: 20 }) : manufacturers)
+        setManufacturerOptions(q ? await manufacturerApi.list({ search: q, limit: 20, active_only: true }) : manufacturers)
       } finally { setManufacturerSearching(false) }
     }, 300)
   }
@@ -119,6 +135,7 @@ export default function MappingsPage() {
       const params: Record<string, unknown> = { skip: (page - 1) * pageSize, limit: pageSize }
       if (search) params.search = search
       if (sortBy) { params.sort_by = sortBy; params.sort_dir = sortDir }
+      Object.assign(params, toColumnFilterParams(columnFilters))
       const { items, total } = await mappingApi.listPaged(params)
       setRows(items)
       setTotal(total)
@@ -138,18 +155,19 @@ export default function MappingsPage() {
         return prev
       })
     } finally { setLoading(false) }
-  }, [search, page, pageSize, sortBy, sortDir])
+  }, [search, page, pageSize, sortBy, sortDir, columnFilters])
 
   useEffect(() => { load() }, [load])
-  useEffect(() => { setPage(1) }, [search])
+  useEffect(() => { setPage(1) }, [search, columnFilters])
   useEffect(() => () => { if (searchDebounceTimer.current) clearTimeout(searchDebounceTimer.current) }, [])
   useEffect(() => {
     materialApi.list({ limit: 200 }).then(items => { setMaterials(items); setMaterialOptions(items) })
-    manufacturerApi.list({ limit: 200 }).then(items => { setManufacturers(items); setManufacturerOptions(items) })
+    manufacturerApi.list({ limit: 200, active_only: true }).then(items => { setManufacturers(items); setManufacturerOptions(items) })
   }, [])
 
   const openCreate = () => {
-    setEditing(null); setDsdFile(null); form.resetFields(); setModalOpen(true)
+    setEditing(null); setDsdFile(null); setRowFiles([null]); form.resetFields(); setModalOpen(true)
+    form.setFieldsValue({ manufacturers: [{}] })
     if (materialDeptId) {
       materialApi.list({ limit: 200, active_only: true, department_id: materialDeptId }).then(setMaterialOptions)
     } else {
@@ -184,19 +202,27 @@ export default function MappingsPage() {
   const handleSave = async (values: Record<string, unknown>) => {
     setSaving(true)
     try {
-      let saved: Mapping
       if (editing) {
         const { material_id, manufacturer_id, ...rest } = values
         void material_id; void manufacturer_id
-        saved = await mappingApi.update(editing.id, rest) as Mapping
+        const saved = await mappingApi.update(editing.id, rest) as Mapping
+        if (dsdFile?.originFileObj) {
+          await mappingApi.uploadDsd(saved.id, dsdFile.originFileObj as File)
+        }
+        message.success('Mapping updated')
       } else {
-        saved = await mappingApi.create(values) as Mapping
+        const manufacturerRows = (values.manufacturers as Record<string, unknown>[] | undefined) ?? []
+        for (let i = 0; i < manufacturerRows.length; i++) {
+          const row = manufacturerRows[i]
+          const saved = await mappingApi.create({ material_id: values.material_id, ...row }) as Mapping
+          const file = rowFiles[i]
+          if (file?.originFileObj) {
+            await mappingApi.uploadDsd(saved.id, file.originFileObj as File)
+          }
+        }
+        message.success(`${manufacturerRows.length} mapping${manufacturerRows.length === 1 ? '' : 's'} created`)
       }
-      if (dsdFile?.originFileObj) {
-        await mappingApi.uploadDsd(saved.id, dsdFile.originFileObj as File)
-      }
-      message.success(editing ? 'Mapping updated' : 'Mapping created')
-      setModalOpen(false); form.resetFields(); setDsdFile(null); load()
+      setModalOpen(false); form.resetFields(); setDsdFile(null); setRowFiles([null]); load()
     } catch (e: unknown) { message.error((e as Error).message) }
     finally { setSaving(false) }
   }
@@ -254,6 +280,7 @@ export default function MappingsPage() {
       ellipsis: true,
       width: COL_WIDTH,
       sorter: strSorter(r => matName(r.material_id)),
+      ...getColumnSearchProps('material_id', 'Material'),
       render: (v) => <span className="text-[13px] text-slate-800">{matName(v)}</span>,
     },
     {
@@ -262,6 +289,7 @@ export default function MappingsPage() {
       ellipsis: true,
       width: COL_WIDTH,
       sorter: strSorter(r => mfrName(r.manufacturer_id)),
+      ...getColumnSearchProps('manufacturer_id', 'Manufacturer'),
       render: (v) => <span className="text-[13px] text-slate-800">{mfrName(v)}</span>,
     },
     {
@@ -270,6 +298,7 @@ export default function MappingsPage() {
       ellipsis: true,
       width: COL_WIDTH,
       sorter: true,
+      ...getColumnSearchProps('catalogue_no', 'Catalogue No'),
       render: (v: string | null) => v
         ? <span className="text-[13px] text-slate-800">{v}</span>
         : <span className="text-[13px] text-slate-800">NA</span>,
@@ -382,7 +411,7 @@ export default function MappingsPage() {
             pageSizeOptions: [10, 20, 50, 100],
             showTotal: t => `${t} mappings`,
           }}
-          onChange={(pagination: TablePaginationConfig, _filters, sorter) => {
+          onChange={(pagination: TablePaginationConfig, filters, sorter) => {
             if (pagination.current) setPage(pagination.current)
             if (pagination.pageSize) setPageSize(pagination.pageSize)
             const s = sorter as SorterResult<Mapping>
@@ -392,6 +421,7 @@ export default function MappingsPage() {
             } else if (!s.order) {
               setSortBy(null)
             }
+            handleTableFilters(filters)
           }}
         />
       </div>
@@ -399,10 +429,10 @@ export default function MappingsPage() {
       <Modal
         title={editing ? 'Edit Mapping' : 'New Manufacturer Mapping'}
         open={modalOpen}
-        onCancel={() => { setModalOpen(false); form.resetFields(); setDsdFile(null) }}
+        onCancel={() => { setModalOpen(false); form.resetFields(); setDsdFile(null); setRowFiles([null]) }}
         onOk={() => form.submit()}
         confirmLoading={saving}
-        width={560}
+        width={editing ? 560 : 640}
         centered
          closable={false}
         destroyOnHidden
@@ -421,47 +451,127 @@ export default function MappingsPage() {
               options={materialOptions.map(m => ({ value: m.id, label: m.name }))}
             />
           </Form.Item>
-          <Form.Item name="manufacturer_id" label="Manufacturer" rules={[{ required: true }]}>
-            <Select
-              showSearch
-              filterOption={false}
-              onSearch={searchManufacturers}
-              loading={manufacturerSearching}
-              notFoundContent={manufacturerSearching ? 'Searching…' : 'No manufacturers found'}
-              placeholder="Select manufacturer"
-              disabled={!!editing}
-              options={manufacturerOptions.map(m => ({ value: m.id, label: m.name }))}
-            />
-          </Form.Item>
-          <div className="grid grid-cols-2 gap-x-3">
-            <Form.Item name="catalogue_no" label="Catalogue No">
-              <Input placeholder="e.g. SIG-12345" />
-            </Form.Item>
-            <Form.Item name="lead_time_days" label="Lead Time (days)">
-              <InputNumber min={0} className="w-full" />
-            </Form.Item>
-            <Form.Item name="min_order_qty" label="Min Order Qty">
-              <InputNumber min={0} className="w-full" />
-            </Form.Item>
-          </div>
-          <Form.Item label="SDS File">
-            <Upload
-              maxCount={1}
-              beforeUpload={() => false}
-              fileList={dsdFile ? [dsdFile] : []}
-              onChange={({ fileList }) => setDsdFile(fileList[fileList.length - 1] ?? null)}
-              accept=".pdf,.doc,.docx,.xlsx,.xls"
-            >
-              <Button icon={<UploadIcon size={13} />}>
-                {editing?.dsd_file_path ? 'Replace SDS File' : 'Upload SDS File'}
-              </Button>
-            </Upload>
-            {editing?.dsd_file_path && !dsdFile && (
-              <p className="text-[12px] text-emerald-600 mt-1">
-                ✓ SDS file already attached
-              </p>
-            )}
-          </Form.Item>
+
+          {editing ? (
+            <>
+              <Form.Item name="manufacturer_id" label="Manufacturer" rules={[{ required: true }]}>
+                <Select
+                  showSearch
+                  filterOption={false}
+                  onSearch={searchManufacturers}
+                  loading={manufacturerSearching}
+                  notFoundContent={manufacturerSearching ? 'Searching…' : 'No manufacturers found'}
+                  placeholder="Select manufacturer"
+                  disabled
+                  options={manufacturerOptions.map(m => ({ value: m.id, label: m.name }))}
+                />
+              </Form.Item>
+              <div className="grid grid-cols-2 gap-x-3">
+                <Form.Item name="catalogue_no" label="Catalogue No">
+                  <Input placeholder="e.g. SIG-12345" />
+                </Form.Item>
+                <Form.Item name="lead_time_days" label="Lead Time (days)">
+                  <InputNumber min={0} className="w-full" />
+                </Form.Item>
+                <Form.Item name="min_order_qty" label="Min Order Qty">
+                  <InputNumber min={0} className="w-full" />
+                </Form.Item>
+              </div>
+              <Form.Item label="SDS File">
+                <Upload
+                  maxCount={1}
+                  beforeUpload={() => false}
+                  fileList={dsdFile ? [dsdFile] : []}
+                  onChange={({ fileList }) => setDsdFile(fileList[fileList.length - 1] ?? null)}
+                  accept=".pdf,.doc,.docx,.xlsx,.xls"
+                >
+                  <Button icon={<UploadIcon size={13} />}>
+                    {editing?.dsd_file_path ? 'Replace SDS File' : 'Upload SDS File'}
+                  </Button>
+                </Upload>
+                {editing?.dsd_file_path && !dsdFile && (
+                  <p className="text-[12px] text-emerald-600 mt-1">
+                    ✓ SDS file already attached
+                  </p>
+                )}
+              </Form.Item>
+            </>
+          ) : (
+            // A single material can be sourced from several manufacturers, each
+            // with its own catalogue no / lead time / min qty / SDS — one row
+            // per manufacturer here becomes its own mapping record on submit.
+            <Form.List name="manufacturers">
+              {(fields, { add, remove }) => (
+                <>
+                  {fields.map((field, idx) => (
+                    <div key={field.key} className="rounded-md border border-slate-200 p-3 mb-3 relative">
+                      {fields.length > 1 && (
+                        <Button
+                          type="text"
+                          size="small"
+                          icon={<X size={14} />}
+                          className="absolute top-1 right-1"
+                          onClick={() => { remove(field.name); setRowFiles(prev => prev.filter((_, i) => i !== idx)) }}
+                        />
+                      )}
+                      <div className="grid grid-cols-2 gap-x-3">
+                        <Form.Item
+                          name={[field.name, 'manufacturer_id']}
+                          label="Manufacturer"
+                          rules={[{ required: true, message: 'Manufacturer is required' }]}
+                        >
+                          <Select
+                            showSearch
+                            filterOption={false}
+                            onSearch={searchManufacturers}
+                            loading={manufacturerSearching}
+                            notFoundContent={manufacturerSearching ? 'Searching…' : 'No manufacturers found'}
+                            placeholder="Select manufacturer"
+                            options={manufacturerOptions.map(m => ({ value: m.id, label: m.name }))}
+                          />
+                        </Form.Item>
+                        <Form.Item name={[field.name, 'catalogue_no']} label="Catalogue No">
+                          <Input placeholder="e.g. SIG-12345" />
+                        </Form.Item>
+                      </div>
+                      <div className="grid grid-cols-3 gap-x-3">
+                        <Form.Item name={[field.name, 'lead_time_days']} label="Lead Time (days)">
+                          <InputNumber min={0} className="w-full" />
+                        </Form.Item>
+                        <Form.Item name={[field.name, 'min_order_qty']} label="Min Order Qty">
+                          <InputNumber min={0} className="w-full" />
+                        </Form.Item>
+                        <Form.Item label="SDS File" className="!mb-0">
+                          <Upload
+                            maxCount={1}
+                            beforeUpload={() => false}
+                            fileList={rowFiles[idx] ? [rowFiles[idx] as UploadFile] : []}
+                            onChange={({ fileList }) => setRowFiles(prev => {
+                              const next = [...prev]
+                              next[idx] = fileList[fileList.length - 1] ?? null
+                              return next
+                            })}
+                            accept=".pdf,.doc,.docx,.xlsx,.xls"
+                            className="w-full [&_.ant-upload]:w-full"
+                          >
+                            <Button icon={<UploadIcon size={13} />} className="w-full">Upload SDS</Button>
+                          </Upload>
+                        </Form.Item>
+                      </div>
+                    </div>
+                  ))}
+                  <Button
+                    type="dashed"
+                    block
+                    icon={<Plus size={14} />}
+                    onClick={() => { add(); setRowFiles(prev => [...prev, null]) }}
+                  >
+                    Add Manufacturer
+                  </Button>
+                </>
+              )}
+            </Form.List>
+          )}
         </Form>
       </Modal>
     </div>

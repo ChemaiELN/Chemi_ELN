@@ -8,6 +8,7 @@ import { QRCodeSVG } from 'qrcode.react'
 import { StatusTag } from '../../components/ui/StatusTag'
 import BrandSpinner from '../../components/ui/BrandSpinner'
 import { useServerTable } from '../../hooks/useServerTable'
+import { useBreadcrumbLabel } from '../../hooks/useBreadcrumbLabel'
 import {
   equipmentCatalogueApi, equipmentTypeApi, auditTrailApi,
   type EquipmentCatalogue, type EquipType, type AuditTrailEntry,
@@ -95,6 +96,7 @@ export default function EquipmentDetailPage() {
 
   useEffect(() => { load() }, [load])
   useEffect(() => { equipmentTypeApi.list().then(setTypes) }, [])
+  useBreadcrumbLabel(item?.asset_id)
 
   if (loading) return <div className="flex items-center justify-center h-64"><BrandSpinner fullScreen={false} label="Loading equipment details…" /></div>
   if (!item) return <div className="p-6"><Empty description="Equipment not found" /></div>
